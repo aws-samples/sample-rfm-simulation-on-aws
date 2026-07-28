@@ -54,6 +54,16 @@ model:
   # value) only on a larger-RAM instance (g6.2xlarge+, 32GB). Single server either way.
   n_envs: 1
 
+  # Passed UNQUOTED into uv pip install (word-split) by FIX 11 — the renderer pins this sim
+  # needs held down after RLWRLD's setup_libero.sh resolves the LIBERO dependency chain.
+  # mujoco: LIBERO's requirements.txt pins robosuite==1.4.0 but leaves mujoco free, and
+  # robosuite declares only `mujoco>=2.3.0`, so the resolver takes the latest. mujoco 3.10.0
+  # (2026-06-22) changed the mj_fullM signature; robosuite's call site (unchanged through
+  # v1.5.1) breaks with `mj_fullM(): incompatible function arguments`. 3.3.1 is the same
+  # pre-3.10 release the other LIBERO targets converged on. gymnasium/numpy mirror the values
+  # setup_libero.sh itself installs (lines 24-25) so a later resolve can't drift them either.
+  sim_protect_pins: "gymnasium==0.29.1 numpy==1.26.4 mujoco==3.3.1"
+
 instance:
   # Phase 0 GATE PASS (2026-06-19): 1-episode rollout peak VRAM 17,416 MiB (~17.0 GB)
   # on L40S (sm_89). L4 24GB FITS with ~6.6GB headroom. Single-GPU xlarge is sufficient.

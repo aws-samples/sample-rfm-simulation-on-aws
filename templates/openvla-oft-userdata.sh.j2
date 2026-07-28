@@ -344,9 +344,23 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
     VIDEO_COUNT=$(find "${VIDEO_DIR}" -name "*.mp4" 2>/dev/null | wc -l)
     log "  Videos collected: ${VIDEO_COUNT}"
 
-    # Parse success rate — openvla-oft logs "Current total success rate: 0.xxx"
+    # Parse success rate — openvla-oft logs "Current total success rate: 0.xxx".
+    # Read run_libero_eval.py's own plain-text log, NOT the console capture: `import prismatic`
+    # installs a rich.logging.RichHandler on the root logger (prismatic/overwatch/overwatch.py),
+    # which makes the eval script's later logging.basicConfig() a no-op. Rich then hard-wraps
+    # console output at the terminal width (80 cols when not a TTY), splitting the label and the
+    # value onto separate lines so the regex below never matches. The log file is written via
+    # log_file.write() with no formatter, so it is immune. Fall back to the console capture in
+    # case upstream changes local_log_dir.
+    # `|| true` is required: find exits 1 when the logs dir is absent (eval died before
+    # setup_logging), and under `set -euo pipefail` that would abort the whole script.
+    EVAL_LOG=$(find "${OFT_DIR}/experiments/logs" -name "EVAL-${SUITE}-*.txt" \
+        -newer /tmp/oft_task${TASK_IDX}_start.marker 2>/dev/null | sort | tail -1 || true)
+    [ -n "${EVAL_LOG}" ] || EVAL_LOG="/tmp/oft_task${TASK_IDX}.log"
+    log "  Parsing success rate from: ${EVAL_LOG}"
     SR=$(grep -oE 'Current total success rate:[[:space:]]+[0-9.]+' \
-        "/tmp/oft_task${TASK_IDX}.log" 2>/dev/null | tail -1 | awk '{print $NF}' || echo "unknown")
+        "${EVAL_LOG}" 2>/dev/null | tail -1 | awk '{print $NF}' || echo "unknown")
+    [ -n "${SR}" ] || SR="unknown"
     log "  success_rate=${SR}"
 
     {

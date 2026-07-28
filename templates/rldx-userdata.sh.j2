@@ -300,12 +300,12 @@ print('flash_attn:', flash_attn.__version__)
     || die "main venv import/CUDA check failed (see /tmp/rldx_main_import_check.log)"
 
 {% if sim_id == 'libero' -%}
-# ── [5/8] LIBERO sim venv (RLWRLD setup_libero.sh + 3 required fixes) ──
+# ── [5/8] LIBERO sim venv (RLWRLD setup_libero.sh + 4 required fixes) ──
 # Phase 0 finding: the pinned commit's setup_libero.sh builds the libero_uv venv but its
 # final `register_libero_envs` self-test FAILS as-is (it installs rldx --no-deps and pins
 # transformers 4.51.3, but rollout_policy.py's top-level `from rldx.data...` triggers eager
 # model registration that needs the model deps + transformers 4.57.0). We run their setup
-# (tolerating that expected final-test failure), then apply 3 fixes, then verify ourselves.
+# (tolerating that expected final-test failure), then apply 4 fixes, then verify ourselves.
 log "[5/8] Running RLWRLD setup_libero.sh (builds libero_uv venv, ~8-12min)..."
 cd "${RLDX_DIR}"
 # setup_libero.sh runs `set -euo pipefail` and ends with a register_libero_envs test that
@@ -339,6 +339,21 @@ uv pip install --python "${LIBERO_VENV}/bin/python" \
     transformers==4.57.0 \
     2>&1 | tee /tmp/rldx_fix2_transformers.log \
     || die "FIX 2 (transformers bump) failed (see /tmp/rldx_fix2_transformers.log)"
+
+# FIX 11 — mujoco unpinned in the LIBERO dependency chain. LIBERO's requirements.txt pins
+# robosuite==1.4.0 but NOT mujoco, and robosuite declares only `mujoco>=2.3.0`, so the
+# resolver takes the newest release. mujoco 3.10.0 (2026-06-22) changed the mj_fullM
+# signature from mj_fullM(m, dst, M) to mj_fullM(m, d, dst) (mujoco changelog, "Breaking
+# API changes"), while robosuite still calls the legacy form at
+# robosuite/controllers/base_controller.py:156 — verified unchanged through v1.5.1. Result:
+# `mj_fullM(): incompatible function arguments` the moment a controller builds its mass
+# matrix. This target validated 2026-06-20, two days before that release, so the drift
+# landed after validation. Protect the renderer pins the same way the other sims do.
+log "[5/8] FIX 11: pinning renderer deps in libero_uv venv ({{ sim_protect_pins if sim_protect_pins else 'mujoco==3.3.1' }})..."
+uv pip install --python "${LIBERO_VENV}/bin/python" \
+    {{ sim_protect_pins if sim_protect_pins else 'mujoco==3.3.1' }} \
+    2>&1 | tee /tmp/rldx_fix11_mujoco.log \
+    || die "FIX 11 (renderer pins) failed (see /tmp/rldx_fix11_mujoco.log)"
 
 # FIX 3 — LIBERO first-run interactive prompt. libero/__init__.py prompts "custom path?(Y/N)"
 # via input() → EOFError under non-interactive userdata. Seed /root/.libero/config.yaml once

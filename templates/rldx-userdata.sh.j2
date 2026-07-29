@@ -749,16 +749,24 @@ assert tuple(int(x) for x in v.split('.')[:3]) >= (1, 5, 2), f'hf_xet not upgrad
 # snapshot_download resumes from the partial cache rather than restarting.
 # 45 min is ~4x the measured healthy time for the largest of these repos (~17.5GB) on a
 # g5.xlarge, so a trip means stalled rather than slow.
+#
+# Guard output goes to the log file, not stdout: the sibling templates share this helper
+# and several of their call sites capture a resolved path via VAR=$(... | tail -1), where a
+# warning line on stdout would be captured as the path. Keeping one shape everywhere is
+# the point, so rldx follows the same rule even though it captures nothing.
 HF_DOWNLOAD_TIMEOUT_SECS=2700
 hf_download_with_retry() {
     local _label="$1" _log="$2" _snippet="$3"
-    local _attempt
+    local _attempt _rc
     for _attempt in 1 2; do
-        if timeout --signal=TERM --kill-after=60 "${HF_DOWNLOAD_TIMEOUT_SECS}" \
-                uv run --active --no-sync python -c "${_snippet}" 2>&1 | tee -a "${_log}"; then
+        _rc=0
+        timeout --signal=TERM --kill-after=60 "${HF_DOWNLOAD_TIMEOUT_SECS}" \
+            uv run --active --no-sync python -c "${_snippet}" >> "${_log}" 2>&1 || _rc=$?
+        if [ "${_rc}" -eq 0 ]; then
+            tail -3 "${_log}" | while IFS= read -r line; do log "  ${line}"; done
             return 0
         fi
-        log "  [warn] ${_label} attempt ${_attempt} failed or timed out after ${HF_DOWNLOAD_TIMEOUT_SECS}s"
+        log "  [warn] ${_label} attempt ${_attempt} failed or timed out after ${HF_DOWNLOAD_TIMEOUT_SECS}s (rc=${_rc})"
         [ "${_attempt}" -eq 1 ] && log "  retrying ${_label} (resumes from the partial HF cache)..."
     done
     return 1

@@ -268,23 +268,99 @@ uv run --active which lerobot-eval 2>&1 | tee -a /tmp/molmoact2_import_check.log
     || die "lerobot-eval entrypoint not found in venv"
 
 # ── [5/7] Pre-download MolmoAct2-LIBERO checkpoint (public, no token) ──
+# ── XET STALL GUARD: bound stalled Xet downloads in [5/7] ────────────────────────
+# allenai/MolmoAct2-LIBERO is 21.78GB across 6 Xet-backed files of 24 (measured).
+# Xet-backed blobs are fetched by the hf_xet Rust client rather than huggingface_hub's
+# python http_get, so HF_HUB_DOWNLOAD_TIMEOUT does NOT apply to them; only the
+# HF_XET_CLIENT_* knobs below do.
+#
+# The allenai/lerobot fork's uv.lock pins hf-xet==1.5.0.
+# The defect: ExponentialBackoff::from_millis(self.base_delay) uses base_delay as both the
+# first delay and the per-step multiplier, so delays run 3s -> 9000s (2.5h) -> 7500h, and the
+# first retry after a stalled socket is indistinguishable from a permanent hang. 1.5.0 is NOT
+# clear of this — the fix first lands in 1.5.2 (1.5.0 and 1.5.1 both still carry the same
+# line; checked against upstream source at each tag). 1.5.2 also raises the default
+# read_timeout 120s -> 300s. All four names below exist in the 1.4.x and 1.5.x binaries, so
+# this block is not a no-op, but on the buggy versions RETRY_MAX_DURATION is dead config
+# (parsed, never consulted) — shortening the retry sleep needs the bump below.
+export HF_XET_CLIENT_READ_TIMEOUT=60
+export HF_XET_CLIENT_CONNECT_TIMEOUT=30
+export HF_XET_CLIENT_RETRY_MAX_DURATION=120
+export HF_XET_FIXED_DOWNLOAD_CONCURRENCY=8
+
+# XET STALL GUARD (cont.): raise hf-xet past the backoff defect before anything downloads.
+# hf-xet is a transitive dep of huggingface_hub, not a direct one, so it cannot be held by
+# the project's own pins — install it into the venv directly.
+# `uv run --active` re-syncs from the lockfile on every invocation, so a plain
+# `uv pip install` is silently REVERTED by the next synced call. The downloads below
+# therefore pass --no-sync, and this block sits after the last synced `uv run --active`
+# (the [4.5/7] import check) and before the fetches. Inserting a synced --active call
+# between here and the downloads would undo the bump with no error shown.
+log "[5/7] XET STALL GUARD: raising hf-xet to 1.5.2 (lockfile pins 1.5.0)..."
+uv pip install --python "${LEROBOT_DIR}/.venv/bin/python" "hf-xet==1.5.2" \
+    >> /tmp/molmoact2_hfxet_bump.log 2>&1 \
+    || die "hf-xet upgrade failed (see /tmp/molmoact2_hfxet_bump.log)"
+"${LEROBOT_DIR}/.venv/bin/python" -c "
+from huggingface_hub.utils._runtime import get_xet_version, is_xet_available
+v = get_xet_version()
+print('hf_xet:', v, 'xet path active:', is_xet_available())
+assert tuple(int(x) for x in v.split('.')[:3]) >= (1, 5, 2), f'hf_xet not upgraded: {v}'
+" >> /tmp/molmoact2_hfxet_bump.log 2>&1 \
+    || die "hf-xet still below 1.5.2 after upgrade (see /tmp/molmoact2_hfxet_bump.log)"
+
+# Wall-clock guard. A wedged Xet download emits nothing and returns nothing, so `|| die`
+# can never fire; without `timeout` the instance burns GPU until the CreationPolicy expires
+# (measured on a sibling target: 26+ min of zero cache growth, every CDN socket in
+# CLOSE-WAIT, all worker threads in futex_wait). Retry once — a dead CDN connection
+# recovers in a fresh process and snapshot_download resumes from the partial cache.
+#
+# Guard chatter goes to the log file only, NEVER stdout: sibling call sites capture the
+# resolved snapshot path via VAR=$(... | tail -1), so a warning on stdout would be captured
+# as the path. Callers piping a heredoc must pass --stdin, because the first attempt
+# consumes stdin and a naive retry re-runs python with EMPTY input and exits 0 — reporting
+# success having downloaded nothing (measured). Auto-detecting stdin via `[ ! -t 0 ]` is
+# wrong: inside $( ) stdin is not a tty even with no heredoc, so the guard would block on
+# `cat` forever. Hence the explicit flag.
+HF_DOWNLOAD_TIMEOUT_SECS=2700
+hf_dl_guard() {
+    local _label="$1" _log="$2"; shift 2
+    local _stdin=""
+    if [ "${1:-}" = "--stdin" ]; then _stdin="$(mktemp)"; cat > "${_stdin}"; shift; fi
+    [ "${1:-}" = "--" ] && shift
+    local _attempt _rc
+    for _attempt in 1 2; do
+        _rc=0
+        if [ -n "${_stdin}" ]; then
+            timeout --signal=TERM --kill-after=60 "${HF_DOWNLOAD_TIMEOUT_SECS}" "$@" < "${_stdin}" || _rc=$?
+        else
+            timeout --signal=TERM --kill-after=60 "${HF_DOWNLOAD_TIMEOUT_SECS}" "$@" < /dev/null || _rc=$?
+        fi
+        if [ "${_rc}" -eq 0 ]; then [ -n "${_stdin}" ] && rm -f "${_stdin}"; return 0; fi
+        { echo "[hf-dl] ${_label} attempt ${_attempt} rc=${_rc} (wall-clock cap ${HF_DOWNLOAD_TIMEOUT_SECS}s)"
+          [ "${_attempt}" -eq 1 ] && echo "[hf-dl] retrying ${_label} (resumes from the partial HF cache)"
+        } >> "${_log}" 2>/dev/null || true
+    done
+    [ -n "${_stdin}" ] && rm -f "${_stdin}"
+    return 1
+}
+
 mkdir -p "${HF_CACHE_DIR}"
 {% if hf_model_revision %}
 log "[5/7] Pre-downloading {{ hf_repo }} (rev {{ hf_model_revision[:8] }}, ~22GB)..."
-uv run --active python -c "
+hf_dl_guard "checkpoint download" /tmp/molmoact2_hf_download.log \
+    -- uv run --active --no-sync python -c "
 from huggingface_hub import snapshot_download
 path = snapshot_download('{{ hf_repo }}', revision='{{ hf_model_revision }}')
 print('checkpoint downloaded to:', path)
-" 2>&1 | tee /tmp/molmoact2_hf_download.log \
-    || die "HF checkpoint download failed (see /tmp/molmoact2_hf_download.log)"
+" || die "HF checkpoint download failed (see /tmp/molmoact2_hf_download.log)"
 {% else %}
 log "[5/7] HF revision not pinned — lerobot-eval will download {{ hf_repo }} on demand (~22GB)..."
-uv run --active python -c "
+hf_dl_guard "checkpoint download" /tmp/molmoact2_hf_download.log \
+    -- uv run --active --no-sync python -c "
 from huggingface_hub import snapshot_download
 path = snapshot_download('{{ hf_repo }}')
 print('checkpoint downloaded to:', path)
-" 2>&1 | tee /tmp/molmoact2_hf_download.log \
-    || die "HF checkpoint download failed"
+" || die "HF checkpoint download failed (see /tmp/molmoact2_hf_download.log)"
 {% endif %}
 
 # ── [6/7] Run LIBERO eval per task entry (in-process lerobot-eval) ──

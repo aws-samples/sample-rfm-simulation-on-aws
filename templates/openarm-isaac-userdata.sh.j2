@@ -505,15 +505,80 @@ if [ "$_verify_rc" -ne 0 ]; then
 fi
 
 # 5. download the folding_latest checkpoint (revision pinned if provided)
+# ── XET STALL GUARD: bound the checkpoint fetch ──────────────────────────────────
+# lerobot/folding_latest is 9.35GB across 3 Xet-backed files of 9 (measured). Xet-backed
+# blobs are fetched by the hf_xet Rust client rather than huggingface_hub's python http_get,
+# so HF_HUB_DOWNLOAD_TIMEOUT does NOT apply to them; only the HF_XET_CLIENT_* knobs do.
+#
+# Whatever hf_xet the Kit env resolves, every release before 1.5.2 computes its retry delays
+# as ExponentialBackoff::from_millis(self.base_delay), using base_delay as both the first
+# delay and the per-step multiplier: 3s -> 9000s (2.5h) -> 7500h. The first retry after a
+# stalled socket therefore sleeps ~2.5h and is indistinguishable from a permanent hang
+# (1.5.0 and 1.5.1 still carry it; 1.5.2 is the first release with the fix, and it also
+# raises the default read_timeout 120s -> 300s).
+export HF_XET_CLIENT_READ_TIMEOUT=60
+export HF_XET_CLIENT_CONNECT_TIMEOUT=30
+export HF_XET_CLIENT_RETRY_MAX_DURATION=120
+export HF_XET_FIXED_DOWNLOAD_CONCURRENCY=8
+
+# No uv in this container — bump through the Kit python's own pip. hf-xet is a
+# dependency-free Rust wheel (its only Requires-Dist is a test extra), so it cannot disturb
+# the numpy/packaging constraints frozen above. Non-fatal: if the bump fails the exports
+# above plus the wall-clock guard below still bound the fetch.
+clog "XET STALL GUARD: raising hf-xet to 1.5.2 in the Kit env..."
+"$CONTAINER_PY" -m pip install "hf-xet==1.5.2" 2>&1 | tail -5 \
+    || clog "[warn] hf-xet bump failed — exports + wall-clock guard still apply"
+"$CONTAINER_PY" -c "
+from huggingface_hub.utils._runtime import get_xet_version, is_xet_available
+print('hf_xet:', get_xet_version(), 'xet path active:', is_xet_available())
+" 2>&1 | tail -2 | while IFS= read -r _l; do clog "  $_l"; done
+
+# Wall-clock guard. A wedged Xet download emits nothing and returns nothing, so `|| die`
+# can never fire; without `timeout` the instance burns GPU until the CreationPolicy expires
+# (measured on a sibling target: 26+ min of zero cache growth, every CDN socket in
+# CLOSE-WAIT, all worker threads in futex_wait). Retry once — a dead CDN connection
+# recovers in a fresh process and snapshot_download resumes from the partial cache.
+#
+# Guard chatter goes to the log file only, NEVER stdout: sibling call sites capture the
+# resolved snapshot path via VAR=$(... | tail -1), so a warning on stdout would be captured
+# as the path. Callers piping a heredoc must pass --stdin, because the first attempt
+# consumes stdin and a naive retry re-runs python with EMPTY input and exits 0 — reporting
+# success having downloaded nothing (measured). Auto-detecting stdin via `[ ! -t 0 ]` is
+# wrong: inside $( ) stdin is not a tty even with no heredoc, so the guard would block on
+# `cat` forever. Hence the explicit flag.
+HF_DOWNLOAD_TIMEOUT_SECS=2700
+hf_dl_guard() {
+    local _label="$1" _log="$2"; shift 2
+    local _stdin=""
+    if [ "${1:-}" = "--stdin" ]; then _stdin="$(mktemp)"; cat > "${_stdin}"; shift; fi
+    [ "${1:-}" = "--" ] && shift
+    local _attempt _rc
+    for _attempt in 1 2; do
+        _rc=0
+        if [ -n "${_stdin}" ]; then
+            timeout --signal=TERM --kill-after=60 "${HF_DOWNLOAD_TIMEOUT_SECS}" "$@" < "${_stdin}" || _rc=$?
+        else
+            timeout --signal=TERM --kill-after=60 "${HF_DOWNLOAD_TIMEOUT_SECS}" "$@" < /dev/null || _rc=$?
+        fi
+        if [ "${_rc}" -eq 0 ]; then [ -n "${_stdin}" ] && rm -f "${_stdin}"; return 0; fi
+        { echo "[hf-dl] ${_label} attempt ${_attempt} rc=${_rc} (wall-clock cap ${HF_DOWNLOAD_TIMEOUT_SECS}s)"
+          [ "${_attempt}" -eq 1 ] && echo "[hf-dl] retrying ${_label} (resumes from the partial HF cache)"
+        } >> "${_log}" 2>/dev/null || true
+    done
+    [ -n "${_stdin}" ] && rm -f "${_stdin}"
+    return 1
+}
+
 clog "Downloading checkpoint ${HF_REPO} (rev: ${HF_REVISION:-latest})..."
-CKPT_DIR=$("$CONTAINER_PY" - << 'PYDL'
+CKPT_DIR=$(hf_dl_guard "checkpoint download" /workspace/out/hf_download.log --stdin \
+    -- "$CONTAINER_PY" - << 'PYDL'
 import os
 from huggingface_hub import snapshot_download
 rev = os.environ.get("HF_REVISION") or None
 p = snapshot_download(os.environ["HF_REPO"], revision=rev)
 print(p)
 PYDL
-)
+) || { clog "ERROR: checkpoint download failed or stalled (see /workspace/out/hf_download.log)"; exit 1; }
 CKPT_DIR=$(echo "$CKPT_DIR" | tail -1)
 clog "checkpoint: ${CKPT_DIR}"
 

@@ -59,7 +59,7 @@ Sample rollouts captured directly from `deploy.py` runs and synced from each sta
 
 #### `openvla-oft` — OpenVLA-OFT on LIBERO-10 long-horizon
 
-Each task is a two-stage instruction. Long-horizon means the policy must complete one sub-goal, recognise it, then proceed to the next. Verb diversity below shows the same checkpoint following structurally different instructions. `g6.xlarge`, validated 2026-05-04.
+Each task is a two-stage instruction. Long-horizon means the policy must complete one sub-goal, recognise it, then proceed to the next. Verb diversity below shows the same checkpoint following structurally different instructions. `g6.xlarge`, validated 2026-05-04. Carries a `mujoco==3.3.1` pin (FIX 14, `sim_protect_pins`) and a `tensorflow-metadata==1.17.3` pin (FIX 15): mujoco 3.10.0 shipped 2026-06-22, after this target validated, and its `mj_fullM` signature change breaks robosuite's call site mid-eval, while an unbounded `tensorflow-metadata` resolves to a release whose code needs a protobuf that `tensorflow==2.15` forbids (see [#4](https://github.com/aws-samples/sample-vla-simulator-on-aws/issues/4)).
 
 | `put both the alphabet soup and the tomato sauce in the basket` | `turn on the stove and put the moka pot on it` |
 |---|---|
@@ -189,6 +189,8 @@ In our run, a G1 adapter fine-tuned on demos collected from the N1.6 teacher rea
 #### `gr00t` — GR00T N1.7 on LIBERO-10 (Franka Panda)
 
 *Video capture pending — KITCHEN_SCENE3/4 success rate is `1.0` on the validated runs (see [Expected Results](#expected-results)), but those rollout videos were not retained locally. Will backfill on the next `--vla gr00t` deploy.*
+
+Carries a `mujoco==3.3.1` pin (FIX 14, `sim_protect_pins`): mujoco 3.10.0 shipped 2026-06-22 — after this target validated 2026-04-27 — and its `mj_fullM` signature change breaks robosuite's call site, so `setup_libero.sh`'s own closing env check fails on a clean deploy without the pin (see [#4](https://github.com/aws-samples/sample-vla-simulator-on-aws/issues/4)).
 
 #### `openarm-lift-act` — OpenArm unimanual Lift-Cube (Isaac Lab)
 

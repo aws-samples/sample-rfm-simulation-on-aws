@@ -208,6 +208,35 @@ pip install --no-cache-dir -e . \
     2>&1 | tee /tmp/oft_pip_install.log \
     || die "openvla-oft pip install failed (see /tmp/oft_pip_install.log)"
 
+# FIX 15 — tensorflow-metadata resolves to a version whose code needs a protobuf this stack
+# cannot have. `pip install -e .` pulls tensorflow==2.15.0, which caps protobuf below 5
+# (`protobuf>=3.20.3,<5.0.0dev`) → 4.25.9. tensorflow_datasets==4.9.3 then depends on
+# tensorflow-metadata with NO upper bound, so the resolver takes the newest — 1.21.0 — whose
+# declaration (`protobuf>=4.21.6,<=6.32` on py<3.11) is satisfied by 4.25.9, so pip reports no
+# conflict. But its generated code imports `google.protobuf.runtime_version`, which does not
+# exist before protobuf 5.26: the declared floor understates what the code needs, so the
+# breakage only appears at import time — the [3/6] prismatic check below dies with
+# `ImportError: cannot import name 'runtime_version' from 'google.protobuf'`.
+#
+# Pin tensorflow-metadata instead of moving protobuf: tf 2.15 blocks any protobuf that has
+# runtime_version, and downgrading protobuf to 3.20.x instead breaks wandb (current releases
+# dropped protobuf 3.x — `cannot import name 'Imports' from wandb.proto.wandb_telemetry_pb2`).
+# 1.17.3 is the newest release that predates the runtime_version import: its gencode targets
+# protobuf 4.25.6 (≤ the 4.25.9 runtime) and its declaration holds on 4.25.9, so no --no-deps
+# is needed and a later resolve cannot reintroduce the mismatch. Verified by unpacking the
+# wheels: 1.17.3 has zero runtime_version references, 1.21.0 has seven.
+log "[3/6] FIX 15: pinning tensorflow-metadata=={{ tfmd_version if tfmd_version else '1.17.3' }} (runtime_version import vs protobuf 4.25)..."
+pip install --no-cache-dir "tensorflow-metadata=={{ tfmd_version if tfmd_version else '1.17.3' }}" \
+    2>&1 | tee /tmp/oft_fix15_tfmd.log \
+    || die "FIX 15: tensorflow-metadata pin failed (see /tmp/oft_fix15_tfmd.log)"
+python -c "
+import importlib.metadata as m
+tfmd, pb = m.version('tensorflow-metadata'), m.version('protobuf')
+print('tensorflow-metadata:', tfmd, '/ protobuf:', pb)
+assert tfmd == '{{ tfmd_version if tfmd_version else '1.17.3' }}', 'FIX 15: tfmd pin did not stick: ' + tfmd
+" 2>&1 | tee -a /tmp/oft_fix15_tfmd.log \
+    || die "FIX 15: tensorflow-metadata not at the pinned version after install"
+
 # Verify openvla-oft install — prismatic must import before LIBERO reqs pollute numpy.
 # (We re-verify after LIBERO install in [4/6] below.)
 python -c "import prismatic; print('prismatic OK:', prismatic.__file__)" \
@@ -252,6 +281,41 @@ log "[4/6] Pinning numpy<2 (tensorflow 2.15 + torch 2.2.0 ABI compatibility)..."
 pip install --no-cache-dir --force-reinstall "numpy<2" \
     2>&1 | tee /tmp/oft_numpy_pin.log \
     || die "numpy<2 pin failed"
+
+# FIX 14 — mujoco unpinned in the LIBERO dependency chain (same root cause as gr00t).
+# libero_requirements.txt pins robosuite==1.4.1 but NOT mujoco, and robosuite declares only
+# `mujoco>=2.3.0`, so the resolver takes the newest release. mujoco 3.10.0 (2026-06-22) changed
+# the mj_fullM signature from mj_fullM(m, dst, M) to mj_fullM(m, d, dst) (mujoco changelog,
+# "Breaking API changes") while robosuite still calls the legacy form at
+# robosuite/controllers/base_controller.py:156 — unchanged through v1.5.1. Unlike gr00t, this
+# target's install has no env-creation check, so nothing fails here: the breakage first appears
+# ~9 min into run_libero_eval.py, once a controller builds its mass matrix, by which point the
+# checkpoint download and eval startup have already been paid for. Pinned alongside numpy for
+# the same reason — it is the last thing that can be dragged forward by an earlier install.
+log "[4/6] FIX 14: pinning mujoco ({{ sim_protect_pins if sim_protect_pins else 'mujoco==3.3.1' }}) — mj_fullM compat, same fix as gr00t..."
+pip install --no-cache-dir {{ sim_protect_pins if sim_protect_pins else 'mujoco==3.3.1' }} \
+    2>&1 | tee /tmp/oft_fix14_mujoco.log \
+    || die "FIX 14: mujoco pin failed (see /tmp/oft_fix14_mujoco.log)"
+
+# FIX 15 (re-pin) — libero_requirements.txt resolves tensorflow-datasets again, which can pull
+# tensorflow-metadata back up to the version that imports runtime_version. Re-assert the pin
+# here for the same reason numpy is re-pinned above, and re-verify it stuck.
+log "[4/6] FIX 15: re-pinning tensorflow-metadata=={{ tfmd_version if tfmd_version else '1.17.3' }} after LIBERO reqs..."
+pip install --no-cache-dir "tensorflow-metadata=={{ tfmd_version if tfmd_version else '1.17.3' }}" \
+    2>&1 | tee /tmp/oft_fix15_tfmd_repin.log \
+    || die "FIX 15: tensorflow-metadata re-pin failed (see /tmp/oft_fix15_tfmd_repin.log)"
+python -c "
+import importlib.metadata as m
+import mujoco
+print('mujoco:', mujoco.__version__,
+      '/ tensorflow-metadata:', m.version('tensorflow-metadata'),
+      '/ protobuf:', m.version('protobuf'))
+assert tuple(int(p) for p in mujoco.__version__.split('.')[:2]) < (3, 10), \
+    'FIX 14: mujoco pin did not stick: ' + mujoco.__version__
+assert m.version('tensorflow-metadata') == '{{ tfmd_version if tfmd_version else '1.17.3' }}', \
+    'FIX 15: tfmd re-pin did not stick: ' + m.version('tensorflow-metadata')
+" 2>&1 | tee /tmp/oft_fix14_15_verify.log \
+    || die "FIX 14/15: pinned versions not in effect after LIBERO install (see /tmp/oft_fix14_15_verify.log)"
 
 # Pre-create LIBERO config.yaml so `from libero.libero import ...` doesn't hit interactive input() on first import.
 log "[4/6] Pre-creating LIBERO config.yaml..."

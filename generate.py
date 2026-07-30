@@ -103,6 +103,11 @@ def _build_gr00t_ctx(config: dict, resolved_grpc: str, model_id: str) -> dict:
         "hf_subfolder": model.get("hf_subfolder", ""),
         "hf_model_revision": model.get("hf_model_revision", ""),
         "robosuite_commit": model.get("robosuite_commit", ""),  # gr00t-g1 only (WBC robosuite fork pin)
+        # FIX 14 — renderer pins the LIBERO venv must hold after setup_libero.sh resolves
+        # LIBERO's requirements.txt (mujoco is unconstrained there). Only models/gr00t.yaml
+        # sets it; gr00t-gr1/gr00t-g1 leave it "" and their templates never reference it, so
+        # those two render byte-identically.
+        "sim_protect_pins": model.get("sim_protect_pins", ""),
         "remote_grpc_endpoint": resolved_grpc,
     }
 
@@ -243,6 +248,11 @@ def generate_openvla_oft(config: dict, libero_suite: str, dry_run: bool) -> str:
         "transformers_fork_commit": model.get("transformers_fork_commit", ""),
         "libero_commit": model.get("libero_commit", "master"),
         "center_crop": model.get("center_crop", True),
+        # FIX 14 — renderer pins the eval env must hold after libero_requirements.txt resolves.
+        "sim_protect_pins": model.get("sim_protect_pins", ""),
+        # FIX 15 — tensorflow-metadata pin (its declared protobuf floor understates what its
+        # generated code needs, so the resolver can pick a version that cannot import here).
+        "tfmd_version": model.get("tfmd_version", ""),
     }
 
     env = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)), keep_trailing_newline=True)  # nosec B701 - shell script template

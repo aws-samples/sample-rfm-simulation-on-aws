@@ -212,6 +212,40 @@ git submodule update --init external_dependencies/LIBERO \
     || { tail -50 /tmp/gr00t_submodule.log | while IFS= read -r line; do log "  [submodule] $line"; done; die "LIBERO submodule init failed"; }
 log "  [3/6] LIBERO submodule OK: $(ls external_dependencies/LIBERO | head -3 | tr '\n' ' ')"
 
+# FIX 14 — mujoco unpinned in the LIBERO dependency chain. setup_libero.sh installs LIBERO's
+# requirements.txt, which pins robosuite==1.4.0 but NOT mujoco, and robosuite declares only
+# `mujoco>=2.3.0`, so the resolver takes the newest release. mujoco 3.10.0 (2026-06-22) changed
+# the mj_fullM signature from mj_fullM(m, dst, M) to mj_fullM(m, d, dst) (mujoco changelog,
+# "Breaking API changes"), while robosuite still calls the legacy form at
+# robosuite/controllers/base_controller.py:156 — verified unchanged through v1.5.1. The script's
+# own closing sanity check (gym.make + env.reset) is what trips it:
+# `mj_fullM(): incompatible function arguments`. mujoco 3.11.0 (2026-07-27) fails harder still —
+# it removes mjData.qM outright (AttributeError). This target validated 2026-04-27, before both.
+#
+# The pin must land INSIDE setup_libero.sh: that sanity check is the last thing the script does
+# and it runs under `set -e`, so pinning after the script returns is too late. Injected right
+# after the script's own `uv pip install numpy==...` line — the final install before the check,
+# and after every line that could pull mujoco in (the trailing `--no-deps` editable install
+# cannot). Vendoring-0 invariant: only the runtime clone's working tree is edited.
+log "[3/6] FIX 14: pinning mujoco in setup_libero.sh ({{ sim_protect_pins if sim_protect_pins else 'mujoco==3.3.1' }}) — mj_fullM compat..."
+SETUP_LIBERO_SH="${ISAAC_GROOT_DIR}/gr00t/eval/sim/LIBERO/setup_libero.sh"
+[ -f "${SETUP_LIBERO_SH}" ] \
+    || die "FIX 14: setup_libero.sh not found at expected path — commit drifted?"
+if grep -qF 'FIX 14' "${SETUP_LIBERO_SH}"; then
+    log "  FIX 14 already applied — skip"
+else
+    grep -qE '^uv pip install numpy==' "${SETUP_LIBERO_SH}" \
+        || die "FIX 14: no 'uv pip install numpy==' anchor in setup_libero.sh — commit drifted, re-verify?"
+    # Anchor matches any numpy version so an upstream numpy bump doesn't silently skip the pin.
+    sed -i -E 's|^(uv pip install numpy==.*)$|\1\nuv pip install {{ sim_protect_pins if sim_protect_pins else "mujoco==3.3.1" }}  # FIX 14: hold mujoco below 3.10 (mj_fullM signature)|' \
+        "${SETUP_LIBERO_SH}"
+    grep -qF 'FIX 14' "${SETUP_LIBERO_SH}" \
+        || die "FIX 14: sed did not apply the mujoco pin (see ${SETUP_LIBERO_SH})"
+    bash -n "${SETUP_LIBERO_SH}" \
+        || die "FIX 14: setup_libero.sh no longer parses after patch"
+    log "  FIX 14 applied — $(grep -n 'FIX 14' "${SETUP_LIBERO_SH}" | head -1)"
+fi
+
 # Run setup_libero.sh — pipe output to both file and CW Logs (via userdata.log)
 log "  [3/6] Running setup_libero.sh (uv venv + deps + sanity) ..."
 bash gr00t/eval/sim/LIBERO/setup_libero.sh \

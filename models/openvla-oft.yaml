@@ -44,6 +44,22 @@ model:
   transformers_fork_commit: "bc339d9ad707454c0c115970db43c260067c61ab"  # Validated: 2026-05-04
   # LIBERO upstream — pinned commit (repo rarely updated; master)
   libero_commit: "master"
+
+  # Passed UNQUOTED (word-split) to pip by FIX 14 — the renderer pin the eval env must hold
+  # after libero_requirements.txt resolves. That file pins robosuite==1.4.1 but leaves mujoco
+  # free, and robosuite declares only `mujoco>=2.3.0`, so the resolver takes the latest.
+  # mujoco 3.10.0 (2026-06-22) changed the mj_fullM signature and 3.11.0 (2026-07-27) removed
+  # mjData.qM outright; robosuite's call site is unchanged through v1.5.1, so the chain must
+  # stay below 3.10. Unlike gr00t, this target's setup has no env-creation check, so an
+  # unpinned mujoco only surfaces ~9 min into run_libero_eval.py.
+  sim_protect_pins: "mujoco==3.3.1"
+
+  # Pinned by FIX 15 — tensorflow-metadata's declared protobuf floor is lower than what its
+  # generated code actually needs, so the resolver is free to pick a version that cannot
+  # import under this stack's protobuf. 1.17.3 is the newest release whose gencode (4.25.6)
+  # and declaration (protobuf>=4.21.6,<=6.32 on py<3.11) both hold on protobuf 4.25.x.
+  tfmd_version: "1.17.3"
+
   # Evaluation flags (align with paper defaults)
   center_crop: true
 

@@ -15,6 +15,15 @@ model:
   # hf_model_revision: nvidia/GR00T-N1.7-LIBERO main SHA
   hf_model_revision: "2ea293aa20ba7cf5bbf3ba17a5fbcb1a01cbfe21"   # N1.7-LIBERO: 2026-04-26
 
+  # Injected UNQUOTED (word-split) into NVIDIA's setup_libero.sh by FIX 14 — the renderer pin
+  # the LIBERO venv must hold after that script resolves LIBERO's requirements.txt.
+  # LIBERO pins robosuite==1.4.0 but leaves mujoco free, and robosuite declares only
+  # `mujoco>=2.3.0`, so the resolver takes the latest. mujoco 3.10.0 (2026-06-22) changed the
+  # mj_fullM signature and 3.11.0 (2026-07-27) removed mjData.qM outright; robosuite's call
+  # site is unchanged through v1.5.1, so the chain must stay below 3.10. 3.3.1 is the same
+  # pre-3.10 release the other LIBERO targets converged on.
+  sim_protect_pins: "mujoco==3.3.1"
+
 instance:
   preferred: [g6.12xlarge, g5.12xlarge, g6.xlarge, g5.xlarge]
   ebs_gb: 400

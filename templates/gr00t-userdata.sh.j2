@@ -404,9 +404,9 @@ log "  Model path: ${HF_MODEL_PATH}"
 
 # Cosmos-Reason2-2B backbone 전체 다운로드 (config + 4.9GB safetensors)
 # qwen3_backbone.py가 from_pretrained("nvidia/Cosmos-Reason2-2B")로 전체 모델 로드 후 GR00T 가중치로 덮어씀
-# Cosmos-Reason2-2B measures 0 Xet-backed files (all 15 on the plain HTTP path), so the
-# backoff defect cannot bite here — but it is still an unbounded network fetch holding a
-# live GPU, so it gets the same wall-clock cap. Still non-fatal on failure, as before.
+# Cosmos-Reason2-2B is 4.88GB of 4.89GB Xet-backed (3 files of 15, measured via the HF
+# tree API's per-file xetHash), so the backoff defect can bite here too — the wall-clock
+# cap below is what bounds it. Still non-fatal on failure, as before.
 log "[4.1/6] Downloading Cosmos-Reason2-2B full model (backbone, ~4.9GB)..."
 hf_dl_guard "Cosmos-Reason2-2B backbone" /tmp/gr00t_cosmos_download.log \
     -- "${SERVER_VENV}/bin/python" -c "

@@ -310,8 +310,7 @@ def run_doctor(vla=None, region=None, email=None, quiet_header=False):
             code = e.response.get("Error", {}).get("Code", "")
             if "does not exist" in str(e) or code in ("ValidationError",):
                 d.fail(f"CDK not bootstrapped in {region}",
-                       f"run: python vlasim.py init --bootstrap   "
-                       f"(or: cd cdk && npx cdk bootstrap aws://{account}/{region})")
+                       "run: python vlasim.py init --bootstrap")
             else:
                 d.warn(f"could not verify CDK bootstrap: {code or type(e).__name__}")
         except BotoCoreError as e:
@@ -453,9 +452,19 @@ def _cdk_bootstrap(region):
         print(f"[init] could not resolve AWS account for bootstrap ({type(e).__name__}). "
               f"Ensure credentials are configured.", file=sys.stderr)
         return 1
+    # The CDK app requires a valid `vla` context and a generated userdata asset even
+    # for bootstrap. Seed those with the cheapest local-only path so bootstrap works
+    # before any real deploy target is chosen.
+    seed_vla = "gr00t"
+    print(f"[init] generating bootstrap seed userdata for {seed_vla}")
+    res = _run([sys.executable, str(BASE_DIR / "generate.py"), "--vla", seed_vla], cwd=str(BASE_DIR))
+    if res.returncode != 0:
+        print("[init] generate.py failed; cannot prepare CDK bootstrap context.", file=sys.stderr)
+        return res.returncode
     target = f"aws://{account}/{region}"
     print(f"[init] cdk bootstrap {target}")
-    res = _run([npx, "cdk", "bootstrap", target], cwd=str(CDK_DIR))
+    res = _run([npx, "cdk", "bootstrap", target, "-c", f"region={region}", "-c", f"vla={seed_vla}"],
+               cwd=str(CDK_DIR))
     return res.returncode
 
 

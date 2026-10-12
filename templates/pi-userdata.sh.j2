@@ -212,8 +212,14 @@ if [ ! -d "${OPENPI_DIR}" ]; then
         "${OPENPI_DIR}" 2>&1 | tee /tmp/pi_clone.log \
         || die "openpi clone failed"
 {%- if openpi_commit %}
-    ACTUAL_COMMIT=$(git -C "${OPENPI_DIR}" rev-parse HEAD)
+    # Check out the pinned commit (the clone lands on upstream HEAD, which moves), then bring the
+    # submodules to the revisions recorded at that commit.
     EXPECTED_COMMIT="{{ openpi_commit }}"
+    git -C "${OPENPI_DIR}" checkout -q "${EXPECTED_COMMIT}" \
+        || die "openpi checkout of pinned commit ${EXPECTED_COMMIT} failed"
+    git -C "${OPENPI_DIR}" submodule update --init --recursive 2>&1 | tee -a /tmp/pi_clone.log \
+        || die "openpi submodule update failed"
+    ACTUAL_COMMIT=$(git -C "${OPENPI_DIR}" rev-parse HEAD)
     if [ -n "$EXPECTED_COMMIT" ] && [ "$ACTUAL_COMMIT" != "$EXPECTED_COMMIT" ]; then
         die "openpi commit mismatch: expected ${EXPECTED_COMMIT}, got ${ACTUAL_COMMIT}. Update openpi_commit in pi-config.yaml."
     fi

@@ -179,8 +179,22 @@ export class VlaSimulatorStack extends cdk.Stack {
     });
 
     // ── S3 bucket ─────────────────────────────────────────────────
+    // S3 bucket names are capped at 63 chars. The longer stack names (OpenArm-Lift-ACT-Demo,
+    // OpenVLA-OFT-<Suite>-Demo) overflow it in ap-northeast-* / eu-central-1, so drop the
+    // "-demo" part only for those. Names that already fit are unchanged, so existing (retained)
+    // buckets keep their names. deploy.py mirrors this rule for the orphan-bucket import.
+    let bucketName = `${s3ResultsPrefix}-${stackName.toLowerCase()}-${this.region}-${this.account}`;
+    if (!cdk.Token.isUnresolved(bucketName) && bucketName.length > 63) {
+      bucketName = `${s3ResultsPrefix}-${stackName.toLowerCase().replace(/-demo$/, '')}-${this.region}-${this.account}`;
+      if (bucketName.length > 63) {
+        throw new Error(
+          `Results bucket name is longer than 63 chars: ${bucketName}\n` +
+          'Use a shorter deployment.s3_results_prefix in simulator-config.yaml.',
+        );
+      }
+    }
     const bucket = new s3.Bucket(this, 'ResultsBucket', {
-      bucketName: `${s3ResultsPrefix}-${stackName.toLowerCase()}-${this.region}-${this.account}`,
+      bucketName,
       removalPolicy: cdk.RemovalPolicy.RETAIN,
       autoDeleteObjects: false,
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,

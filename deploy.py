@@ -121,6 +121,10 @@ def _maybe_import_orphan_bucket(
     sts = boto3.client("sts", region_name=region)
     account_id = sts.get_caller_identity()["Account"]
     bucket_name = f"{s3_results_prefix}-{stack_name.lower()}-{region}-{account_id}"
+    if len(bucket_name) > 63:
+        # Same rule as the CDK stack: drop "-demo" only when the full name overflows 63 chars.
+        short_stack = stack_name.lower().removesuffix("-demo")
+        bucket_name = f"{s3_results_prefix}-{short_stack}-{region}-{account_id}"
 
     s3 = boto3.client("s3", region_name=region)
     try:

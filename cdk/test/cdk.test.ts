@@ -9,11 +9,12 @@ import { VlaSimulatorStack } from '../lib/vla-simulator-stack';
 // the tests run on a fresh checkout, and remove only the placeholders we created.
 const USERDATA_DIR = path.resolve(__dirname, '../../assets/userdata');
 const VLAS = ['gr00t', 'pi'];
+const SEED_VLAS = [...VLAS, 'openarm-lift-act'];
 const seeded: string[] = [];
 
 beforeAll(() => {
   fs.mkdirSync(USERDATA_DIR, { recursive: true });
-  for (const vla of VLAS) {
+  for (const vla of SEED_VLAS) {
     const p = path.join(USERDATA_DIR, `${vla}.sh`);
     if (!fs.existsSync(p)) {
       fs.writeFileSync(p, '#!/bin/bash\n# test placeholder\n');
@@ -54,4 +55,24 @@ test.each(VLAS)('%s stack has S3 results bucket', (vla) => {
 test.each(VLAS)('%s stack has SNS topic', (vla) => {
   const template = Template.fromStack(makeApp(vla));
   template.resourceCountIs('AWS::SNS::Topic', 1);
+});
+
+// S3 bucket names are capped at 63 chars; OpenArm-Lift-ACT-Demo overflows it in ap-northeast-2.
+test('long stack names get a results bucket name within 63 chars', () => {
+  const app = new cdk.App({
+    context: { region: 'ap-northeast-2', vla: 'openarm-lift-act', notify_email: 'test@example.com' },
+  });
+  const stack = new VlaSimulatorStack(app, 'OpenArm-Lift-ACT-Demo', {
+    vla: 'openarm-lift-act',
+    env: { account: '123456789012', region: 'ap-northeast-2' },
+  });
+  Template.fromStack(stack).hasResourceProperties('AWS::S3::Bucket', {
+    BucketName: 'vla-sim-results-openarm-lift-act-ap-northeast-2-123456789012',
+  });
+});
+
+test('bucket names that already fit are unchanged', () => {
+  Template.fromStack(makeApp('gr00t')).hasResourceProperties('AWS::S3::Bucket', {
+    BucketName: 'vla-sim-results-gr00t-demo-us-east-1-123456789012',
+  });
 });

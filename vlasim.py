@@ -165,7 +165,7 @@ def _run(cmd, **kwargs):
 
 # ───────────────────────────── doctor ──────────────────────────────────────
 
-def run_doctor(vla=None, region=None, email=None, quiet_header=False):
+def run_doctor(vla=None, region=None, email=None, quiet_header=False, bridge=False):
     """Run all prerequisite checks. Returns the number of FAILs (0 == ready)."""
     d = Doctor()
     if not quiet_header:
@@ -320,7 +320,39 @@ def run_doctor(vla=None, region=None, email=None, quiet_header=False):
     if account:
         _check_gpu_quota(d, boto3, ClientError, BotoCoreError, region, vla)
 
+    # 14. HF token for gated models (per region) ----------------------------
+    if account and vla in HF_TOKEN_TARGETS and not bridge:
+        _check_hf_token(d, boto3, ClientError, BotoCoreError, region, vla)
+
     return _summary(d, vla)
+
+
+# Targets whose local-mode UserData downloads a gated Hugging Face repo with the token stored at
+# SSM HF_TOKEN_PARAM. Without it the instance installs for 15+ min and then fails with a 401.
+HF_TOKEN_PARAM = "/vla-simulator/hf-token"
+HF_TOKEN_TARGETS = {
+    "gr00t": "nvidia/Cosmos-Reason2-2B",
+    "gr00t-g1": "the N1.7 server.hf_repo in models/gr00t-g1.yaml",
+    "openarm-isaac": "google/paligemma-3b-pt-224",
+}
+
+
+def _check_hf_token(d, boto3, ClientError, BotoCoreError, region, vla):
+    """FAIL when the gated-model token is missing in the deploy region (SSM is regional)."""
+    repo = HF_TOKEN_TARGETS[vla]
+    try:
+        boto3.client("ssm", region_name=region).get_parameter(Name=HF_TOKEN_PARAM)
+        d.ok(f"HF token present at SSM {HF_TOKEN_PARAM} in {region} (gated: {repo})")
+    except ClientError as e:
+        code = e.response.get("Error", {}).get("Code", "")
+        if code == "ParameterNotFound":
+            d.fail(f"HF token missing at SSM {HF_TOKEN_PARAM} in {region} ({vla} pulls gated {repo})",
+                   f"accept the model license on huggingface.co, then: aws ssm put-parameter "
+                   f"--region {region} --name {HF_TOKEN_PARAM} --type SecureString --value <HF_TOKEN>")
+        else:
+            d.warn(f"could not verify HF token in SSM: {code or type(e).__name__}")
+    except BotoCoreError as e:
+        d.warn(f"could not verify HF token in SSM: {type(e).__name__}")
 
 
 def _check_gpu_quota(d, boto3, ClientError, BotoCoreError, region, vla):
@@ -548,7 +580,8 @@ def run_deploy(rest):
 
     if not skip_doctor:
         print("=== Preflight (vlasim doctor) ===")
-        failures = run_doctor(vla=vla, region=region, email=email, quiet_header=True)
+        failures = run_doctor(vla=vla, region=region, email=email, quiet_header=True,
+                              bridge="--bridge" in forward)
         print("=================================\n")
         if failures:
             print("[deploy] Preflight FAILED. Fix the [FAIL] items above, or re-run with "

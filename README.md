@@ -247,7 +247,8 @@ python vlasim.py deploy --vla gr00t-g1
 ```
 
 `doctor` checks: Python/Node/CDK versions and installs, AWS credentials, region
-support, CDK bootstrap, GPU On-Demand vCPU quota (per target), and `notify_email`.
+support, CDK bootstrap, GPU On-Demand vCPU quota (per target), `notify_email`, and —
+for targets that pull a gated Hugging Face model — the HF token in SSM.
 It exits non-zero if any check **FAILs**, so the `deploy` preflight stops a missing
 quota or un-bootstrapped account in seconds rather than mid-deploy (idle GPU billing).
 
@@ -267,6 +268,17 @@ $ python vlasim.py doctor --vla gr00t-g1
 bypass the deploy preflight. Run `python vlasim.py deploy --help` for the full list.
 
 Supported regions: `us-east-1`, `us-west-2`, `ap-northeast-1`, `ap-northeast-2`, `eu-central-1`
+
+**Hugging Face token (gated models).** `gr00t` (backbone `nvidia/Cosmos-Reason2-2B`),
+`gr00t-g1` (the N1.7 adapter in `server.hf_repo`) and `openarm-isaac` (tokenizer
+`google/paligemma-3b-pt-224`) download gated repos. Accept the model
+license on huggingface.co with your account, then store a read token in **each region you deploy
+to** (SSM parameters are regional):
+
+```bash
+aws ssm put-parameter --region us-east-1 --name /vla-simulator/hf-token \
+  --type SecureString --value <YOUR_HF_TOKEN>
+```
 
 > **Manual setup** (equivalent to `init`, if you prefer to run the steps yourself):
 > ```bash

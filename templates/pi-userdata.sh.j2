@@ -88,6 +88,14 @@ export DEBIAN_FRONTEND=noninteractive
 log "[1/5] Waiting for apt lock..."
 systemctl stop unattended-upgrades apt-daily.service apt-daily-upgrade.service 2>/dev/null || true
 systemctl disable unattended-upgrades apt-daily.service apt-daily-upgrade.service 2>/dev/null || true
+# Stopping the services is not enough: apt-daily{,-upgrade}.timer still fires (the AMI's last run is
+# >1 year old, so the persistent timer catches up ~20-30 min after boot) and the upgrade's
+# `systemctl daemon-reload` revokes GPU access from running containers on this cgroup-v2 host
+# (in-container cuInit -> CUDA_ERROR_NO_DEVICE / "Failed to initialize NVML: Unknown Error").
+# Stop the timers and mask the units so nothing reloads systemd while GPU containers run.
+systemctl stop apt-daily.timer apt-daily-upgrade.timer 2>/dev/null || true
+systemctl disable apt-daily.timer apt-daily-upgrade.timer 2>/dev/null || true
+systemctl mask apt-daily.service apt-daily-upgrade.service unattended-upgrades.service 2>/dev/null || true
 
 APT_WAIT=0
 while fuser /var/lib/apt/lists/lock >/dev/null 2>&1 || \

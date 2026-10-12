@@ -302,6 +302,27 @@ export MUJOCO_GL=egl
 export PYOPENGL_PLATFORM=egl
 export HF_HOME=/home/ubuntu/.cache/huggingface
 
+# ── XET STALL GUARD: bound stalled Xet downloads in [4/6] ────────────────────────
+# nvidia/GR00T-N1.7-LIBERO is 142.79GB of 142.83GB Xet-backed (150 of 203 files, measured)
+# — the largest Xet exposure of any target in this repo. Xet-backed blobs are fetched by
+# the hf_xet Rust client rather than huggingface_hub's python http_get, so
+# HF_HUB_DOWNLOAD_TIMEOUT does NOT apply to them; only the HF_XET_CLIENT_* knobs below do.
+#
+# Isaac-GR00T's uv.lock pins hf-xet==1.4.2, which carries the retry-backoff defect:
+# ExponentialBackoff::from_millis(self.base_delay) uses base_delay as both the first delay
+# and the per-step multiplier, so delays run 3s -> 9000s (2.5h) -> 7500h. The first retry
+# after a stalled socket therefore sleeps ~2.5h and is indistinguishable from a permanent
+# hang. Fixed in hf-xet 1.5.2 — 1.5.0 and 1.5.1 still carry it (checked against upstream
+# source at each tag); 1.5.2 also raises the default read_timeout 120s -> 300s.
+# All four names below exist in both the 1.4.x and 1.5.x binaries, so this block is not a
+# no-op if an older hf_xet is resolved back in, but on the buggy versions
+# RETRY_MAX_DURATION is dead config (parsed, never consulted) — shortening the retry sleep
+# itself needs the version bump below.
+export HF_XET_CLIENT_READ_TIMEOUT=60
+export HF_XET_CLIENT_CONNECT_TIMEOUT=30
+export HF_XET_CLIENT_RETRY_MAX_DURATION=120
+export HF_XET_FIXED_DOWNLOAD_CONCURRENCY=8
+
 {% if remote_grpc_endpoint %}
 # Bridge mode: HuggingFace 모델 다운로드 스킵 (NLB에 위임)
 log "[4/6] Bridge mode — skipping HF model download (inference delegated to ${REMOTE_GRPC_ENDPOINT})"
@@ -323,10 +344,65 @@ else
     log "[warn] HF token not found in SSM — Cosmos-Reason2-2B download may fail"
 fi
 
+# XET STALL GUARD (cont.): raise hf-xet past the 1.4.2 backoff defect, then bound the
+# fetches. hf-xet is a transitive dep of huggingface_hub, not a direct one, so it cannot be
+# held by the project's own pins — install it into the server venv directly. That venv is
+# provisioned by `uv sync` in [3.1/6] and the downloads below invoke its interpreter
+# directly (never `uv run`), so nothing can re-sync the upgrade away in between.
+log "[4/6] XET STALL GUARD: raising hf-xet to 1.5.2 in the server venv (lockfile pins 1.4.2)..."
+uv pip install --python "${SERVER_VENV}/bin/python" "hf-xet==1.5.2" \
+    >> /tmp/gr00t_hfxet_bump.log 2>&1 \
+    || die "hf-xet upgrade failed (see /tmp/gr00t_hfxet_bump.log)"
+"${SERVER_VENV}/bin/python" -c "
+from huggingface_hub.utils._runtime import get_xet_version, is_xet_available
+v = get_xet_version()
+print('hf_xet:', v, 'xet path active:', is_xet_available())
+assert tuple(int(x) for x in v.split('.')[:3]) >= (1, 5, 2), f'hf_xet not upgraded: {v}'
+" >> /tmp/gr00t_hfxet_bump.log 2>&1 \
+    || die "hf-xet still below 1.5.2 after upgrade (see /tmp/gr00t_hfxet_bump.log)"
+
+# Wall-clock guard. A wedged Xet download emits nothing and returns nothing, so `|| die`
+# can never fire; without `timeout` the instance burns GPU until the CreationPolicy expires
+# (measured on a sibling target: 26+ min of zero cache growth, every CDN socket in
+# CLOSE-WAIT, all worker threads in futex_wait). Retry once — a dead CDN connection
+# recovers in a fresh process and snapshot_download resumes from the partial cache.
+# 90 min here rather than the 45 used elsewhere: this target pulls ~143GB.
+#
+# Guard chatter goes to the log file only, NEVER stdout: the call sites below capture the
+# resolved snapshot path via VAR=$(... | tail -1), so a warning on stdout would be captured
+# as the path. Callers piping a heredoc must pass --stdin, because the first attempt
+# consumes stdin and a naive retry re-runs python with EMPTY input and exits 0 — reporting
+# success having downloaded nothing (measured). Auto-detecting stdin via `[ ! -t 0 ]` is
+# wrong: inside $( ) stdin is not a tty even with no heredoc, so the guard would block on
+# `cat` forever. Hence the explicit flag.
+HF_DOWNLOAD_TIMEOUT_SECS=5400
+hf_dl_guard() {
+    local _label="$1" _log="$2"; shift 2
+    local _stdin=""
+    if [ "${1:-}" = "--stdin" ]; then _stdin="$(mktemp)"; cat > "${_stdin}"; shift; fi
+    [ "${1:-}" = "--" ] && shift
+    local _attempt _rc
+    for _attempt in 1 2; do
+        _rc=0
+        if [ -n "${_stdin}" ]; then
+            timeout --signal=TERM --kill-after=60 "${HF_DOWNLOAD_TIMEOUT_SECS}" "$@" < "${_stdin}" || _rc=$?
+        else
+            timeout --signal=TERM --kill-after=60 "${HF_DOWNLOAD_TIMEOUT_SECS}" "$@" < /dev/null || _rc=$?
+        fi
+        if [ "${_rc}" -eq 0 ]; then [ -n "${_stdin}" ] && rm -f "${_stdin}"; return 0; fi
+        { echo "[hf-dl] ${_label} attempt ${_attempt} rc=${_rc} (wall-clock cap ${HF_DOWNLOAD_TIMEOUT_SECS}s)"
+          [ "${_attempt}" -eq 1 ] && echo "[hf-dl] retrying ${_label} (resumes from the partial HF cache)"
+        } >> "${_log}" 2>/dev/null || true
+    done
+    [ -n "${_stdin}" ] && rm -f "${_stdin}"
+    return 1
+}
+
 log "[4/6] Downloading HuggingFace model {{ hf_repo }} (pinned: {{ hf_model_revision[:8] }})..."
 {%- if hf_subfolder %}
 # Fine-tuned checkpoint: download only the required subfolder (ignore other suites to save bandwidth/time)
-HF_REPO_PATH=$("${SERVER_VENV}/bin/python" -c "
+HF_REPO_PATH=$(hf_dl_guard "checkpoint download" /tmp/gr00t_hf_download.log \
+    -- "${SERVER_VENV}/bin/python" -c "
 from huggingface_hub import snapshot_download
 import re, os
 # Download only the needed subfolder — pattern is 'other_suite/*' files to ignore
@@ -342,31 +418,36 @@ path = snapshot_download(
     ignore_patterns=ignore,
 )
 print(path)
-" 2>&1 | tee /tmp/gr00t_hf_download.log | tail -1) \
-    || die "HuggingFace model download failed (repo: {{ hf_repo }}, revision: {{ hf_model_revision[:8] }})"
+" 2>&1 | tail -1) \
+    || die "HuggingFace model download failed (repo: {{ hf_repo }}, revision: {{ hf_model_revision[:8] }}) — see /tmp/gr00t_hf_download.log"
 HF_MODEL_PATH="${HF_REPO_PATH}/{{ hf_subfolder }}"
 log "  Repo path: ${HF_REPO_PATH}"
 log "  Model path (subfolder): ${HF_MODEL_PATH}"
 [ -d "$HF_MODEL_PATH" ] || die "Subfolder not found: ${HF_MODEL_PATH}"
 {%- else %}
 # Base model: single top-level directory
-HF_MODEL_PATH=$("${SERVER_VENV}/bin/python" -c "
+HF_MODEL_PATH=$(hf_dl_guard "checkpoint download" /tmp/gr00t_hf_download.log \
+    -- "${SERVER_VENV}/bin/python" -c "
 from huggingface_hub import snapshot_download
 path = snapshot_download('{{ hf_repo }}', revision='{{ hf_model_revision }}')
 print(path)
-" 2>&1 | tee /tmp/gr00t_hf_download.log | tail -1) \
-    || die "HuggingFace model download failed (repo: {{ hf_repo }}, revision: {{ hf_model_revision[:8] }})"
+" 2>&1 | tail -1) \
+    || die "HuggingFace model download failed (repo: {{ hf_repo }}, revision: {{ hf_model_revision[:8] }}) — see /tmp/gr00t_hf_download.log"
 log "  Model path: ${HF_MODEL_PATH}"
 {%- endif %}
 
 # Cosmos-Reason2-2B backbone 전체 다운로드 (config + 4.9GB safetensors)
 # qwen3_backbone.py가 from_pretrained("nvidia/Cosmos-Reason2-2B")로 전체 모델 로드 후 GR00T 가중치로 덮어씀
+# Cosmos-Reason2-2B is 4.88GB of 4.89GB Xet-backed (3 files of 15, measured via the HF
+# tree API's per-file xetHash), so the backoff defect can bite here too — the wall-clock
+# cap below is what bounds it. Still non-fatal on failure, as before.
 log "[4.1/6] Downloading Cosmos-Reason2-2B full model (backbone, ~4.9GB)..."
-"${SERVER_VENV}/bin/python" -c "
+hf_dl_guard "Cosmos-Reason2-2B backbone" /tmp/gr00t_cosmos_download.log \
+    -- "${SERVER_VENV}/bin/python" -c "
 from huggingface_hub import snapshot_download
 snapshot_download('nvidia/Cosmos-Reason2-2B')
 print('Cosmos-Reason2-2B downloaded')
-" 2>&1 | tee /tmp/gr00t_cosmos_download.log || {
+" || {
     log "[warn] Cosmos-Reason2-2B download failed — ZMQ server may fail at model load"
     tail -10 /tmp/gr00t_cosmos_download.log | while IFS= read -r line; do log "  $line"; done
 }

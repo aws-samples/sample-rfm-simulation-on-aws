@@ -398,11 +398,88 @@ log "  main.py invert_and_scale_gripper patched (writeable action copy)"
 if [ "${BRIDGE_MODE}" = "true" ]; then
     log "[6/7] Bridge mode: skipping HF checkpoint download (served remotely)."
 else
+# ── XET STALL GUARD: bound stalled Xet downloads in [6/7] ────────────────────────
+# lihzha/LAP-3B-Libero is 12.44GB across 8 Xet-backed files of 24 (measured).
+# Xet-backed blobs are fetched by the hf_xet Rust client rather than huggingface_hub's
+# python http_get, so HF_HUB_DOWNLOAD_TIMEOUT does NOT apply to them; only the
+# HF_XET_CLIENT_* knobs below do.
+#
+# openpi's uv.lock pins hf-xet==1.1.2 (with huggingface-hub 0.32.3).
+# 1.1.2 predates the retry wrapper entirely: it has no retry module, and none of the four
+# HF_XET_CLIENT_* names appear in its shipped binary (checked with `strings` against the
+# 1.1.2 wheel). So on the locked version the exports below are inert and a dead socket fails
+# the fetch outright rather than hanging — the wall-clock guard is what actually protects
+# this target. The exports start mattering once the bump below lands (they exist in 1.4.x and
+# 1.5.x), and 1.5.2 is the first release with a correct retry delay sequence: 1.4.x/1.5.0/
+# 1.5.1 all use base_delay as both the first delay and the per-step multiplier, giving
+# 3s -> 9000s (2.5h) -> 7500h, where the first retry is indistinguishable from a hang.
+export HF_XET_CLIENT_READ_TIMEOUT=60
+export HF_XET_CLIENT_CONNECT_TIMEOUT=30
+export HF_XET_CLIENT_RETRY_MAX_DURATION=120
+export HF_XET_FIXED_DOWNLOAD_CONCURRENCY=8
+
+# XET STALL GUARD (cont.): raise hf-xet past the backoff defect before anything downloads.
+# hf-xet is a transitive dep of huggingface_hub, not a direct one, so it cannot be held by
+# the project's own pins — install it into the venv directly.
+# `uv run --group cuda --active` re-syncs from the lockfile on every invocation, so a plain
+# `uv pip install` is silently REVERTED by the next synced call. Both downloads below
+# therefore pass --no-sync. The [7/7] serve_policy.py launch is a synced --active call, but
+# it runs after these fetches, so it is outside the guarded window — inserting a synced
+# --active call BETWEEN here and the downloads would undo the bump with no error shown.
+log "[6/7] XET STALL GUARD: raising hf-xet to 1.5.2 (lockfile pins 1.1.2)..."
+uv pip install --python "${LAP_DIR}/.venv/bin/python" "hf-xet==1.5.2" \
+    >> /tmp/lap_hfxet_bump.log 2>&1 \
+    || die "hf-xet upgrade failed (see /tmp/lap_hfxet_bump.log)"
+"${LAP_DIR}/.venv/bin/python" -c "
+from huggingface_hub.utils._runtime import get_xet_version, is_xet_available
+v = get_xet_version()
+print('hf_xet:', v, 'xet path active:', is_xet_available())
+assert tuple(int(x) for x in v.split('.')[:3]) >= (1, 5, 2), f'hf_xet not upgraded: {v}'
+" >> /tmp/lap_hfxet_bump.log 2>&1 \
+    || die "hf-xet still below 1.5.2 after upgrade (see /tmp/lap_hfxet_bump.log)"
+
+# Wall-clock guard. A wedged Xet download emits nothing and returns nothing, so `|| die`
+# can never fire; without `timeout` the instance burns GPU until the CreationPolicy expires
+# (measured on a sibling target: 26+ min of zero cache growth, every CDN socket in
+# CLOSE-WAIT, all worker threads in futex_wait). Retry once — a dead CDN connection
+# recovers in a fresh process and snapshot_download resumes from the partial cache.
+#
+# Guard chatter goes to the log file only, NEVER stdout: sibling call sites capture the
+# resolved snapshot path via VAR=$(... | tail -1), so a warning on stdout would be captured
+# as the path. Callers piping a heredoc must pass --stdin, because the first attempt
+# consumes stdin and a naive retry re-runs python with EMPTY input and exits 0 — reporting
+# success having downloaded nothing (measured). Auto-detecting stdin via `[ ! -t 0 ]` is
+# wrong: inside $( ) stdin is not a tty even with no heredoc, so the guard would block on
+# `cat` forever. Hence the explicit flag.
+HF_DOWNLOAD_TIMEOUT_SECS=2700
+hf_dl_guard() {
+    local _label="$1" _log="$2"; shift 2
+    local _stdin=""
+    if [ "${1:-}" = "--stdin" ]; then _stdin="$(mktemp)"; cat > "${_stdin}"; shift; fi
+    [ "${1:-}" = "--" ] && shift
+    local _attempt _rc
+    for _attempt in 1 2; do
+        _rc=0
+        if [ -n "${_stdin}" ]; then
+            timeout --signal=TERM --kill-after=60 "${HF_DOWNLOAD_TIMEOUT_SECS}" "$@" < "${_stdin}" || _rc=$?
+        else
+            timeout --signal=TERM --kill-after=60 "${HF_DOWNLOAD_TIMEOUT_SECS}" "$@" < /dev/null || _rc=$?
+        fi
+        if [ "${_rc}" -eq 0 ]; then [ -n "${_stdin}" ] && rm -f "${_stdin}"; return 0; fi
+        { echo "[hf-dl] ${_label} attempt ${_attempt} rc=${_rc} (wall-clock cap ${HF_DOWNLOAD_TIMEOUT_SECS}s)"
+          [ "${_attempt}" -eq 1 ] && echo "[hf-dl] retrying ${_label} (resumes from the partial HF cache)"
+        } >> "${_log}" 2>/dev/null || true
+    done
+    [ -n "${_stdin}" ] && rm -f "${_stdin}"
+    return 1
+}
+
 mkdir -p "${LAP_CKPT_DIR}"
 {% if hf_model_revision %}
 log "[6/7] Downloading HF checkpoint {{ hf_repo }} (rev {{ hf_model_revision[:8] }})..."
 cd "${LAP_DIR}"
-uv run --group cuda --active python -c "
+hf_dl_guard "checkpoint download" /tmp/lap_hf_download.log \
+    -- uv run --group cuda --active --no-sync python -c "
 from huggingface_hub import snapshot_download
 path = snapshot_download(
     '{{ hf_repo }}',
@@ -410,17 +487,16 @@ path = snapshot_download(
     local_dir='${LAP_CKPT_DIR}',
 )
 print('checkpoint downloaded to:', path)
-" 2>&1 | tee /tmp/lap_hf_download.log \
-    || die "HF checkpoint download failed (see /tmp/lap_hf_download.log)"
+" || die "HF checkpoint download failed (see /tmp/lap_hf_download.log)"
 {% else %}
 log "[6/7] HF revision not pinned — downloading latest from {{ hf_repo }}..."
 cd "${LAP_DIR}"
-uv run --group cuda --active python -c "
+hf_dl_guard "checkpoint download" /tmp/lap_hf_download.log \
+    -- uv run --group cuda --active --no-sync python -c "
 from huggingface_hub import snapshot_download
 path = snapshot_download('{{ hf_repo }}', local_dir='${LAP_CKPT_DIR}')
 print('checkpoint downloaded to:', path)
-" 2>&1 | tee /tmp/lap_hf_download.log \
-    || die "HF checkpoint download failed"
+" || die "HF checkpoint download failed (see /tmp/lap_hf_download.log)"
 {% endif %}
 fi
 

@@ -44,6 +44,36 @@ export NO_ALBUMENTATIONS_UPDATE=1
 # uv installs into ~/.local/bin
 export PATH="/root/.local/bin:${PATH}"
 
+# ── FIX 12: bound a stalled Xet download so [6/8] can't idle out the CFN timeout ──
+# The large safetensors shards in both RLDX-1-FT-LIBERO and Qwen3-VL-8B-Instruct are
+# Xet-backed, so snapshot_download hands them to the hf_xet Rust client, not to
+# huggingface_hub's python http_get. Consequence: HF_HUB_DOWNLOAD_TIMEOUT does NOT
+# apply to them — only the HF_XET_CLIENT_* knobs do.
+#
+# Observed 2026-07-28 on a fresh g5.xlarge deploy: [6/8] wedged at "Fetching 16 files:
+# 1/16" for 26+ minutes with zero cache growth, all 8 CDN sockets in CLOSE-WAIT and every
+# worker thread in futex_wait. Because the download is a single `|| die` call with no
+# wall-clock bound, `die` never fires and the instance burns GPU until the stack's
+# PT180M CreationPolicy expires.
+#
+# Root cause is in hf_xet 1.4.3 (what RLDX-1's uv.lock resolves): its retry delay
+# sequence is 3s, 9000s, 7500h, ... because base_delay was used as both the first delay
+# and the per-step multiplier, and retry_max_duration was never enforced. So the first
+# retry after a stalled socket sleeps ~2.5h and reads as a permanent hang.
+# Fixed upstream in hf_xet 1.5.2 (delays become 3s/9s/27s/81s/243s, read_timeout raised
+# 120s → 300s). See FIX 13 for the version bump; these env vars are the belt-and-braces
+# half. All four names are read by both 1.4.3 and 1.5.2 (checked against the shipped
+# binaries), so the block is not a no-op if an older hf_xet gets resolved back in - but
+# RETRY_MAX_DURATION is dead config on 1.4.3 (parsed, never consulted by its retry
+# wrapper), so on that version only the two timeouts and the concurrency cap take effect.
+# Shortening the retry sleep itself needs FIX 13's version bump.
+export HF_XET_CLIENT_READ_TIMEOUT=60
+export HF_XET_CLIENT_CONNECT_TIMEOUT=30
+export HF_XET_CLIENT_RETRY_MAX_DURATION=120
+# Pin download concurrency instead of letting the adaptive controller climb to 64; the
+# stall logs showed it spinning at max concurrency with a predicted RTT of 30-60s.
+export HF_XET_FIXED_DOWNLOAD_CONCURRENCY=8
+
 log() { echo "[RLDX] $(date '+%H:%M:%S') $*" | tee -a /var/log/rldx-userdata.log; }
 
 cfn_signal() {
@@ -698,9 +728,68 @@ print('ROLLOUT_IMPORTS_OK + gym.make OK:', os.environ['RLDX_VERIFY_ENV'])
 # ── [6/8] HF checkpoint + VLM backbone pre-download ────────────────
 mkdir -p "${RLDX_CKPT_DIR}"
 cd "${RLDX_DIR}"
+
+# ── FIX 13: raise hf_xet past the 1.4.3 retry-backoff bug (see FIX 12) ──────────
+# RLDX-1's uv.lock pins hf-xet==1.4.3, whose first retry after a stalled socket sleeps
+# ~2.5h. 1.5.2 fixes the delay sequence and raises the default read_timeout.
+#
+# Two traps this has to work around, both measured:
+#  1. `uv run --active` re-syncs from uv.lock on every invocation, so a plain
+#     `uv pip install hf-xet==1.5.2` is silently REVERTED to 1.4.3 the next time the
+#     download step runs. `--no-sync` is what keeps the upgrade in place.
+#  2. hf-xet is a transitive dep of huggingface_hub (not a direct one), so it cannot be
+#     held by the project's own pins — it has to be installed into the venv directly.
+# Trap 1 rewrites the venv rather than just ignoring the upgrade for that one call, so
+# this block has to sit after the last synced `uv run --active` and before the downloads;
+# inserting a synced --active call in between would silently undo it. The [7/8]
+# policy-server launch is such a call, but it runs after the downloads finish, so it is
+# outside the guarded window.
+# Verified: huggingface_hub 0.36.2 + hf-xet 1.5.2 resolve clean and the Xet path stays
+# active (is_xet_available() true, real Xet-backed download succeeds).
+log "[6/8] FIX 13: raising hf-xet to 1.5.2 in the main venv (lockfile pins 1.4.3)..."
+uv pip install --python "${RLDX_DIR}/.venv/bin/python" "hf-xet==1.5.2" \
+    2>&1 | tee /tmp/rldx_fix13_hfxet.log \
+    || die "FIX 13: hf-xet upgrade failed (see /tmp/rldx_fix13_hfxet.log)"
+uv run --active --no-sync python -c "
+from huggingface_hub.utils._runtime import get_xet_version, is_xet_available
+v = get_xet_version()
+print('hf_xet:', v, 'xet path active:', is_xet_available())
+assert tuple(int(x) for x in v.split('.')[:3]) >= (1, 5, 2), f'hf_xet not upgraded: {v}'
+" || die "FIX 13: hf-xet still below 1.5.2 after upgrade (uv re-sync clobbered it?)"
+
+# Wall-clock guard for the download calls below. A wedged Xet download produces no
+# output and no error, so `|| die` alone can never fire — without `timeout` the stack
+# sits on a live GPU until its PT180M CreationPolicy expires. Retry once: the observed
+# failure was a dead CDN connection, which a fresh process recovers from, and
+# snapshot_download resumes from the partial cache rather than restarting.
+# 45 min is ~4x the measured healthy time for the largest of these repos (~17.5GB) on a
+# g5.xlarge, so a trip means stalled rather than slow.
+#
+# Guard output goes to the log file, not stdout: the sibling templates share this helper
+# and several of their call sites capture a resolved path via VAR=$(... | tail -1), where a
+# warning line on stdout would be captured as the path. Keeping one shape everywhere is
+# the point, so rldx follows the same rule even though it captures nothing.
+HF_DOWNLOAD_TIMEOUT_SECS=2700
+hf_download_with_retry() {
+    local _label="$1" _log="$2" _snippet="$3"
+    local _attempt _rc
+    for _attempt in 1 2; do
+        _rc=0
+        timeout --signal=TERM --kill-after=60 "${HF_DOWNLOAD_TIMEOUT_SECS}" \
+            uv run --active --no-sync python -c "${_snippet}" >> "${_log}" 2>&1 || _rc=$?
+        if [ "${_rc}" -eq 0 ]; then
+            tail -3 "${_log}" | while IFS= read -r line; do log "  ${line}"; done
+            return 0
+        fi
+        log "  [warn] ${_label} attempt ${_attempt} failed or timed out after ${HF_DOWNLOAD_TIMEOUT_SECS}s (rc=${_rc})"
+        [ "${_attempt}" -eq 1 ] && log "  retrying ${_label} (resumes from the partial HF cache)..."
+    done
+    return 1
+}
+
 {% if hf_model_revision %}
 log "[6/8] Downloading checkpoint {{ hf_repo }} (rev {{ hf_model_revision[:8] }})..."
-uv run --active python -c "
+hf_download_with_retry "checkpoint download" /tmp/rldx_hf_download.log "
 from huggingface_hub import snapshot_download
 path = snapshot_download(
     '{{ hf_repo }}',
@@ -708,27 +797,24 @@ path = snapshot_download(
     local_dir='${RLDX_CKPT_DIR}',
 )
 print('checkpoint downloaded to:', path)
-" 2>&1 | tee /tmp/rldx_hf_download.log \
-    || die "HF checkpoint download failed (see /tmp/rldx_hf_download.log)"
+" || die "HF checkpoint download failed (see /tmp/rldx_hf_download.log)"
 {% else %}
 log "[6/8] HF revision not pinned — downloading latest from {{ hf_repo }}..."
-uv run --active python -c "
+hf_download_with_retry "checkpoint download" /tmp/rldx_hf_download.log "
 from huggingface_hub import snapshot_download
 path = snapshot_download('{{ hf_repo }}', local_dir='${RLDX_CKPT_DIR}')
 print('checkpoint downloaded to:', path)
-" 2>&1 | tee /tmp/rldx_hf_download.log \
-    || die "HF checkpoint download failed"
+" || die "HF checkpoint download failed (see /tmp/rldx_hf_download.log)"
 {% endif %}
 {% if backbone_hf_repo %}
 # VLM backbone is pulled by the checkpoint config at server load. Pre-fetch into HF cache so
 # the server's first load doesn't race the warmup timeout fetching ~16GB on a fresh instance.
 log "[6/8] Pre-downloading VLM backbone {{ backbone_hf_repo }} into HF cache..."
-uv run --active python -c "
+hf_download_with_retry "backbone download" /tmp/rldx_backbone_download.log "
 from huggingface_hub import snapshot_download
 path = snapshot_download('{{ backbone_hf_repo }}')
 print('backbone cached at:', path)
-" 2>&1 | tee /tmp/rldx_backbone_download.log \
-    || die "VLM backbone download failed (see /tmp/rldx_backbone_download.log)"
+" || die "VLM backbone download failed (see /tmp/rldx_backbone_download.log)"
 {% endif %}
 
 # ── [7/8] Start policy server (background), then run LIBERO rollouts per task ──

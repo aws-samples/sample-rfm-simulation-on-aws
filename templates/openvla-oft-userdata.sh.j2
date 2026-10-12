@@ -345,16 +345,84 @@ print('tf:', tf.__version__, 'torch:', torch.__version__, 'numpy:', np.__version
 # ── [5/6] Pre-download HF checkpoint + run eval ───────────────────
 export MUJOCO_GL=egl
 export PYOPENGL_PLATFORM=egl
+# ── XET STALL GUARD: bound stalled Xet downloads in [5/6] ────────────────────────
+# moojink/openvla-7b-oft-finetuned-libero-10 is 15.94GB across 9 Xet-backed files of
+# 25 (measured); the other three suite checkpoints share the same layout.
+# Xet-backed blobs are fetched by the hf_xet Rust client rather than huggingface_hub's
+# python http_get, so HF_HUB_DOWNLOAD_TIMEOUT does NOT apply to them; only the
+# HF_XET_CLIENT_* knobs below do.
+#
+# This target installs into a conda env with no lockfile, so the resolved hf-xet floats.
+# Whatever hf_xet the conda env resolves, every release before 1.5.2 computes its retry
+# delays as ExponentialBackoff::from_millis(self.base_delay), using base_delay as both the
+# first delay and the per-step multiplier: 3s -> 9000s (2.5h) -> 7500h. The first retry after
+# a stalled socket therefore sleeps ~2.5h and is indistinguishable from a permanent hang
+# (1.5.0 and 1.5.1 still carry it; 1.5.2 is the first release with the fix, and it also
+# raises the default read_timeout 120s -> 300s). On the buggy versions RETRY_MAX_DURATION is
+# dead config (parsed, never consulted), so the bump below is what shortens the retry sleep.
+export HF_XET_CLIENT_READ_TIMEOUT=60
+export HF_XET_CLIENT_CONNECT_TIMEOUT=30
+export HF_XET_CLIENT_RETRY_MAX_DURATION=120
+export HF_XET_FIXED_DOWNLOAD_CONCURRENCY=8
+
+# hf-xet is a transitive dep of huggingface_hub, not a direct one, so it cannot be held by a
+# project pin — install it into the active conda env directly. There is no uv here and no
+# lockfile to re-sync, so nothing can silently revert this. Non-fatal: if the bump fails, the
+# exports above plus the wall-clock guard below still bound the fetch.
+log "[5/6] XET STALL GUARD: raising hf-xet to 1.5.2 in the ${CONDA_ENV} env..."
+python -m pip install "hf-xet==1.5.2" >> /tmp/oft_hfxet_bump.log 2>&1 \
+    || log "[warn] hf-xet bump failed — exports + wall-clock guard still apply"
+python -c "
+from huggingface_hub.utils._runtime import get_xet_version, is_xet_available
+print('hf_xet:', get_xet_version(), 'xet path active:', is_xet_available())
+" 2>&1 | tail -2 | while IFS= read -r _l; do log "  ${_l}"; done
+
+# Wall-clock guard. A wedged Xet download emits nothing and returns nothing, so `|| die`
+# can never fire; without `timeout` the instance burns GPU until the CreationPolicy expires
+# (measured on a sibling target: 26+ min of zero cache growth, every CDN socket in
+# CLOSE-WAIT, all worker threads in futex_wait). Retry once — a dead CDN connection
+# recovers in a fresh process and snapshot_download resumes from the partial cache.
+#
+# Guard chatter goes to the log file only, NEVER stdout: sibling call sites capture the
+# resolved snapshot path via VAR=$(... | tail -1), so a warning on stdout would be captured
+# as the path. Callers piping a heredoc must pass --stdin, because the first attempt
+# consumes stdin and a naive retry re-runs python with EMPTY input and exits 0 — reporting
+# success having downloaded nothing (measured). Auto-detecting stdin via `[ ! -t 0 ]` is
+# wrong: inside $( ) stdin is not a tty even with no heredoc, so the guard would block on
+# `cat` forever. Hence the explicit flag.
+HF_DOWNLOAD_TIMEOUT_SECS=2700
+hf_dl_guard() {
+    local _label="$1" _log="$2"; shift 2
+    local _stdin=""
+    if [ "${1:-}" = "--stdin" ]; then _stdin="$(mktemp)"; cat > "${_stdin}"; shift; fi
+    [ "${1:-}" = "--" ] && shift
+    local _attempt _rc
+    for _attempt in 1 2; do
+        _rc=0
+        if [ -n "${_stdin}" ]; then
+            timeout --signal=TERM --kill-after=60 "${HF_DOWNLOAD_TIMEOUT_SECS}" "$@" < "${_stdin}" || _rc=$?
+        else
+            timeout --signal=TERM --kill-after=60 "${HF_DOWNLOAD_TIMEOUT_SECS}" "$@" < /dev/null || _rc=$?
+        fi
+        if [ "${_rc}" -eq 0 ]; then [ -n "${_stdin}" ] && rm -f "${_stdin}"; return 0; fi
+        { echo "[hf-dl] ${_label} attempt ${_attempt} rc=${_rc} (wall-clock cap ${HF_DOWNLOAD_TIMEOUT_SECS}s)"
+          [ "${_attempt}" -eq 1 ] && echo "[hf-dl] retrying ${_label} (resumes from the partial HF cache)"
+        } >> "${_log}" 2>/dev/null || true
+    done
+    [ -n "${_stdin}" ] && rm -f "${_stdin}"
+    return 1
+}
+
 mkdir -p "${HF_HOME}"
 
 {% if hf_model_revision %}
 log "[5/6] Pre-downloading HF checkpoint {{ hf_repo }} (rev {{ hf_model_revision[:8] }})..."
-python -c "
+hf_dl_guard "checkpoint download" /tmp/oft_hf_download.log \
+    -- python -c "
 from huggingface_hub import snapshot_download
 path = snapshot_download('{{ hf_repo }}', revision='{{ hf_model_revision }}')
 print(path)
-" 2>&1 | tee /tmp/oft_hf_download.log \
-    || die "HF checkpoint download failed"
+" || die "HF checkpoint download failed (see /tmp/oft_hf_download.log)"
 {% else %}
 log "[5/6] HF revision not pinned — run_libero_eval.py will download on demand"
 {% endif %}

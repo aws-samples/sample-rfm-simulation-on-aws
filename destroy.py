@@ -92,6 +92,28 @@ def main():
     oft_suite_ctx: list[str] = []
     if args.vla == "openvla-oft":
         oft_suite_ctx = ["-c", f"libero_suite={shlex.quote(libero_suite)}"]
+
+    # `cdk destroy` synthesizes the app first, and the stack refuses to synth without the
+    # rendered UserData (assets/userdata/<vla>.sh, gitignored). Render it when it is missing so
+    # destroy also works from a fresh checkout or a different machine than the one that deployed.
+    if not (BASE_DIR / "assets" / "userdata" / f"{args.vla}.sh").exists():
+        subprocess.run(  # nosec B603 - sys.executable is the current Python interpreter, not user input
+            [
+                sys.executable, "generate.py",
+                "--vla", args.vla,
+                "--output-dir", "assets/userdata",
+                *(["--libero-suite", shlex.quote(libero_suite)] if args.vla == "openvla-oft" else []),
+            ],
+            cwd=str(BASE_DIR),
+            check=True,
+        )
+
+    # Same VLA-specific output dir as deploy.py, so parallel destroys don't clash on cdk.out.
+    if args.vla == "openvla-oft" and libero_suite != OFT_DEFAULT_SUITE:
+        cdk_out_dir = f"cdk.out-{args.vla}-{libero_suite}"
+    else:
+        cdk_out_dir = f"cdk.out-{args.vla}"
+
     subprocess.run(  # nosec B603,B607 - hardcoded command list, no user input in executable path
         [
             "npx", "cdk", "destroy", stack_name,
@@ -99,6 +121,7 @@ def main():
             "-c", f"vla={args.vla}",
             *oft_suite_ctx,
             "--force",
+            "--output", cdk_out_dir,
         ],
         cwd=str(BASE_DIR / "cdk"),
         check=True,

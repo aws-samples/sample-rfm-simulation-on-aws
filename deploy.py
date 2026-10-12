@@ -121,6 +121,10 @@ def _maybe_import_orphan_bucket(
     sts = boto3.client("sts", region_name=region)
     account_id = sts.get_caller_identity()["Account"]
     bucket_name = f"{s3_results_prefix}-{stack_name.lower()}-{region}-{account_id}"
+    if len(bucket_name) > 63:
+        # Same rule as the CDK stack: drop "-demo" only when the full name overflows 63 chars.
+        short_stack = stack_name.lower().removesuffix("-demo")
+        bucket_name = f"{s3_results_prefix}-{short_stack}-{region}-{account_id}"
 
     s3 = boto3.client("s3", region_name=region)
     try:
@@ -132,10 +136,18 @@ def _maybe_import_orphan_bucket(
 
     cfn = boto3.client("cloudformation", region_name=region)
     try:
-        cfn.describe_stacks(StackName=stack_name)
-        return  # Stack still exists
+        status = cfn.describe_stacks(StackName=stack_name)["Stacks"][0]["StackStatus"]
     except ClientError:
-        pass
+        status = None
+    if status in ("ROLLBACK_COMPLETE", "REVIEW_IN_PROGRESS"):
+        # A failed first create leaves the stack in ROLLBACK_COMPLETE (or, after a rejected
+        # change set, REVIEW_IN_PROGRESS) with no resources and the RETAINed bucket outside it. `cdk deploy` would delete that stack and create a new one, which then fails
+        # with "ResultsBucket ... already exists". Delete it here so the bucket is re-adopted below.
+        print(f"[pre-check] {stack_name} is {status} (failed first create) — deleting it ...")
+        cfn.delete_stack(StackName=stack_name)
+        cfn.get_waiter("stack_delete_complete").wait(StackName=stack_name)
+    elif status is not None:
+        return  # Stack still exists
 
     print(f"[pre-check] Orphan S3 bucket detected: {bucket_name}")
     print("[pre-check] Re-adopting via `cdk import` before deploy ...")

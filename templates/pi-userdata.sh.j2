@@ -88,6 +88,14 @@ export DEBIAN_FRONTEND=noninteractive
 log "[1/5] Waiting for apt lock..."
 systemctl stop unattended-upgrades apt-daily.service apt-daily-upgrade.service 2>/dev/null || true
 systemctl disable unattended-upgrades apt-daily.service apt-daily-upgrade.service 2>/dev/null || true
+# Stopping the services is not enough: apt-daily{,-upgrade}.timer still fires (the AMI's last run is
+# >1 year old, so the persistent timer catches up ~20-30 min after boot) and the upgrade's
+# `systemctl daemon-reload` revokes GPU access from running containers on this cgroup-v2 host
+# (in-container cuInit -> CUDA_ERROR_NO_DEVICE / "Failed to initialize NVML: Unknown Error").
+# Stop the timers and mask the units so nothing reloads systemd while GPU containers run.
+systemctl stop apt-daily.timer apt-daily-upgrade.timer 2>/dev/null || true
+systemctl disable apt-daily.timer apt-daily-upgrade.timer 2>/dev/null || true
+systemctl mask apt-daily.service apt-daily-upgrade.service unattended-upgrades.service 2>/dev/null || true
 
 APT_WAIT=0
 while fuser /var/lib/apt/lists/lock >/dev/null 2>&1 || \
@@ -212,8 +220,14 @@ if [ ! -d "${OPENPI_DIR}" ]; then
         "${OPENPI_DIR}" 2>&1 | tee /tmp/pi_clone.log \
         || die "openpi clone failed"
 {%- if openpi_commit %}
-    ACTUAL_COMMIT=$(git -C "${OPENPI_DIR}" rev-parse HEAD)
+    # Check out the pinned commit (the clone lands on upstream HEAD, which moves), then bring the
+    # submodules to the revisions recorded at that commit.
     EXPECTED_COMMIT="{{ openpi_commit }}"
+    git -C "${OPENPI_DIR}" checkout -q "${EXPECTED_COMMIT}" \
+        || die "openpi checkout of pinned commit ${EXPECTED_COMMIT} failed"
+    git -C "${OPENPI_DIR}" submodule update --init --recursive 2>&1 | tee -a /tmp/pi_clone.log \
+        || die "openpi submodule update failed"
+    ACTUAL_COMMIT=$(git -C "${OPENPI_DIR}" rev-parse HEAD)
     if [ -n "$EXPECTED_COMMIT" ] && [ "$ACTUAL_COMMIT" != "$EXPECTED_COMMIT" ]; then
         die "openpi commit mismatch: expected ${EXPECTED_COMMIT}, got ${ACTUAL_COMMIT}. Update openpi_commit in pi-config.yaml."
     fi
@@ -297,6 +311,19 @@ else
     fi
 fi
 
+# The LIBERO client image builds sdists (easydict, ...) under Python 3.8 with uv 0.5.1 and
+# `--extra-index-url download.pytorch.org --index-strategy=unsafe-best-match`. That index now
+# carries setuptools-78.1.0 with no requires-python metadata, so uv 0.5.1 picks it for the build
+# env and it crashes on 3.8 ("TypeError: 'type' object is not subscriptable"). Cap the build-time
+# setuptools; runtime packages are unaffected.
+LIBERO_DF="${OPENPI_DIR}/examples/libero/Dockerfile"
+if [ -f "${LIBERO_DF}" ] && ! grep -q "UV_BUILD_CONSTRAINT" "${LIBERO_DF}"; then
+    sed -i "s#^RUN uv pip sync /tmp/requirements.txt#RUN echo 'setuptools<76' > /tmp/uv-build-constraints.txt \&\& UV_BUILD_CONSTRAINT=/tmp/uv-build-constraints.txt uv pip sync /tmp/requirements.txt#" "${LIBERO_DF}"
+    grep -q "UV_BUILD_CONSTRAINT" "${LIBERO_DF}" \
+        || die "could not add the setuptools build constraint to ${LIBERO_DF}"
+    log "  Patched examples/libero/Dockerfile: build-time setuptools<76"
+fi
+
 # ── [4/5] Sequential task execution ──────────────────────────────
 log "[4/5] Starting sequential task execution..."
 
@@ -307,6 +334,7 @@ TASKS_JSON='{{ tasks_json }}'
 TASK_COUNT=$(echo "$TASKS_JSON" | jq length)
 SUMMARY_ALL=""
 
+FAILED_SUITES=""
 for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
     TASK=$(echo "$TASKS_JSON" | jq -r ".[$TASK_IDX]")
     SUITE=$(echo "$TASK" | jq -r '.suite')
@@ -372,6 +400,7 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
         tail -1 | grep -oE '[0-9.]+$' || echo "unknown")
     N_SUCCESS=$(awk "BEGIN { printf \"%d\", ${NUM_EPISODES} * 10 * ${SR:-0} }" 2>/dev/null || echo "?")
     log "  success_rate=${SR}"
+    [ "${SR}" = "unknown" ] && FAILED_SUITES="${FAILED_SUITES} ${SUITE}"
 
     # Write summary
     {
@@ -444,6 +473,10 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
 
     log "  Task $((TASK_IDX+1)) done"
 done
+
+# A suite that never printed a success rate did not run (image build or eval crashed); its
+# compose.log is already in S3. Do not report the run as a success.
+[ -z "${FAILED_SUITES}" ] || die "no success rate for:${FAILED_SUITES} (see s3://${S3_BUCKET}/${RUN_ID}/task-*/compose.log)"
 
 # ── [5/5] SNS notification + cfn-signal ──────────────────────────
 log "[5/5] Sending SNS notification..."

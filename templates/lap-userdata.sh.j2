@@ -265,8 +265,9 @@ cd "${LAP_DIR}"
 # LAP ships no uv.lock, so `uv sync` resolves fresh. tensorflow-cpu==2.15 caps protobuf below 5,
 # while tensorflow-datasets leaves tensorflow-metadata unbounded; the newest tfmd imports
 # google.protobuf.runtime_version (protobuf >= 5.26), so serve_policy.py dies on import with
-# "cannot import name 'runtime_version'". Pin tfmd through the project's own
-# override-dependencies so every later synced `uv run` keeps it (same pin as gr00t/openvla-oft).
+# "cannot import name 'runtime_version'". Likewise pyarrow 26 (2026-10-09) needs NumPy >= 2 at
+# import time while LAP pins numpy<2 ("pyarrow requires NumPy 2.0 or newer"). Pin both through the
+# project's own override-dependencies so every later synced `uv run` keeps them.
 python3 - <<'PYEOF' || die "LAP: could not add the tensorflow-metadata pin to pyproject.toml"
 import re, sys
 p = "pyproject.toml"
@@ -274,8 +275,9 @@ s = open(p).read()
 m = re.search(r'^override-dependencies = \[(.*)\]$', s, re.M)
 if not m:
     sys.exit("override-dependencies line not found")
-if "tensorflow-metadata" not in m.group(1):
-    s = s[:m.end(1)] + ', "tensorflow-metadata==1.17.3"' + s[m.end(1):]
+pins = [x for x in ('"tensorflow-metadata==1.17.3"', '"pyarrow<26"') if x.split("=")[0].split("<")[0] not in m.group(1)]
+if pins:
+    s = s[:m.end(1)] + "".join(", " + x for x in pins) + s[m.end(1):]
     open(p, "w").write(s)
 PYEOF
 grep -n '^override-dependencies' pyproject.toml | tee -a /tmp/lap_uv_sync.log
@@ -283,7 +285,7 @@ GIT_LFS_SKIP_SMUDGE=1 uv sync --group cuda 2>&1 | tee /tmp/lap_uv_sync.log \
     || die "LAP uv sync --group cuda failed (see /tmp/lap_uv_sync.log)"
 GIT_LFS_SKIP_SMUDGE=1 uv pip install -e . 2>&1 | tee /tmp/lap_uv_install_e.log \
     || die "LAP editable install failed"
-"${LAP_DIR}/.venv/bin/python" -c "import tensorflow_datasets, tensorflow_metadata.proto.v0.schema_pb2" \
+"${LAP_DIR}/.venv/bin/python" -c "import tensorflow_datasets, tensorflow_metadata.proto.v0.schema_pb2, pyarrow" \
     >> /tmp/lap_uv_install_e.log 2>&1 \
     || die "LAP: tensorflow_datasets import failed (tfmd/protobuf mismatch? see /tmp/lap_uv_install_e.log)"
 

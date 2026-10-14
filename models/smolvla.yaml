@@ -1,0 +1,35 @@
+# SmolVLA-450M (Hugging Face) — compact VLA (SmolVLM2 backbone + flow-matching action expert).
+# Shared template: lerobot-libero-userdata.sh.j2. License: Apache-2.0 (code and weights), public.
+# The LIBERO checkpoint names its cameras camera1/camera2 → map the LIBERO agentview / wrist views onto them.
+model:
+  id: smolvla
+  display_name: "SmolVLA-450M"
+  policy_desc: "SmolVLA-450M (Hugging Face, SmolVLM2 backbone + flow-matching action expert)"
+  license: "Apache-2.0 (code and weights)"
+  hf_repo: "lerobot/smolvla_libero"
+  hf_model_revision: "a24f1f380461b665158d52acd140152c79e8b36d"
+  lerobot_repo: "https://github.com/huggingface/lerobot.git"
+  lerobot_commit: "ae2b57f12223c8c5184fcd814eb63cd9ce7de203"   # main 2026-10-13
+  python_version: "3.12"
+  uv_extras: [smolvla, libero]
+  policy_module: smolvla
+  policy_args: []
+  env_args:
+    - '--env.camera_name_mapping={"agentview_image":"camera1","robot0_eye_in_hand_image":"camera2"}'
+
+instance:
+  preferred: [g6.xlarge, g5.xlarge, g6.2xlarge, g5.2xlarge]   # <4GB VRAM; smallest GPU tier
+  ebs_gb: 120
+  creationpolicy_timeout: PT150M
+  min_gpu_mib: 15000
+  min_host_mib: 15000
+
+tasks:
+  - suite: libero_spatial
+    task_ids: [0, 1]
+    n_episodes: 5
+    description: "LIBERO-Spatial pipe-proof (SmolVLA-450M, 2 tasks x 5 ep)"
+    seed: 1000
+
+bridge:
+  enabled: false

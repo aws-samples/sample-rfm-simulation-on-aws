@@ -55,6 +55,8 @@ BASE_DIR = Path(__file__).parent
 # Keep in sync with generate.LEROBOT_LIBERO_TARGETS, destroy.STACK_NAMES and cdk/bin/app.ts.
 LEROBOT_LIBERO_STACKS = {
     "xvla": "XVLA-Demo",
+    "smolvla": "SmolVLA-Demo",
+    "lingbot-va": "LingBot-VA-Demo",
 }
 LEROBOT_LIBERO_TARGETS = tuple(LEROBOT_LIBERO_STACKS)
 
@@ -185,7 +187,7 @@ def _maybe_import_orphan_bucket(
 def main():
     parser = argparse.ArgumentParser(description="vla-simulator 1-Click Deploy")
     parser.add_argument("--vla", required=True,
-                        choices=["gr00t", "gr00t-gr1", "gr00t-g1", "pi", "openvla-oft", "lap", "rldx", "rldx-simpler", "rldx-gr1", "rldx-kitchen", "openarm-isaac", "openarm-lift-act", "molmoact2", "xvla"],
+                        choices=["gr00t", "gr00t-gr1", "gr00t-g1", "pi", "openvla-oft", "lap", "rldx", "rldx-simpler", "rldx-gr1", "rldx-kitchen", "openarm-isaac", "openarm-lift-act", "molmoact2", *LEROBOT_LIBERO_TARGETS],
                         help="VLA model to deploy")
     parser.add_argument("--bridge", action="store_true",
                         help="Bridge mode: use vla-hub ECS endpoint instead of local model")

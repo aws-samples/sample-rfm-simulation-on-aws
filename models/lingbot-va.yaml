@@ -1,0 +1,37 @@
+# LingBot-VA (Robbyant) — world action model: autoregressive video + action generation on a Wan2.2 backbone.
+# Shared template: lerobot-libero-userdata.sh.j2. License: Apache-2.0 (code and weights), public.
+# Eval recipe: LeRobot docs/source/lingbot_va.mdx (libero_10, 128x128 observations).
+# LeRobot docs: fits a single 24-32 GB GPU (text encoder on CPU) → g6e (L40S 48 GB) for headroom.
+model:
+  id: lingbot-va
+  display_name: "LingBot-VA"
+  policy_desc: "LingBot-VA (Robbyant, autoregressive video-action world model, Wan2.2 backbone)"
+  license: "Apache-2.0 (code and weights)"
+  hf_repo: "lerobot/lingbot_va_libero_long"
+  hf_model_revision: "cf56f4c6f38f104b19b1352bc986b9fa25d98706"
+  lerobot_repo: "https://github.com/huggingface/lerobot.git"
+  lerobot_commit: "ae2b57f12223c8c5184fcd814eb63cd9ce7de203"   # main 2026-10-13
+  python_version: "3.12"
+  uv_extras: [lingbot_va, libero]
+  policy_module: lingbot_va
+  policy_args: []
+  env_args:
+    - "--env.observation_height=128"
+    - "--env.observation_width=128"
+
+instance:
+  preferred: [g6e.2xlarge, g6e.4xlarge]
+  ebs_gb: 250
+  creationpolicy_timeout: PT240M
+  min_gpu_mib: 40000
+  min_host_mib: 49000
+
+tasks:
+  - suite: libero_10
+    task_ids: [0, 1]
+    n_episodes: 3
+    description: "LIBERO-Long pipe-proof (LingBot-VA, 2 tasks x 3 ep)"
+    seed: 1000
+
+bridge:
+  enabled: false

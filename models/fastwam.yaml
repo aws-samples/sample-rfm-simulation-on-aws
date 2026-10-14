@@ -5,10 +5,12 @@
 #   states NO license (checked 2026-10-14) — treat as research/evaluation only and check the
 #   card before any other use. Public, non-gated. Weights are downloaded at runtime, never vendored.
 # Eval recipe: LeRobot src/lerobot/policies/fastwam/README.md (reproduce line):
-#   --policy.dtype=float32 --policy.n_action_steps=10 --env.observation_height=256
-#   --env.observation_width=256 --env.episode_length=300 (libero_10: 600)
+#   --policy.n_action_steps=10 --env.observation_height=256 --env.observation_width=256
+#   --env.episode_length=300 (libero_10: 600). The README's --policy.dtype=float32 is for a
+#   140 GB H20: in fp32 the DiT + umt5-xxl text encoder + VAE OOM a 48 GB L40S (validated
+#   2026-10-14: 44.38 GiB in use while moving the VAE), so we keep the checkpoint's bf16 default.
 # Reported (LeRobot README, 500 ep/suite): spatial 97.6 · object 99.0 · goal 95.0 · libero_10 94.0.
-# Footprint: 12 GB fp32 policy + 11 GB umt5-xxl text encoder + 2.8 GB Wan2.2 VAE → L40S 48 GB.
+# Footprint (bf16): 12 GB policy + 11 GB umt5-xxl text encoder + 2.8 GB Wan2.2 VAE → L40S 48 GB.
 model:
   id: fastwam
   display_name: "FastWAM"
@@ -22,7 +24,6 @@ model:
   uv_extras: [fastwam, libero]
   policy_module: fastwam
   policy_args:
-    - "--policy.dtype=float32"
     - "--policy.n_action_steps=10"
   env_args:
     - "--env.observation_height=256"

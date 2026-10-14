@@ -13,7 +13,7 @@
   "devDependencies": {
     "@types/jest": "^30",
     "@types/node": "^24.10.1",
-    "aws-cdk": "2.1144.0",
+    "aws-cdk": "2.1145.0",
     "jest": "^30",
     "ts-jest": "^29",
     "ts-node": "^10.9.2",
@@ -21,9 +21,9 @@
   },
   "dependencies": {
     "@types/js-yaml": "^4.0.9",
-    "aws-cdk-lib": "^2.262.0",
+    "aws-cdk-lib": "^2.273.0",
     "cdk-nag": "^2.37.55",
-    "constructs": "^10.5.0",
+    "constructs": "^10.8.1",
     "js-yaml": "^4.3.2"
   }
 }

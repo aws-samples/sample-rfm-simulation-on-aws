@@ -18,7 +18,7 @@ import * as cdk from 'aws-cdk-lib';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
 import { Construct } from 'constructs';
-import { NagSuppressions } from 'cdk-nag';
+import { acknowledge, acknowledgeByPath } from './nag';
 
 export interface AzSelectorProps {
   instanceTypes: string[];
@@ -102,7 +102,7 @@ export class AzSelectorConstruct extends Construct {
     this.resolvedInstanceType = customResource.getAttString('InstanceType');
     this.subnetId = customResource.getAttString('SubnetId');
 
-    NagSuppressions.addResourceSuppressions(lambdaRole, [
+    acknowledge(lambdaRole, [
       {
         id: 'AwsSolutions-IAM4',
         reason: 'AWSLambdaBasicExecutionRole is the minimal managed policy for Lambda CloudWatch Logs access.',
@@ -115,7 +115,7 @@ export class AzSelectorConstruct extends Construct {
       },
     ]);
 
-    NagSuppressions.addResourceSuppressions(azSelectorFn, [
+    acknowledge(azSelectorFn, [
       {
         id: 'AwsSolutions-L1',
         reason: 'Python 3.13 is the latest stable production runtime for AWS Lambda.',

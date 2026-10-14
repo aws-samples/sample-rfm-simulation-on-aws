@@ -20,7 +20,7 @@
  */
 
 import * as cdk from 'aws-cdk-lib';
-import { Aspects } from 'aws-cdk-lib';
+import { Validations } from 'aws-cdk-lib';
 import { AwsSolutionsChecks } from 'cdk-nag';
 import { VlaSimulatorStack } from '../lib/vla-simulator-stack';
 
@@ -105,4 +105,4 @@ const stack = new VlaSimulatorStack(app, stackName, {
   description: `vla-simulator ${descriptionMap[vla]} fire-and-forget simulation pipeline`,
 });
 
-Aspects.of(stack).add(new AwsSolutionsChecks({ verbose: true }));
+Validations.of(app).addPlugins(new AwsSolutionsChecks(app, { verbose: true }));

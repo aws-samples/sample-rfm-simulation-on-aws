@@ -21,7 +21,7 @@ import { Construct } from 'constructs';
 import * as yaml from 'js-yaml';
 import * as fs from 'fs';
 import * as path from 'path';
-import { NagSuppressions } from 'cdk-nag';
+import { acknowledge, acknowledgeByPath } from './nag';
 
 import { AzSelectorConstruct } from './az-selector';
 
@@ -424,21 +424,21 @@ export class VlaSimulatorStack extends cdk.Stack {
     // EC28/EC29 nag rules do not apply to Lambda-launched instances.
 
     if (!vpcIdCtx) {
-      NagSuppressions.addResourceSuppressionsByPath(this, `/${id}/${vpcLogicalId}/Resource`, [
+      acknowledgeByPath(this, `/${id}/${vpcLogicalId}/Resource`, [
         { id: 'AwsSolutions-VPC7', reason: 'VPC Flow Logs omitted for this sample to reduce cost. Short-lived stack with no inbound traffic allowed.' },
       ]);
     }
 
-    NagSuppressions.addResourceSuppressions(bucket, [
+    acknowledge(bucket, [
       { id: 'AwsSolutions-S1', reason: 'Server access logging omitted for this sample results bucket. Bucket is private (BlockPublicAccess.BLOCK_ALL).' },
     ]);
 
-    NagSuppressions.addResourceSuppressions(topic, [
+    acknowledge(topic, [
       { id: 'AwsSolutions-SNS3', reason: 'SNS topic used only for email notifications to end users. Enforcing SSL on publish not required for this notification-only use case.' },
     ]);
 
     const roleLogicalId = `${vla.charAt(0).toUpperCase() + vla.slice(1)}InstanceRole`;
-    NagSuppressions.addResourceSuppressions(role, [
+    acknowledge(role, [
       { id: 'AwsSolutions-IAM4', reason: 'AmazonSSMManagedInstanceCore enables SSM Session Manager for browser-based terminal access.', appliesTo: ['Policy::arn:<AWS::Partition>:iam::aws:policy/AmazonSSMManagedInstanceCore'] },
       { id: 'AwsSolutions-IAM5', reason: 'Wildcard on results bucket objects required for dynamic output file names.', appliesTo: ['Resource::<ResultsBucketA95A2103.Arn>/*'] },
       { id: 'AwsSolutions-IAM5', reason: 'ec2:TerminateInstances constrained by StringEquals on StackName tag. cloudformation:SignalResource cannot be scoped at synth time.', appliesTo: ['Resource::*'] },
@@ -459,7 +459,12 @@ export class VlaSimulatorStack extends cdk.Stack {
       },
     ]);
 
-    NagSuppressions.addResourceSuppressionsByPath(this, `/${id}/${roleLogicalId}/DefaultPolicy/Resource`, [
+    // Finding ids carry the policy resource as cdk-nag renders it: unresolved parts stay as
+    // <AWS::...> placeholders (env-agnostic synth, e.g. CI), resolved ones are literal.
+    const assetRegion = cdk.Token.isUnresolved(this.region) ? '<AWS::Region>' : this.region;
+    const assetAccount = cdk.Token.isUnresolved(this.account) ? '<AWS::AccountId>' : this.account;
+    const assetPartition = cdk.Token.isUnresolved(this.region) ? '<AWS::Partition>' : (this.region.startsWith('cn-') ? 'aws-cn' : 'aws');
+    acknowledgeByPath(this, `/${id}/${roleLogicalId}/DefaultPolicy/Resource`, [
       {
         id: 'AwsSolutions-IAM5',
         reason: 'CDK auto-generates this policy for S3 Asset download from CDK bootstrap bucket. Required by s3assets.Asset.grantRead().',
@@ -467,7 +472,9 @@ export class VlaSimulatorStack extends cdk.Stack {
           'Action::s3:GetBucket*',
           'Action::s3:GetObject*',
           'Action::s3:List*',
-          { regex: '/Resource::arn:.+:s3:::cdk-hnb659fds-assets-.+/' },
+          // The CDK bootstrap asset bucket ARN: concrete when the stack has an account/region,
+          // placeholder form when it synthesizes environment-agnostic (CI). v3 has no regex match.
+          `Resource::arn:${assetPartition}:s3:::cdk-hnb659fds-assets-${assetAccount}-${assetRegion}/*`,
         ],
       },
       ...(serverCkptBucket ? [{

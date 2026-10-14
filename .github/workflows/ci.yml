@@ -1,0 +1,46 @@
+# Checks every PR the same way the maintainers verify a change locally:
+# CDK compile + unit tests, cdk synth for every target, and userdata render + bash -n.
+name: ci
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      CDK_DEFAULT_ACCOUNT: "123456789012"
+      CDK_DEFAULT_REGION: us-east-1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: cdk/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - run: pip install -r requirements.txt
+      - run: npm ci --no-audit --no-fund
+        working-directory: cdk
+      - run: npx tsc --noEmit
+        working-directory: cdk
+      - run: npx jest
+        working-directory: cdk
+      - name: render userdata + bash -n (all targets)
+        run: |
+          for v in $(python -c "import re;print(' '.join(re.findall(r'\"([a-z0-9-]+)\"', re.search(r'choices=\[([^]]+)\]', open('deploy.py').read()).group(1))))"); do
+            python generate.py --vla "$v" --output-dir assets/userdata > /dev/null
+            bash -n "assets/userdata/$v.sh"
+            echo "ok $v"
+          done
+      - name: cdk synth (all targets)
+        working-directory: cdk
+        run: |
+          for v in $(ls ../assets/userdata/*.sh | xargs -n1 basename | sed 's/\.sh$//'); do
+            npx cdk synth -q -c region=us-east-1 -c notify_email=ci@example.com -c vla="$v" --output "cdk.out-$v" > /dev/null
+            echo "synth ok $v"
+          done

@@ -31,6 +31,7 @@ Run Vision-Language-Action (VLA) robot simulation workloads on AWS GPU instances
 | `xvla` | — | X-VLA-0.9B (2toINF / Tsinghua AIR, soft-prompted cross-embodiment VLA)⁶ | LIBERO-Spatial | Franka Panda (7-DOF) | `XVLA-Demo` |
 | `smolvla` | — | SmolVLA-450M (Hugging Face)⁶ | LIBERO-Spatial | Franka Panda (7-DOF) | `SmolVLA-Demo` |
 | `lingbot-va` | — | LingBot-VA (Robbyant world action model: autoregressive video + action, Wan2.2)⁶ | LIBERO-10 long-horizon | Franka Panda (7-DOF) | `LingBot-VA-Demo` |
+| `vla-adapter` | — | VLA-Adapter-Pro (OpenHelix, Qwen2.5-0.5B Prismatic VLM + bridge-attention action head)⁷ | LIBERO-Spatial | Franka Panda (7-DOF) | `VLA-Adapter-Demo` |
 | `rldx` | — | RLDX-1 (RLWRLD MSAT / Qwen3-VL-8B, eager)¹ | LIBERO-10 long-horizon | Franka Panda (7-DOF) | `RLDX-Demo` |
 | `rldx-simpler` | — | RLDX-1 (RLWRLD MSAT / Qwen3-VL-8B, eager)¹ ² | SimplerEnv Google-VM (Fractal) | Google Robot (OXE_FRACTAL real-robot embodiment) | `RLDX-Simpler-Demo` |
 | `rldx-gr1` | — | RLDX-1 (RLWRLD MSAT / Qwen3-VL-8B, eager)¹ ³ | RoboCasa GR-1 Tabletop (24-task) | GR-1 humanoid (bimanual + waist) | `RLDX-GR1-Demo` |
@@ -48,6 +49,8 @@ Run Vision-Language-Action (VLA) robot simulation workloads on AWS GPU instances
 ⁵ `molmoact2` is **Apache-2.0** (weights + code, commercial use OK). Unlike the LeRobot-native targets, it is **not on upstream LeRobot** — it is served from the `allenai/lerobot` fork (`molmoact2-policy` branch, pinned `@a4f15bf3`) installed via `uv sync --locked` (Python 3.12), running the public `allenai/MolmoAct2-LIBERO` checkpoint **in-process** on the sim GPU (no separate policy server). The official LIBERO eval recipe is **float32** (`use_amp=false`) + `norm_tag=libero`, continuous action mode — so the ~20 GB fp32 checkpoint forces a ≥40 GB single GPU **and** ≥64 GiB host RAM (`g6e.2xlarge`+ L40S; `g6e.xlarge`'s 32 GiB host RAM thrashes the checkpoint load and is excluded). End-to-end validated 2026-06-28 (`g6e.2xlarge`, us-west-2; full `deploy.py` 1-shot). `libero_goal = 1.000` (2 tasks × 5 episodes); reported paper LIBERO average = 97.2%. See the [showcase](#molmoact2--molmoact2-ai2-on-libero-goal-franka-panda-7-dof) and [Expected Results](#expected-results).
 
 ⁶ `xvla`, `smolvla` and `lingbot-va` share one template (`templates/lerobot-libero-userdata.sh.j2`): upstream LeRobot is installed from source at a pinned commit (`uv sync --locked --extra <policy> --extra libero`, Python 3.12) and `lerobot-eval --policy.path=<checkpoint> --env.type=libero` runs the policy in-process on the sim GPU. Adding another LeRobot policy is a new `models/<id>.yaml` (checkpoint, extras, extra `--policy.*`/`--env.*` flags, instance list and VRAM/RAM floors) plus the name maps. All three are **Apache-2.0** (code and weights). Validated 2026-10-14 in ap-northeast-2: `xvla` libero_spatial **0.90** (2 tasks × 5 ep, g6.2xlarge), `smolvla` libero_spatial **0.80** (2 × 5, g6.xlarge), `lingbot-va` libero_10 **1.00** (2 × 3, g6e.2xlarge L40S; ~20 min per episode because the model generates video with the actions).
+
+⁷ `vla-adapter` is an OpenVLA-OFT fork, so `templates/vla-adapter-userdata.sh.j2` is a copy of the `openvla-oft` template (kept separate so the validated `openvla-oft` target cannot regress) with the repo, checkpoint and extra `run_libero_eval.py` flags taken from `models/vla-adapter.yaml`. **MIT** (code and weights). Validated 2026-10-14 in ap-northeast-2: libero_spatial **1.00** (10 tasks × 1 trial, g6.xlarge). The checkpoint is evaluated from its local snapshot directory: with a Hub repo id the eval code skips registering the Prismatic classes and `transformers` rejects the custom config.
 
 ### Showcase — VLA Rollouts
 
@@ -160,13 +163,14 @@ Same RLDX-1 family again, but on the **RoboCasa Kitchen** 24-task benchmark with
 
 #### `xvla` · `smolvla` · `lingbot-va` — LeRobot policies on LIBERO (Franka Panda 7-DOF)
 
-Three upstream-LeRobot policies run through the shared `lerobot-libero` template (validated 2026-10-14, ap-northeast-2). Each clip strings together the rendered episodes of the pipe-proof run.
+Three upstream-LeRobot policies run through the shared `lerobot-libero` template, plus VLA-Adapter-Pro on its own OFT-style template (validated 2026-10-14, ap-northeast-2). Each clip strings together the rendered episodes of the pipe-proof run.
 
 | Target | Suite (run) | Success | Rollouts |
 |---|---|---|---|
 | `xvla` — X-VLA-0.9B | libero_spatial (2 tasks × 5 ep) | 0.90 | [`xvla/libero-spatial-5ep.mp4`](docs/showcase/xvla/libero-spatial-5ep.mp4) |
 | `smolvla` — SmolVLA-450M | libero_spatial (2 tasks × 5 ep) | 0.80 | [`smolvla/libero-spatial-5ep.mp4`](docs/showcase/smolvla/libero-spatial-5ep.mp4) |
 | `lingbot-va` — LingBot-VA (world action model) | libero_10 (2 tasks × 3 ep) | 1.00 | [`lingbot-va/libero-long-3ep.mp4`](docs/showcase/lingbot-va/libero-long-3ep.mp4) |
+| `vla-adapter` — VLA-Adapter-Pro | libero_spatial (10 tasks × 1 trial) | 1.00 | [`vla-adapter/libero-spatial-10ep.mp4`](docs/showcase/vla-adapter/libero-spatial-10ep.mp4) |
 
 #### `gr00t-gr1` — GR00T N1.6 on RoboCasa GR1 humanoid (22-DOF)
 
@@ -345,6 +349,7 @@ python vlasim.py deploy --vla molmoact2 --email you@example.com --region us-west
 python vlasim.py deploy --vla xvla --email you@example.com         # X-VLA-0.9B, LIBERO-Spatial (~15-30 min)
 python vlasim.py deploy --vla smolvla --email you@example.com      # SmolVLA-450M, LIBERO-Spatial (~15-30 min)
 python vlasim.py deploy --vla lingbot-va --email you@example.com   # LingBot-VA world action model, LIBERO-10, g6e (~2.5 h for 6 episodes)
+python vlasim.py deploy --vla vla-adapter --email you@example.com  # VLA-Adapter-Pro (MIT), LIBERO-Spatial (~30-40 min)
 
 # RLDX-1 (RLWRLD) — LIBERO (SOTA open VLA, MSAT/Qwen3-VL-8B, ZeroMQ server + sim client, ~80-120 min)
 # NON-COMMERCIAL weights (sim benchmarking) — AWS-internal enablement only.
@@ -475,6 +480,7 @@ The S3 results bucket is **retained** after stack deletion to preserve simulatio
 | `xvla` | libero_spatial (2 tasks × 5 ep) | 98.1% LIBERO avg (paper) · 93% (LeRobot card) | validated 2026-10-14 — 0.90 (9/10 ep, g6.2xlarge L4, ap-northeast-2) |
 | `smolvla` | libero_spatial (2 tasks × 5 ep) | — (not stated on the model card) | validated 2026-10-14 — 0.80 (8/10 ep, g6.xlarge L4, ap-northeast-2) |
 | `lingbot-va` | libero_10 (2 tasks × 3 ep) | 98.5% LIBERO-Long (LeRobot docs) | validated 2026-10-14 — 1.00 (6/6 ep, g6e.2xlarge L40S, ap-northeast-2; ~20 min/episode) |
+| `vla-adapter` | libero_spatial (10 tasks × 1 trial) | 99.6% LIBERO-Spatial-Pro (inference log on the model card) | validated 2026-10-14 — 1.00 (10/10, g6.xlarge L4, ap-northeast-2) |
 | `rldx` | libero_spatial (single task) | 97.8% LIBERO avg (paper, SOTA) | validated 2026-06-20 — 1.0 (5/5 ep, eager, g6.xlarge L4 sm_89, full `deploy.py` smoke) |
 | `rldx-simpler` | simpler_env_google/google_robot_pick_coke_can (Google-VM Fractal) | 81.5% Google-VM (paper README) | validated 2026-06-24 — 1.0 (5/5 ep, eager, g6.2xlarge L4, full `deploy.py` 1-shot smoke) |
 | `rldx-simpler` | simpler_env_google/google_robot_move_near (Google-VM Fractal) | 81.5% Google-VM (paper README) | validated 2026-06-24 — 1.0 (5/5 ep, eager, g6.2xlarge L4, full `deploy.py` 1-shot smoke) |

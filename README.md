@@ -161,16 +161,19 @@ Same RLDX-1 family again, but on the **RoboCasa Kitchen** 24-task benchmark with
 | MP4: [`rldx-kitchen/kitchen-open-single-door-failure.mp4`](docs/showcase/rldx-kitchen/kitchen-open-single-door-failure.mp4) (clip is 2× speed) |
 | _The one miss on the door task: the run hits the 45-step cap (a *timeout*, not a hard error) without latching the handle. SR 0.80 here means "usually solved" — pair the number with the per-episode step counts in `simulation_results.csv`._ |
 
-#### `xvla` · `smolvla` · `lingbot-va` — LeRobot policies on LIBERO (Franka Panda 7-DOF)
+#### `xvla` · `smolvla` · `lingbot-va` · `vla-adapter` — newer VLA / world action models on LIBERO (Franka Panda 7-DOF)
 
-Three upstream-LeRobot policies run through the shared `lerobot-libero` template, plus VLA-Adapter-Pro on its own OFT-style template (validated 2026-10-14, ap-northeast-2). Each clip strings together the rendered episodes of the pipe-proof run.
+Three upstream-LeRobot policies run through the shared `lerobot-libero` template, plus VLA-Adapter-Pro on its own OFT-style template (validated 2026-10-14, ap-northeast-2). Each clip strings together the rendered episodes of the pipe-proof run (the VLA-Adapter preview is sped up ~4× to fit all 10 tasks; LingBot-VA renders at 128 px).
 
-| Target | Suite (run) | Success | Rollouts |
-|---|---|---|---|
-| `xvla` — X-VLA-0.9B | libero_spatial (2 tasks × 5 ep) | 0.90 | [`xvla/libero-spatial-5ep.mp4`](docs/showcase/xvla/libero-spatial-5ep.mp4) |
-| `smolvla` — SmolVLA-450M | libero_spatial (2 tasks × 5 ep) | 0.80 | [`smolvla/libero-spatial-5ep.mp4`](docs/showcase/smolvla/libero-spatial-5ep.mp4) |
-| `lingbot-va` — LingBot-VA (world action model) | libero_10 (2 tasks × 3 ep) | 1.00 | [`lingbot-va/libero-long-3ep.mp4`](docs/showcase/lingbot-va/libero-long-3ep.mp4) |
-| `vla-adapter` — VLA-Adapter-Pro | libero_spatial (10 tasks × 1 trial) | 1.00 | [`vla-adapter/libero-spatial-10ep.mp4`](docs/showcase/vla-adapter/libero-spatial-10ep.mp4) |
+| `xvla` — X-VLA-0.9B · libero_spatial (2 tasks × 5 ep) **0.90** · `g6.2xlarge` | `smolvla` — SmolVLA-450M · libero_spatial (2 tasks × 5 ep) **0.80** · `g6.xlarge` |
+|---|---|
+| ![X-VLA — LIBERO-Spatial rollouts](docs/showcase/xvla/libero-spatial-5ep.gif) | ![SmolVLA — LIBERO-Spatial rollouts](docs/showcase/smolvla/libero-spatial-5ep.gif) |
+| MP4: [`xvla/libero-spatial-5ep.mp4`](docs/showcase/xvla/libero-spatial-5ep.mp4) | MP4: [`smolvla/libero-spatial-5ep.mp4`](docs/showcase/smolvla/libero-spatial-5ep.mp4) |
+
+| `lingbot-va` — LingBot-VA (world action model) · libero_10 (2 tasks × 3 ep) **1.00** · `g6e.2xlarge` | `vla-adapter` — VLA-Adapter-Pro · libero_spatial (10 tasks × 1 trial) **1.00** · `g6.xlarge` |
+|---|---|
+| ![LingBot-VA — LIBERO-10 long-horizon rollouts](docs/showcase/lingbot-va/libero-long-3ep.gif) | ![VLA-Adapter-Pro — LIBERO-Spatial rollouts (4x)](docs/showcase/vla-adapter/libero-spatial-10ep.gif) |
+| MP4: [`lingbot-va/libero-long-3ep.mp4`](docs/showcase/lingbot-va/libero-long-3ep.mp4) | MP4: [`vla-adapter/libero-spatial-10ep.mp4`](docs/showcase/vla-adapter/libero-spatial-10ep.mp4) |
 
 #### `gr00t-gr1` — GR00T N1.6 on RoboCasa GR1 humanoid (22-DOF)
 

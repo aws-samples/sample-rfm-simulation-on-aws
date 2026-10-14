@@ -10,9 +10,8 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-    env:
-      CDK_DEFAULT_ACCOUNT: "123456789012"
-      CDK_DEFAULT_REGION: us-east-1
+    # No AWS credentials and no CDK_DEFAULT_ACCOUNT: the stacks synthesize environment-agnostic, so
+    # cdk synth never needs an AWS call (an explicit dummy account makes the AZ lookup try one).
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

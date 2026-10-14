@@ -52,6 +52,7 @@ DESTROY_PY = BASE_DIR / "destroy.py"
 VLA_CHOICES = [
     "gr00t", "gr00t-gr1", "gr00t-g1", "pi", "openvla-oft",
     "lap", "rldx", "rldx-simpler", "rldx-gr1", "rldx-kitchen", "openarm-isaac", "openarm-lift-act",
+    "molmoact2", "xvla", "smolvla", "lingbot-va",
 ]
 
 # Regions the userdata templates + DLAMI lookups are validated against (README).

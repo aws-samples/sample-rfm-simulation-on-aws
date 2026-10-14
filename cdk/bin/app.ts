@@ -16,6 +16,7 @@
  *   npx cdk deploy OpenArm-Isaac-Demo          -c region=us-east-1 -c vla=openarm-isaac
  *   npx cdk deploy OpenArm-Lift-ACT-Demo       -c region=us-east-1 -c vla=openarm-lift-act
  *   npx cdk deploy MolmoAct2-Demo              -c region=us-west-2 -c vla=molmoact2
+ *   npx cdk deploy XVLA-Demo                   -c region=us-east-1 -c vla=xvla
  */
 
 import * as cdk from 'aws-cdk-lib';
@@ -28,9 +29,9 @@ const app = new cdk.App();
 const region = app.node.tryGetContext('region') ?? 'ap-northeast-2';
 const vla: string = app.node.tryGetContext('vla');
 
-if (!vla || !['gr00t', 'gr00t-gr1', 'gr00t-g1', 'pi', 'openvla-oft', 'lap', 'rldx', 'rldx-simpler', 'rldx-gr1', 'rldx-kitchen', 'openarm-isaac', 'openarm-lift-act', 'molmoact2'].includes(vla)) {
+if (!vla || !['gr00t', 'gr00t-gr1', 'gr00t-g1', 'pi', 'openvla-oft', 'lap', 'rldx', 'rldx-simpler', 'rldx-gr1', 'rldx-kitchen', 'openarm-isaac', 'openarm-lift-act', 'molmoact2', 'xvla', 'smolvla', 'lingbot-va'].includes(vla)) {
   throw new Error(
-    'CDK context "vla" is required. Pass -c vla=gr00t, -c vla=gr00t-gr1, -c vla=gr00t-g1, -c vla=pi, -c vla=openvla-oft, -c vla=lap, -c vla=rldx, -c vla=rldx-simpler, -c vla=rldx-gr1, -c vla=rldx-kitchen, -c vla=openarm-isaac, -c vla=openarm-lift-act, or -c vla=molmoact2.\n' +
+    'CDK context "vla" is required. Pass -c vla=gr00t, -c vla=gr00t-gr1, -c vla=gr00t-g1, -c vla=pi, -c vla=openvla-oft, -c vla=lap, -c vla=rldx, -c vla=rldx-simpler, -c vla=rldx-gr1, -c vla=rldx-kitchen, -c vla=openarm-isaac, -c vla=openarm-lift-act, -c vla=molmoact2, -c vla=xvla, -c vla=smolvla, or -c vla=lingbot-va.\n' +
     'Use deploy.py which sets this automatically.',
   );
 }
@@ -64,6 +65,9 @@ const stackNameMap: Record<string, string> = {
   'openarm-isaac': 'OpenArm-Isaac-Demo',
   'openarm-lift-act': 'OpenArm-Lift-ACT-Demo',
   'molmoact2':   'MolmoAct2-Demo',
+  'xvla':        'XVLA-Demo',
+  'smolvla':     'SmolVLA-Demo',
+  'lingbot-va':  'LingBot-VA-Demo',
 };
 const stackName = stackNameMap[vla];
 
@@ -86,6 +90,9 @@ const descriptionMap: Record<string, string> = {
   'openarm-isaac': 'π0.5 (LeRobot pi05 folding_latest, 16-DOF) + Isaac Lab bimanual OpenArm (pipe-proof)',
   'openarm-lift-act': 'OpenArm unimanual Lift-Cube × ACT — scripted teleop-free demo collection (HDF5)',
   'molmoact2': 'MolmoAct2 (Ai2 5B Action Reasoning Model) + LIBERO (Franka Panda, allenai/lerobot fork, fp32 in-process eval)',
+  'xvla': 'X-VLA-0.9B (2toINF/Tsinghua AIR) + LIBERO (Franka Panda, upstream LeRobot lerobot-eval, in-process)',
+  'smolvla': 'SmolVLA-450M (Hugging Face) + LIBERO (Franka Panda, upstream LeRobot lerobot-eval, in-process)',
+  'lingbot-va': 'LingBot-VA world action model (Robbyant) + LIBERO-Long (Franka Panda, upstream LeRobot lerobot-eval, in-process)',
 };
 
 const stack = new VlaSimulatorStack(app, stackName, {

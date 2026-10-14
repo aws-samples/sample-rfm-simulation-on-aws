@@ -98,6 +98,17 @@ const INSTANCE_TYPES: Record<string, string[]> = {
   'molmoact2':   ['g6e.2xlarge', 'g6e.4xlarge'],
 };
 
+// Targets without an INSTANCE_TYPES entry (e.g. the LeRobot × LIBERO family) take the ordered
+// `instance.preferred` list from their models/<vla>.yaml. Never fall back to another target's list:
+// gr00t's 12xlarge default was the wrong (and costly) choice for every target that hit it.
+function preferredFromYaml(vla: string, instanceCfg: any): string[] {
+  const pref = instanceCfg?.preferred;
+  if (!Array.isArray(pref) || pref.length === 0 || !pref.every((t: unknown) => typeof t === 'string')) {
+    throw new Error(`models/${vla}.yaml: instance.preferred (list of instance types) is required for ${vla}`);
+  }
+  return pref;
+}
+
 export class VlaSimulatorStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: VlaSimulatorStackProps) {
     super(scope, id, props);
@@ -360,7 +371,7 @@ export class VlaSimulatorStack extends cdk.Stack {
 
     // ── AzSelector: launch real instance (no probe+terminate race) ─
     const azSelector = new AzSelectorConstruct(this, 'AzSelector', {
-      instanceTypes: INSTANCE_TYPES[vla] ?? INSTANCE_TYPES['gr00t'],
+      instanceTypes: INSTANCE_TYPES[vla] ?? preferredFromYaml(vla, instanceCfg),
       amiId,
       subnetIds: vpc.privateSubnets.map((s) => s.subnetId),
       userDataBase64: userDataRendered,

@@ -532,6 +532,58 @@ def generate_molmoact2(config: dict, dry_run: bool) -> str:
     return env.get_template("molmoact2-userdata.sh.j2").render(**ctx)
 
 
+# Targets that run an upstream-LeRobot policy through `lerobot-eval --env.type=libero` with the shared
+# lerobot-libero template. Adding one = a models/<id>.yaml + the CDK/CLI name maps; no new template.
+LEROBOT_LIBERO_TARGETS = ("xvla", "smolvla", "lingbot-va")
+
+
+def generate_lerobot_libero(config: dict, dry_run: bool, vla: str) -> str:
+    """Upstream LeRobot policy × LIBERO eval, in-process (shared lerobot-libero-userdata.sh.j2).
+
+    LeRobot is installed from source at a pinned commit (`uv sync --locked --extra <policy> --extra
+    libero`); `--policy.path=<hf_repo>` lets lerobot-eval resolve policy.type from the checkpoint.
+    Per-model extras come from models/<vla>.yaml: uv_extras, policy_module (import check),
+    policy_args / env_args (extra lerobot-eval flags) and the instance VRAM / host-RAM floors.
+    """
+    tasks = config.get("tasks", [])
+    if not tasks:
+        print(f"[error] models/{vla}.yaml에 tasks 항목이 없습니다.", file=sys.stderr)
+        sys.exit(1)
+    model = config.get("model", {})
+    instance = config.get("instance", {})
+    for key in ("hf_repo", "lerobot_commit", "uv_extras", "policy_module"):
+        if not model.get(key):
+            print(f"[error] models/{vla}.yaml: model.{key} is required", file=sys.stderr)
+            sys.exit(1)
+
+    ctx = {
+        "vla": vla,
+        "tasks_json": _tasks_json_for_bash(tasks),
+        "deployment": config.get("deployment", {}),
+        "display_name": model.get("display_name", vla),
+        "policy_desc": model.get("policy_desc", vla),
+        "license": model.get("license", "see model card"),
+        "hf_repo": model["hf_repo"],
+        "hf_model_revision": model.get("hf_model_revision", ""),
+        "lerobot_repo": model.get("lerobot_repo", "https://github.com/huggingface/lerobot.git"),
+        "lerobot_commit": model["lerobot_commit"],
+        "python_version": model.get("python_version", "3.12"),
+        "uv_extras": list(model["uv_extras"]),
+        "policy_module": model["policy_module"],
+        "policy_args": list(model.get("policy_args") or []),
+        "env_args": list(model.get("env_args") or []),
+        "min_gpu_mib": int(instance.get("min_gpu_mib", 20000)),
+        "min_host_mib": int(instance.get("min_host_mib", 15000)),
+    }
+    for a in ctx["policy_args"] + ctx["env_args"]:
+        if "'" in a:
+            print(f"[error] models/{vla}.yaml: single quote not allowed in eval args: {a}", file=sys.stderr)
+            sys.exit(1)
+
+    env = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)), keep_trailing_newline=True)  # nosec B701 - shell script template
+    return env.get_template("lerobot-libero-userdata.sh.j2").render(**ctx)
+
+
 def generate_pi(config: dict, resolved_vpc: str, resolved_nlb: str, dry_run: bool) -> str:
     tasks = config.get("tasks", [])
     if not tasks:
@@ -560,7 +612,7 @@ def generate_pi(config: dict, resolved_vpc: str, resolved_nlb: str, dry_run: boo
 
 def main():
     parser = argparse.ArgumentParser(description="vla-simulator UserData 스크립트 생성")
-    parser.add_argument("--vla", required=True, choices=["gr00t", "gr00t-gr1", "gr00t-g1", "pi", "openvla-oft", "lap", "rldx", "rldx-simpler", "rldx-gr1", "rldx-kitchen", "openarm-isaac", "openarm-lift-act", "molmoact2"], help="VLA 모델")
+    parser.add_argument("--vla", required=True, choices=["gr00t", "gr00t-gr1", "gr00t-g1", "pi", "openvla-oft", "lap", "rldx", "rldx-simpler", "rldx-gr1", "rldx-kitchen", "openarm-isaac", "openarm-lift-act", "molmoact2", *LEROBOT_LIBERO_TARGETS], help="VLA 모델")
     parser.add_argument(
         "--config", default=str(BASE_DIR / "simulator-config.yaml"),
         help="공통 설정 파일 경로 (기본: simulator-config.yaml)",
@@ -610,6 +662,8 @@ def main():
         rendered = generate_openarm_lift_act(config, args.dry_run)
     elif args.vla == "molmoact2":
         rendered = generate_molmoact2(config, args.dry_run)
+    elif args.vla in LEROBOT_LIBERO_TARGETS:
+        rendered = generate_lerobot_libero(config, args.dry_run, vla=args.vla)
     else:
         rendered = generate_pi(config, args.resolved_vpc, args.resolved_nlb, args.dry_run)
 

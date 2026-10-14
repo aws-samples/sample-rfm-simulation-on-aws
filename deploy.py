@@ -50,6 +50,14 @@ from generate import (
 BASE_DIR = Path(__file__).parent
 
 
+
+# Upstream-LeRobot × LIBERO targets (shared lerobot-libero template) → CDK stack names.
+# Keep in sync with generate.LEROBOT_LIBERO_TARGETS, destroy.STACK_NAMES and cdk/bin/app.ts.
+LEROBOT_LIBERO_STACKS = {
+    "xvla": "XVLA-Demo",
+}
+LEROBOT_LIBERO_TARGETS = tuple(LEROBOT_LIBERO_STACKS)
+
 def _resolve_ssm(value: str, region: str) -> str:
     """value가 'ssm:/path' 형식이면 SSM Parameter Store에서 조회."""
     if not value.startswith("ssm:"):
@@ -177,7 +185,7 @@ def _maybe_import_orphan_bucket(
 def main():
     parser = argparse.ArgumentParser(description="vla-simulator 1-Click Deploy")
     parser.add_argument("--vla", required=True,
-                        choices=["gr00t", "gr00t-gr1", "gr00t-g1", "pi", "openvla-oft", "lap", "rldx", "rldx-simpler", "rldx-gr1", "rldx-kitchen", "openarm-isaac", "openarm-lift-act", "molmoact2"],
+                        choices=["gr00t", "gr00t-gr1", "gr00t-g1", "pi", "openvla-oft", "lap", "rldx", "rldx-simpler", "rldx-gr1", "rldx-kitchen", "openarm-isaac", "openarm-lift-act", "molmoact2", "xvla"],
                         help="VLA model to deploy")
     parser.add_argument("--bridge", action="store_true",
                         help="Bridge mode: use vla-hub ECS endpoint instead of local model")
@@ -230,6 +238,10 @@ def main():
             sys.exit(1)
         if args.vla == "molmoact2":
             print("[error] Bridge mode not supported for molmoact2 (local only — MolmoAct2Policy runs in-process via lerobot-eval on the sim GPU).",
+                  file=sys.stderr)
+            sys.exit(1)
+        if args.vla in LEROBOT_LIBERO_TARGETS:
+            print(f"[error] Bridge mode not supported for {args.vla} (local only — the LeRobot policy runs in-process via lerobot-eval on the sim GPU).",
                   file=sys.stderr)
             sys.exit(1)
         if args.vla == "openarm-isaac":
@@ -296,6 +308,8 @@ def main():
         stack_name = "OpenArm-Lift-ACT-Demo"
     elif args.vla == "molmoact2":
         stack_name = "MolmoAct2-Demo"
+    elif args.vla in LEROBOT_LIBERO_STACKS:
+        stack_name = LEROBOT_LIBERO_STACKS[args.vla]
     else:
         stack_name = "Pi-Demo"
     mode = "collect" if args.collect else ("bridge" if args.bridge else "local")
@@ -385,6 +399,8 @@ def main():
             print("  Estimated time: ~60-90 min (docker pull Isaac Lab image ~20-30min + openarm install + sim boot ~10min + scripted collection; first run small num_demos)")
         elif args.vla == "molmoact2":
             print("  Estimated time: ~60-90 min for the pipe-proof cap (uv sync fork source ~20-30min + MolmoAct2-LIBERO ckpt ~22GB DL ~10min + fp32 LIBERO eval 2 tasks x 5 ep). Full suite (all 10 tasks x 50 ep) is MANY hours in fp32 — scale via models/molmoact2.yaml tasks.")
+        elif args.vla in LEROBOT_LIBERO_TARGETS:
+            print("  Estimated time: ~40-80 min for the pipe-proof cap (uv sync LeRobot source ~15-30min + ckpt DL + LIBERO eval; scale via models/<vla>.yaml tasks)")
         else:
             print("  Estimated time: ~90-120 min per suite (install ~30min + eval ~60-90min)")
     print("  If this is your first deploy, confirm the SNS subscription email to receive notifications.")

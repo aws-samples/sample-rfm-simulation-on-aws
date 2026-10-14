@@ -1,0 +1,40 @@
+# X-VLA-0.9B (2toINF / Tsinghua AIR) — soft-prompted cross-embodiment VLA, Florence-2 backbone.
+# Runs through upstream LeRobot's lerobot-eval on LIBERO (shared template: lerobot-libero-userdata.sh.j2).
+# License: Apache-2.0 (code and weights), public / non-gated.
+# Eval recipe: LeRobot docs/source/xvla.mdx ("Evaluating Pre-trained Checkpoints"):
+#   --policy.path=lerobot/xvla-libero --env.type=libero --env.control_mode=absolute --env.episode_length=800
+# Reported: LeRobot card "93% on LIBERO"; X-VLA paper 98.1% LIBERO avg.
+model:
+  id: xvla
+  display_name: "X-VLA-0.9B"
+  policy_desc: "X-VLA-0.9B (2toINF/Tsinghua AIR, soft-prompted cross-embodiment VLA, Florence-2 backbone)"
+  license: "Apache-2.0 (code and weights)"
+  hf_repo: "lerobot/xvla-libero"
+  hf_model_revision: "12e8783e996944f5c97e490d37d4c145484ed70a"
+  lerobot_repo: "https://github.com/huggingface/lerobot.git"
+  lerobot_commit: "ae2b57f12223c8c5184fcd814eb63cd9ce7de203"   # main 2026-10-13
+  python_version: "3.12"
+  uv_extras: [xvla, libero]
+  policy_module: xvla                 # import check: lerobot.policies.xvla
+  policy_args: []
+  env_args:
+    - "--env.control_mode=absolute"
+    - "--env.episode_length=800"
+
+instance:
+  # 0.9B policy; any 24GB GPU is enough. 2xlarge for host RAM headroom during uv sync + sim.
+  preferred: [g6.2xlarge, g5.2xlarge, g6.xlarge, g5.xlarge]
+  ebs_gb: 150
+  creationpolicy_timeout: PT150M
+  min_gpu_mib: 20000
+  min_host_mib: 15000
+
+tasks:
+  - suite: libero_spatial
+    task_ids: [0, 1]                # pipe-proof cap: first 2 of 10 tasks. [] / omit -> all 10.
+    n_episodes: 5                   # per task
+    description: "LIBERO-Spatial pipe-proof (X-VLA-0.9B, 2 tasks x 5 ep)"
+    seed: 142
+
+bridge:
+  enabled: false

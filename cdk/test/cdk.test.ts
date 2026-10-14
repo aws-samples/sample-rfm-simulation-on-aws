@@ -9,7 +9,7 @@ import { VlaSimulatorStack } from '../lib/vla-simulator-stack';
 // the tests run on a fresh checkout, and remove only the placeholders we created.
 const USERDATA_DIR = path.resolve(__dirname, '../../assets/userdata');
 const VLAS = ['gr00t', 'pi'];
-const SEED_VLAS = [...VLAS, 'openarm-lift-act'];
+const SEED_VLAS = [...VLAS, 'openarm-lift-act', 'xvla'];
 const seeded: string[] = [];
 
 beforeAll(() => {
@@ -74,5 +74,17 @@ test('long stack names get a results bucket name within 63 chars', () => {
 test('bucket names that already fit are unchanged', () => {
   Template.fromStack(makeApp('gr00t')).hasResourceProperties('AWS::S3::Bucket', {
     BucketName: 'vla-sim-results-gr00t-demo-us-east-1-123456789012',
+  });
+});
+
+// Targets without an INSTANCE_TYPES entry take instance.preferred from models/<vla>.yaml.
+test('yaml-driven targets launch their own preferred instance list', () => {
+  const app = new cdk.App({ context: { region: 'us-east-1', vla: 'xvla', notify_email: 'test@example.com' } });
+  const stack = new VlaSimulatorStack(app, 'XVLA-Demo', {
+    vla: 'xvla',
+    env: { account: '123456789012', region: 'us-east-1' },
+  });
+  Template.fromStack(stack).hasResourceProperties('AWS::CloudFormation::CustomResource', {
+    InstanceTypes: 'g6.2xlarge,g5.2xlarge,g6.xlarge,g5.xlarge',
   });
 });

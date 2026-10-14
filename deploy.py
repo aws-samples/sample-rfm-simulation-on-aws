@@ -59,6 +59,8 @@ LEROBOT_LIBERO_STACKS = {
     "lingbot-va": "LingBot-VA-Demo",
 }
 LEROBOT_LIBERO_TARGETS = tuple(LEROBOT_LIBERO_STACKS)
+# Local-only targets with their own template (same CLI handling as the LeRobot family).
+OTHER_LOCAL_STACKS = {"vla-adapter": "VLA-Adapter-Demo"}
 
 def _resolve_ssm(value: str, region: str) -> str:
     """value가 'ssm:/path' 형식이면 SSM Parameter Store에서 조회."""
@@ -187,7 +189,7 @@ def _maybe_import_orphan_bucket(
 def main():
     parser = argparse.ArgumentParser(description="vla-simulator 1-Click Deploy")
     parser.add_argument("--vla", required=True,
-                        choices=["gr00t", "gr00t-gr1", "gr00t-g1", "pi", "openvla-oft", "lap", "rldx", "rldx-simpler", "rldx-gr1", "rldx-kitchen", "openarm-isaac", "openarm-lift-act", "molmoact2", *LEROBOT_LIBERO_TARGETS],
+                        choices=["gr00t", "gr00t-gr1", "gr00t-g1", "pi", "openvla-oft", "lap", "rldx", "rldx-simpler", "rldx-gr1", "rldx-kitchen", "openarm-isaac", "openarm-lift-act", "molmoact2", *LEROBOT_LIBERO_TARGETS, *OTHER_LOCAL_STACKS],
                         help="VLA model to deploy")
     parser.add_argument("--bridge", action="store_true",
                         help="Bridge mode: use vla-hub ECS endpoint instead of local model")
@@ -242,8 +244,8 @@ def main():
             print("[error] Bridge mode not supported for molmoact2 (local only — MolmoAct2Policy runs in-process via lerobot-eval on the sim GPU).",
                   file=sys.stderr)
             sys.exit(1)
-        if args.vla in LEROBOT_LIBERO_TARGETS:
-            print(f"[error] Bridge mode not supported for {args.vla} (local only — the LeRobot policy runs in-process via lerobot-eval on the sim GPU).",
+        if args.vla in LEROBOT_LIBERO_TARGETS or args.vla in OTHER_LOCAL_STACKS:
+            print(f"[error] Bridge mode not supported for {args.vla} (local only — the policy runs in-process on the sim GPU).",
                   file=sys.stderr)
             sys.exit(1)
         if args.vla == "openarm-isaac":
@@ -312,6 +314,8 @@ def main():
         stack_name = "MolmoAct2-Demo"
     elif args.vla in LEROBOT_LIBERO_STACKS:
         stack_name = LEROBOT_LIBERO_STACKS[args.vla]
+    elif args.vla in OTHER_LOCAL_STACKS:
+        stack_name = OTHER_LOCAL_STACKS[args.vla]
     else:
         stack_name = "Pi-Demo"
     mode = "collect" if args.collect else ("bridge" if args.bridge else "local")

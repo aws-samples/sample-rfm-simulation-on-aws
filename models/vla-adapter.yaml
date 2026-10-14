@@ -1,0 +1,35 @@
+# VLA-Adapter-Pro (OpenHelix) — Qwen2.5-0.5B Prismatic VLM with a bridge-attention action head (~0.5B).
+# An OpenVLA-OFT fork, so it reuses the openvla-oft install path (vla-adapter-userdata.sh.j2 is a copy of
+# that template with the repo, checkpoint and eval flags taken from here). License: MIT (code and weights).
+# Eval recipe: github.com/OpenHelix-Team/VLA-Adapter README ("Launch LIBERO-Spatial-Pro evals").
+# Reported: LIBERO-Spatial-Pro 99.6% (inference log shipped with the checkpoint).
+model:
+  id: vla-adapter
+  display_name: "VLA-Adapter-Pro"
+  policy_desc: "VLA-Adapter-Pro (OpenHelix, Qwen2.5-0.5B Prismatic VLM + bridge-attention action head)"
+  license: "MIT (code and weights)"
+  hf_repo: "VLA-Adapter/LIBERO-Spatial-Pro"
+  hf_model_revision: "cb023c6771fc62ea729d218f09ac0583c14f59d4"
+  repo_url: "https://github.com/OpenHelix-Team/VLA-Adapter.git"
+  repo_commit: "23fa0c9c159e2aa04341cdd3e924f44061311060"
+  task_suite_name: libero_spatial
+  libero_commit: master
+  extra_pip: [msgpack, msgpack-numpy, h5py]   # imported by experiments/robot/*.py; not in pyproject
+  eval_args:
+    - "--use_proprio True"
+    - "--num_images_in_input 2"
+    - "--use_film False"
+    - "--use_pro_version True"
+
+instance:
+  preferred: [g6.xlarge, g5.xlarge, g6.2xlarge, g5.2xlarge]   # ~0.5B; any 24 GB GPU
+  ebs_gb: 150
+  creationpolicy_timeout: PT150M
+
+tasks:
+  - suite: libero_spatial
+    num_trials_per_task: 1          # all 10 tasks x 1 trial (pipe-proof)
+    description: "LIBERO-Spatial pipe-proof (VLA-Adapter-Pro, 10 tasks x 1 trial)"
+
+bridge:
+  enabled: false

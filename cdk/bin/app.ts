@@ -29,9 +29,9 @@ const app = new cdk.App();
 const region = app.node.tryGetContext('region') ?? 'ap-northeast-2';
 const vla: string = app.node.tryGetContext('vla');
 
-if (!vla || !['gr00t', 'gr00t-gr1', 'gr00t-g1', 'pi', 'openvla-oft', 'lap', 'rldx', 'rldx-simpler', 'rldx-gr1', 'rldx-kitchen', 'openarm-isaac', 'openarm-lift-act', 'molmoact2', 'xvla', 'smolvla', 'lingbot-va'].includes(vla)) {
+if (!vla || !['gr00t', 'gr00t-gr1', 'gr00t-g1', 'pi', 'openvla-oft', 'lap', 'rldx', 'rldx-simpler', 'rldx-gr1', 'rldx-kitchen', 'openarm-isaac', 'openarm-lift-act', 'molmoact2', 'xvla', 'smolvla', 'lingbot-va', 'vla-adapter'].includes(vla)) {
   throw new Error(
-    'CDK context "vla" is required. Pass -c vla=gr00t, -c vla=gr00t-gr1, -c vla=gr00t-g1, -c vla=pi, -c vla=openvla-oft, -c vla=lap, -c vla=rldx, -c vla=rldx-simpler, -c vla=rldx-gr1, -c vla=rldx-kitchen, -c vla=openarm-isaac, -c vla=openarm-lift-act, -c vla=molmoact2, -c vla=xvla, -c vla=smolvla, or -c vla=lingbot-va.\n' +
+    'CDK context "vla" is required. Pass -c vla=gr00t, -c vla=gr00t-gr1, -c vla=gr00t-g1, -c vla=pi, -c vla=openvla-oft, -c vla=lap, -c vla=rldx, -c vla=rldx-simpler, -c vla=rldx-gr1, -c vla=rldx-kitchen, -c vla=openarm-isaac, -c vla=openarm-lift-act, -c vla=molmoact2, -c vla=xvla, -c vla=smolvla, -c vla=lingbot-va, or -c vla=vla-adapter.\n' +
     'Use deploy.py which sets this automatically.',
   );
 }
@@ -68,6 +68,7 @@ const stackNameMap: Record<string, string> = {
   'xvla':        'XVLA-Demo',
   'smolvla':     'SmolVLA-Demo',
   'lingbot-va':  'LingBot-VA-Demo',
+  'vla-adapter': 'VLA-Adapter-Demo',
 };
 const stackName = stackNameMap[vla];
 
@@ -93,6 +94,7 @@ const descriptionMap: Record<string, string> = {
   'xvla': 'X-VLA-0.9B (2toINF/Tsinghua AIR) + LIBERO (Franka Panda, upstream LeRobot lerobot-eval, in-process)',
   'smolvla': 'SmolVLA-450M (Hugging Face) + LIBERO (Franka Panda, upstream LeRobot lerobot-eval, in-process)',
   'lingbot-va': 'LingBot-VA world action model (Robbyant) + LIBERO-Long (Franka Panda, upstream LeRobot lerobot-eval, in-process)',
+  'vla-adapter': 'VLA-Adapter-Pro (OpenHelix, 0.5B) + LIBERO (Franka Panda, OpenVLA-OFT-style in-process eval)',
 };
 
 const stack = new VlaSimulatorStack(app, stackName, {

@@ -534,7 +534,7 @@ def generate_molmoact2(config: dict, dry_run: bool) -> str:
 
 # Targets that run an upstream-LeRobot policy through `lerobot-eval --env.type=libero` with the shared
 # lerobot-libero template. Adding one = a models/<id>.yaml + the CDK/CLI name maps; no new template.
-LEROBOT_LIBERO_TARGETS = ("xvla", "smolvla", "lingbot-va")
+LEROBOT_LIBERO_TARGETS = ("xvla", "smolvla", "lingbot-va", "fastwam")
 
 
 def generate_lerobot_libero(config: dict, dry_run: bool, vla: str) -> str:

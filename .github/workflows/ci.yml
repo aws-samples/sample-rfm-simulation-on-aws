@@ -13,7 +13,7 @@ jobs:
     # No AWS credentials and no CDK_DEFAULT_ACCOUNT: the stacks synthesize environment-agnostic, so
     # cdk synth never needs an AWS call (an explicit dummy account makes the AZ lookup try one).
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
         with:
           node-version: 22

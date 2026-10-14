@@ -1,0 +1,15 @@
+# One grouped PR per week for /cdk instead of one PR per package (they all rewrite the same lockfile).
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /cdk
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      cdk-minor-and-patch:
+        update-types: [minor, patch]
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly

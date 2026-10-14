@@ -1,0 +1,36 @@
+# Squash-merge Dependabot minor/patch updates once the ci job above has passed on the PR.
+# Major updates are left open for a human (and the CC triage) to look at.
+name: dependabot-automerge
+on:
+  workflow_run:
+    workflows: [ci]
+    types: [completed]
+permissions:
+  contents: write
+  pull-requests: write
+jobs:
+  merge:
+    if: >
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.actor.login == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: merge if minor/patch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          BRANCH: ${{ github.event.workflow_run.head_branch }}
+        run: |
+          pr=$(gh pr list --repo "$REPO" --head "$BRANCH" --state open --json number,title -q '.[0].number')
+          [ -n "$pr" ] || { echo "no open PR for $BRANCH"; exit 0; }
+          title=$(gh pr view "$pr" --repo "$REPO" --json title -q .title)
+          # Dependabot titles: "bump X from A.B.C to D.E.F" (single) or "bump the <group> group ..." (grouped minor/patch)
+          if echo "$title" | grep -q ' group '; then ok=1
+          else
+            from=$(echo "$title" | sed -nE 's/.* from v?([0-9]+)\..* to .*/\1/p'); to=$(echo "$title" | sed -nE 's/.* to v?([0-9]+)\..*/\1/p')
+            [ -n "$from" ] && [ "$from" = "$to" ] && ok=1 || ok=0
+          fi
+          if [ "$ok" = 1 ]; then gh pr merge "$pr" --repo "$REPO" --squash --match-head-commit "$HEAD_SHA"
+          else echo "major update, leaving #$pr for review"; fi

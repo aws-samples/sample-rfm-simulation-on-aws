@@ -1,0 +1,52 @@
+# FastWAM — world action model: Wan2.2 video DiT with a Mixture-of-Transformers action expert
+# (video co-training, actions decoded without generating future frames at test time).
+# Shared template: lerobot-libero-userdata.sh.j2.
+# License: code MIT (FastWAM) / Apache-2.0 (LeRobot integration). The checkpoint's model card
+#   states NO license (checked 2026-10-14) — treat as research/evaluation only and check the
+#   card before any other use. Public, non-gated. Weights are downloaded at runtime, never vendored.
+# Eval recipe: LeRobot src/lerobot/policies/fastwam/README.md (reproduce line):
+#   --policy.n_action_steps=10 --env.observation_height=256 --env.observation_width=256
+#   --env.episode_length=300 (libero_10: 600). The README's --policy.dtype=float32 is for a
+#   140 GB H20: in fp32 the DiT + umt5-xxl text encoder + VAE OOM a 48 GB L40S (validated
+#   2026-10-14: 44.38 GiB in use while moving the VAE), so we keep the checkpoint's bf16 default.
+# Reported (LeRobot README, 500 ep/suite): spatial 97.6 · object 99.0 · goal 95.0 · libero_10 94.0.
+# Footprint (bf16): 12 GB policy + umt5-xxl text encoder + Wan2.2 VAE → L40S 48 GB.
+model:
+  id: fastwam
+  display_name: "FastWAM"
+  policy_desc: "FastWAM (Wan2.2 video DiT + MoT action expert, world action model)"
+  license: "Code MIT / LeRobot Apache-2.0; checkpoint license unspecified (research/evaluation only)"
+  # lerobot/ copy, not the ZibinDong/ original the README cites: the original's config.json predates
+  # the LeRobot port (tokenizer_model_id ".") and fails to build the tokenizer at this LeRobot pin.
+  # The lerobot/ config points the tokenizer at google/umt5-xxl and the umt5 text encoder + VAE at
+  # Wan-AI/Wan2.2-TI2V-5B-Diffusers (both Apache-2.0, non-gated), fetched by LeRobot at load time.
+  hf_repo: "lerobot/fastwam_libero_uncond_2cam224"
+  hf_model_revision: "53983e1249b4eb4d89ab42b40b8678a882d331ad"
+  lerobot_repo: "https://github.com/huggingface/lerobot.git"
+  lerobot_commit: "ae2b57f12223c8c5184fcd814eb63cd9ce7de203"   # main 2026-10-13
+  python_version: "3.12"
+  uv_extras: [fastwam, libero]
+  policy_module: fastwam
+  policy_args:
+    - "--policy.n_action_steps=10"
+  env_args:
+    - "--env.observation_height=256"
+    - "--env.observation_width=256"
+    - "--env.episode_length=300"
+
+instance:
+  preferred: [g6e.2xlarge, g6e.4xlarge]
+  ebs_gb: 250
+  creationpolicy_timeout: PT180M
+  min_gpu_mib: 40000
+  min_host_mib: 49000
+
+tasks:
+  - suite: libero_spatial
+    task_ids: [0, 1]
+    n_episodes: 5
+    description: "LIBERO-Spatial pipe-proof (FastWAM, 2 tasks x 5 ep)"
+    seed: 0
+
+bridge:
+  enabled: false

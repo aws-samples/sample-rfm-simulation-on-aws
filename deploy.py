@@ -57,6 +57,7 @@ LEROBOT_LIBERO_STACKS = {
     "xvla": "XVLA-Demo",
     "smolvla": "SmolVLA-Demo",
     "lingbot-va": "LingBot-VA-Demo",
+    "fastwam": "FastWAM-Demo",
 }
 LEROBOT_LIBERO_TARGETS = tuple(LEROBOT_LIBERO_STACKS)
 # Local-only targets with their own template (same CLI handling as the LeRobot family).

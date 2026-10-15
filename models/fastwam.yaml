@@ -10,14 +10,18 @@
 #   140 GB H20: in fp32 the DiT + umt5-xxl text encoder + VAE OOM a 48 GB L40S (validated
 #   2026-10-14: 44.38 GiB in use while moving the VAE), so we keep the checkpoint's bf16 default.
 # Reported (LeRobot README, 500 ep/suite): spatial 97.6 · object 99.0 · goal 95.0 · libero_10 94.0.
-# Footprint (bf16): 12 GB policy + 11 GB umt5-xxl text encoder + 2.8 GB Wan2.2 VAE → L40S 48 GB.
+# Footprint (bf16): 12 GB policy + umt5-xxl text encoder + Wan2.2 VAE → L40S 48 GB.
 model:
   id: fastwam
   display_name: "FastWAM"
   policy_desc: "FastWAM (Wan2.2 video DiT + MoT action expert, world action model)"
   license: "Code MIT / LeRobot Apache-2.0; checkpoint license unspecified (research/evaluation only)"
-  hf_repo: "ZibinDong/fastwam_libero_uncond_2cam224"
-  hf_model_revision: "a784645f9ce367ba6953dd20a7a7f0310c85747c"
+  # lerobot/ copy, not the ZibinDong/ original the README cites: the original's config.json predates
+  # the LeRobot port (tokenizer_model_id ".") and fails to build the tokenizer at this LeRobot pin.
+  # The lerobot/ config points the tokenizer at google/umt5-xxl and the umt5 text encoder + VAE at
+  # Wan-AI/Wan2.2-TI2V-5B-Diffusers (both Apache-2.0, non-gated), fetched by LeRobot at load time.
+  hf_repo: "lerobot/fastwam_libero_uncond_2cam224"
+  hf_model_revision: "53983e1249b4eb4d89ab42b40b8678a882d331ad"
   lerobot_repo: "https://github.com/huggingface/lerobot.git"
   lerobot_commit: "ae2b57f12223c8c5184fcd814eb63cd9ce7de203"   # main 2026-10-13
   python_version: "3.12"

@@ -1,0 +1,54 @@
+# ASPIRE — Agentic /Skills Discovery for Robotics (NVlabs, arXiv 2607.00272).
+# NOT a trained policy: a coding agent (here Claude on Amazon Bedrock) writes and repairs a per-task
+# Python "skill program" against the simulator, calling perception/planning tools (SAM3 segmentation,
+# Contact-GraspNet grasps, PyRoki IK) through ASPIRE's cap-harness. The "trained model" is the program.
+# Template: aspire-userdata.sh.j2 (own template — the LeRobot/OFT targets are untouched).
+# License: ASPIRE Apache-2.0. Tools fetched at runtime, never vendored: SAM3 weights (facebook/sam3,
+#   SAM License, Hugging Face gated with MANUAL approval — the HF token in SSM /vla-simulator/hf-token
+#   must belong to an approved account), Contact-GraspNet (NVIDIA Source Code License,
+#   non-commercial research/evaluation only).
+# Protocol (comparable to the LeRobot targets): the agent may only use ASPIRE's development seeds
+#   (init-mode seeded, 51-65) to write the program; the program is then frozen and scored on LIBERO
+#   saved init states 0..4 (cap-harness --init-mode saved --seed 1..5), the same initial states
+#   lerobot-eval uses for episodes 0..4.
+# Security: generated programs run with full import access (ASPIRE README). The instance role only
+#   reaches this stack's bucket/logs, SSM /vla-simulator/*, and Bedrock model invocation.
+model:
+  id: aspire
+  display_name: "ASPIRE"
+  policy_desc: "ASPIRE agentic skill discovery (Claude Opus 5.5 on Amazon Bedrock writes a per-task cap-harness program)"
+  license: "ASPIRE Apache-2.0; SAM3 weights SAM License (gated); Contact-GraspNet NVIDIA non-commercial"
+  repo_url: "https://github.com/NVlabs/ASPIRE.git"
+  repo_commit: "fa00f0ef2bc1d91d594b9aa502c22133c9f538f7"   # v1.0 release 2026-10-16
+  profile: rtx4090              # sm_89, every provider on GPU 0 (L40S is sm_89)
+  providers: [sam3, contact_graspnet, pyroki]
+  preflight: false            # true = bootstrap + services (no SAM3) + doctor + Bedrock round trip only
+  agent:
+    bedrock_model: "global.anthropic.claude-opus-5-5"
+    bedrock_sonnet_model: "global.anthropic.claude-sonnet-5-5"   # "sonnet" alias for sub-agents
+    bedrock_haiku_model: "global.anthropic.claude-haiku-5-5"     # "haiku" alias for background calls
+    timeout_min: 120            # per task wall-clock cap for the discovery loop
+    max_turns: 400
+  eval_seeds: [1, 2, 3, 4, 5]
+  sanity_program:               # shipped example, run once before discovery to prove the stack
+    program: examples/libero/open_middle_drawer.py
+    suite: libero_goal_swap
+    task_id: 0
+    seed: 1
+
+instance:
+  preferred: [g6e.2xlarge, g6e.4xlarge]
+  ebs_gb: 250
+  creationpolicy_timeout: PT480M
+  min_gpu_mib: 40000
+  min_host_mib: 49000
+  bedrock: true
+
+tasks:
+  - suite: libero_spatial
+    task_ids: [0, 1]
+    n_episodes: 5
+    description: "LIBERO-Spatial (ASPIRE, 2 tasks x 5 ep, same init states as the LeRobot targets)"
+
+bridge:
+  enabled: false

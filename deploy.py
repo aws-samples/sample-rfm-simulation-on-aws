@@ -61,7 +61,7 @@ LEROBOT_LIBERO_STACKS = {
 }
 LEROBOT_LIBERO_TARGETS = tuple(LEROBOT_LIBERO_STACKS)
 # Local-only targets with their own template (same CLI handling as the LeRobot family).
-OTHER_LOCAL_STACKS = {"vla-adapter": "VLA-Adapter-Demo", "cosmos-policy": "Cosmos-Policy-Demo"}
+OTHER_LOCAL_STACKS = {"vla-adapter": "VLA-Adapter-Demo", "cosmos-policy": "Cosmos-Policy-Demo", "aspire": "ASPIRE-Demo"}
 
 def _resolve_ssm(value: str, region: str) -> str:
     """value가 'ssm:/path' 형식이면 SSM Parameter Store에서 조회."""

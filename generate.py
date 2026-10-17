@@ -619,6 +619,47 @@ def generate_vla_adapter(config: dict, dry_run: bool, vla: str = "vla-adapter") 
     return env.get_template("vla-adapter-userdata.sh.j2").render(**ctx)
 
 
+def generate_cosmos_policy(config: dict, dry_run: bool, vla: str = "cosmos-policy") -> str:
+    """Cosmos Policy (NVIDIA) × LIBERO, run inside the project's own Docker image.
+
+    The repo is cloned at a pinned commit, `docker build -t cosmos-policy docker` builds its CUDA 12.8
+    image, `uv sync --extra cu128 --group libero` installs into the bind-mounted repo, and
+    run_libero_eval.py runs on GPU 0 with the LIBERO.md flags from models/<vla>.yaml (eval_args).
+    """
+    tasks = config.get("tasks", [])
+    if not tasks:
+        print(f"[error] models/{vla}.yaml에 tasks 항목이 없습니다.", file=sys.stderr)
+        sys.exit(1)
+    model = config.get("model", {})
+    instance = config.get("instance", {})
+    for key in ("hf_repo", "repo_url", "repo_commit", "eval_args"):
+        if not model.get(key):
+            print(f"[error] models/{vla}.yaml: model.{key} is required", file=sys.stderr)
+            sys.exit(1)
+    for a in model["eval_args"]:
+        if '"' in a or "'" in a or "$" in a:
+            print(f"[error] models/{vla}.yaml: quotes and $ are not allowed in eval_args: {a}", file=sys.stderr)
+            sys.exit(1)
+    ctx = {
+        "vla": vla,
+        "tasks_json": _tasks_json_for_bash(tasks),
+        "deployment": config.get("deployment", {}),
+        "display_name": model.get("display_name", vla),
+        "policy_desc": model.get("policy_desc", vla),
+        "license": model.get("license", "see model card"),
+        "hf_repo": model["hf_repo"],
+        "hf_model_revision": model.get("hf_model_revision", ""),
+        "repo_url": model["repo_url"],
+        "repo_commit": model["repo_commit"],
+        "python_version": model.get("python_version", "3.10"),
+        "eval_args": list(model["eval_args"]),
+        "min_gpu_mib": int(instance.get("min_gpu_mib", 20000)),
+        "min_host_mib": int(instance.get("min_host_mib", 15000)),
+    }
+    env = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)), keep_trailing_newline=True)  # nosec B701 - shell script template
+    return env.get_template("cosmos-policy-userdata.sh.j2").render(**ctx)
+
+
 def generate_pi(config: dict, resolved_vpc: str, resolved_nlb: str, dry_run: bool) -> str:
     tasks = config.get("tasks", [])
     if not tasks:
@@ -647,7 +688,7 @@ def generate_pi(config: dict, resolved_vpc: str, resolved_nlb: str, dry_run: boo
 
 def main():
     parser = argparse.ArgumentParser(description="vla-simulator UserData 스크립트 생성")
-    parser.add_argument("--vla", required=True, choices=["gr00t", "gr00t-gr1", "gr00t-g1", "pi", "openvla-oft", "lap", "rldx", "rldx-simpler", "rldx-gr1", "rldx-kitchen", "openarm-isaac", "openarm-lift-act", "molmoact2", *LEROBOT_LIBERO_TARGETS, "vla-adapter"], help="VLA 모델")
+    parser.add_argument("--vla", required=True, choices=["gr00t", "gr00t-gr1", "gr00t-g1", "pi", "openvla-oft", "lap", "rldx", "rldx-simpler", "rldx-gr1", "rldx-kitchen", "openarm-isaac", "openarm-lift-act", "molmoact2", *LEROBOT_LIBERO_TARGETS, "vla-adapter", "cosmos-policy"], help="VLA 모델")
     parser.add_argument(
         "--config", default=str(BASE_DIR / "simulator-config.yaml"),
         help="공통 설정 파일 경로 (기본: simulator-config.yaml)",
@@ -699,6 +740,8 @@ def main():
         rendered = generate_molmoact2(config, args.dry_run)
     elif args.vla in LEROBOT_LIBERO_TARGETS:
         rendered = generate_lerobot_libero(config, args.dry_run, vla=args.vla)
+    elif args.vla == "cosmos-policy":
+        rendered = generate_cosmos_policy(config, args.dry_run)
     elif args.vla == "vla-adapter":
         rendered = generate_vla_adapter(config, args.dry_run)
     else:

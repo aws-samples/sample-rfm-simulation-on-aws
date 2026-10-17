@@ -660,6 +660,52 @@ def generate_cosmos_policy(config: dict, dry_run: bool, vla: str = "cosmos-polic
     return env.get_template("cosmos-policy-userdata.sh.j2").render(**ctx)
 
 
+def generate_aspire(config: dict, dry_run: bool, vla: str = "aspire") -> str:
+    """ASPIRE (NVlabs agentic skill discovery) × LIBERO-Pro fork. Not a trained policy: Claude Code on
+    Amazon Bedrock writes a per-task cap-harness program on development seeds, which is then frozen and
+    scored on the LIBERO saved init states the LeRobot targets use. Own template (aspire-userdata.sh.j2)."""
+    tasks = config.get("tasks", [])
+    if not tasks:
+        print(f"[error] models/{vla}.yaml에 tasks 항목이 없습니다.", file=sys.stderr)
+        sys.exit(1)
+    model = config.get("model", {})
+    for key in ("repo_url", "repo_commit", "profile", "providers", "agent", "sanity_program"):
+        if not model.get(key):
+            print(f"[error] models/{vla}.yaml: model.{key} is required", file=sys.stderr)
+            sys.exit(1)
+    ports = {"sam3": 8114, "contact_graspnet": 8115, "pyroki": 8116, "curobo": 8118}
+    unknown = [p for p in model["providers"] if p not in ports]
+    if unknown:
+        print(f"[error] models/{vla}.yaml: unknown providers {unknown}", file=sys.stderr)
+        sys.exit(1)
+    instance = config.get("instance", {})
+    preflight = bool(model.get("preflight", False))
+    service_providers = [p for p in model["providers"] if not (preflight and p == "sam3")]
+    ctx = {
+        "vla": vla,
+        "tasks_json": _tasks_json_for_bash(tasks),
+        "deployment": config.get("deployment", {}),
+        "display_name": model.get("display_name", vla),
+        "policy_desc": model.get("policy_desc", vla),
+        "license": model.get("license", "see model card"),
+        "repo_url": model["repo_url"],
+        "repo_commit": model["repo_commit"],
+        "profile": model["profile"],
+        "providers": list(model["providers"]),
+        # preflight: bootstrap everything, but start no SAM3 service (gated weights) and run no episodes
+        "preflight": preflight,
+        "service_providers": service_providers,
+        "service_ports": [ports[p] for p in service_providers],
+        "agent": model["agent"],
+        "eval_seeds": list(model.get("eval_seeds") or [1, 2, 3, 4, 5]),
+        "sanity_program": model["sanity_program"],
+        "min_gpu_mib": instance.get("min_gpu_mib", 0),
+        "min_host_mib": instance.get("min_host_mib", 0),
+    }
+    env = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)), keep_trailing_newline=True)  # nosec B701 - shell script template
+    return env.get_template("aspire-userdata.sh.j2").render(**ctx)
+
+
 def generate_pi(config: dict, resolved_vpc: str, resolved_nlb: str, dry_run: bool) -> str:
     tasks = config.get("tasks", [])
     if not tasks:
@@ -688,7 +734,7 @@ def generate_pi(config: dict, resolved_vpc: str, resolved_nlb: str, dry_run: boo
 
 def main():
     parser = argparse.ArgumentParser(description="vla-simulator UserData 스크립트 생성")
-    parser.add_argument("--vla", required=True, choices=["gr00t", "gr00t-gr1", "gr00t-g1", "pi", "openvla-oft", "lap", "rldx", "rldx-simpler", "rldx-gr1", "rldx-kitchen", "openarm-isaac", "openarm-lift-act", "molmoact2", *LEROBOT_LIBERO_TARGETS, "vla-adapter", "cosmos-policy"], help="VLA 모델")
+    parser.add_argument("--vla", required=True, choices=["gr00t", "gr00t-gr1", "gr00t-g1", "pi", "openvla-oft", "lap", "rldx", "rldx-simpler", "rldx-gr1", "rldx-kitchen", "openarm-isaac", "openarm-lift-act", "molmoact2", *LEROBOT_LIBERO_TARGETS, "vla-adapter", "cosmos-policy", "aspire"], help="VLA 모델")
     parser.add_argument(
         "--config", default=str(BASE_DIR / "simulator-config.yaml"),
         help="공통 설정 파일 경로 (기본: simulator-config.yaml)",
@@ -744,6 +790,8 @@ def main():
         rendered = generate_cosmos_policy(config, args.dry_run)
     elif args.vla == "vla-adapter":
         rendered = generate_vla_adapter(config, args.dry_run)
+    elif args.vla == "aspire":
+        rendered = generate_aspire(config, args.dry_run)
     else:
         rendered = generate_pi(config, args.resolved_vpc, args.resolved_nlb, args.dry_run)
 

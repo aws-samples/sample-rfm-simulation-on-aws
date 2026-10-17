@@ -285,6 +285,19 @@ export class VlaSimulatorStack extends cdk.Stack {
       },
     });
 
+    // ASPIRE (instance.bedrock: true): the discovery loop runs Claude Code on Amazon Bedrock from the
+    // instance. Invocation only (no model management); cross-region inference profiles resolve to
+    // foundation models in other regions, hence the region wildcard on foundation-model.
+    if (instanceCfg.bedrock === true) {
+      role.addToPolicy(new iam.PolicyStatement({
+        actions: ['bedrock:InvokeModel', 'bedrock:InvokeModelWithResponseStream'],
+        resources: [
+          `arn:${cdk.Aws.PARTITION}:bedrock:*:${cdk.Aws.ACCOUNT_ID}:inference-profile/*`,
+          `arn:${cdk.Aws.PARTITION}:bedrock:*::foundation-model/anthropic.*`,
+        ],
+      }));
+    }
+
     // N1.7 rollout server (gr00t-g1 Step 2): allow reading the fine-tuned ckpt from the external
     // artifacts bucket. Scoped to that bucket only; added only when server.s3_ckpt_uri is set.
     if (serverCkptBucket) {
@@ -481,6 +494,14 @@ export class VlaSimulatorStack extends cdk.Stack {
         id: 'AwsSolutions-IAM5',
         reason: `N1.7 rollout reads the fine-tuned ckpt objects from ${serverCkptBucket}; object key wildcard required for the ckpt directory contents (read-only).`,
         appliesTo: [`Resource::arn:<AWS::Partition>:s3:::${serverCkptBucket}/*`],
+      }] : []),
+      ...(instanceCfg.bedrock === true ? [{
+        id: 'AwsSolutions-IAM5',
+        reason: 'ASPIRE discovery loop invokes Claude through Bedrock cross-region (global.*) inference profiles, which route to Anthropic foundation models in any region; invocation-only actions.',
+        appliesTo: [
+          'Resource::arn:<AWS::Partition>:bedrock:*:<AWS::AccountId>:inference-profile/*',
+          'Resource::arn:<AWS::Partition>:bedrock:*::foundation-model/anthropic.*',
+        ],
       }] : []),
     ]);
   }

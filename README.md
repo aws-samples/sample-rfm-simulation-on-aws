@@ -34,6 +34,7 @@ Run Vision-Language-Action (VLA) robot simulation workloads on AWS GPU instances
 | `vla-adapter` | — | VLA-Adapter-Pro (OpenHelix, Qwen2.5-0.5B Prismatic VLM + bridge-attention action head)⁷ | LIBERO-Spatial | Franka Panda (7-DOF) | `VLA-Adapter-Demo` |
 | `fastwam` | — | FastWAM (world action model: Wan2.2 video DiT + Mixture-of-Transformers action expert)⁸ | LIBERO-Spatial | Franka Panda (7-DOF) | `FastWAM-Demo` |
 | `cosmos-policy` | — | Cosmos Policy (NVIDIA world action model: Cosmos-Predict2-2B video model fine-tuned to predict actions, future frames and value)⁹ | LIBERO-Spatial | Franka Panda (7-DOF) | `Cosmos-Policy-Demo` |
+| `aspire` | — | ASPIRE (NVlabs agentic skill discovery: Claude on Amazon Bedrock writes a per-task robot program against SAM3 / Contact-GraspNet / PyRoki tools — no trained policy)¹⁰ | LIBERO-Spatial (LIBERO-Pro fork) | Franka Panda (7-DOF) | `ASPIRE-Demo` |
 | `rldx` | — | RLDX-1 (RLWRLD MSAT / Qwen3-VL-8B, eager)¹ | LIBERO-10 long-horizon | Franka Panda (7-DOF) | `RLDX-Demo` |
 | `rldx-simpler` | — | RLDX-1 (RLWRLD MSAT / Qwen3-VL-8B, eager)¹ ² | SimplerEnv Google-VM (Fractal) | Google Robot (OXE_FRACTAL real-robot embodiment) | `RLDX-Simpler-Demo` |
 | `rldx-gr1` | — | RLDX-1 (RLWRLD MSAT / Qwen3-VL-8B, eager)¹ ³ | RoboCasa GR-1 Tabletop (24-task) | GR-1 humanoid (bimanual + waist) | `RLDX-GR1-Demo` |
@@ -57,6 +58,8 @@ Run Vision-Language-Action (VLA) robot simulation workloads on AWS GPU instances
 ⁸ `fastwam` runs on the shared `lerobot-libero` template (footnote ⁶). **Code MIT (FastWAM) / Apache-2.0 (LeRobot); the checkpoint's model card states no license, so treat this target as research/evaluation only and check the card before any other use.** Weights are downloaded at runtime and never committed here. Two deviations from the LeRobot reproduce line, both found on live runs: (a) the checkpoint runs in its default **bf16** — the README's `--policy.dtype=float32` targets a 140 GB GPU, and in fp32 the DiT + umt5-xxl text encoder + Wan2.2 VAE run out of memory on a 48 GB L40S; (b) it uses the `lerobot/fastwam_libero_uncond_2cam224` copy rather than the original upload, whose `config.json` predates the LeRobot port (tokenizer path `"."`) and fails to build the tokenizer; the `lerobot/` config fetches the tokenizer from `google/umt5-xxl` and the text encoder + VAE from `Wan-AI/Wan2.2-TI2V-5B-Diffusers` (both Apache-2.0). Validated 2026-10-15 in ap-northeast-2: libero_spatial **0.90** (2 tasks × 5 ep, g6e.2xlarge L40S).
 
 ⁹ `cosmos-policy` is **not on LeRobot**: `templates/cosmos-policy-userdata.sh.j2` clones [NVlabs/cosmos-policy](https://github.com/NVlabs/cosmos-policy) at a pinned commit (`@18a2acca`), builds the project's own CUDA 12.8 Docker image, runs `uv sync --extra cu128 --group libero` inside it and evaluates with the repo's `run_libero_eval.py` (LIBERO.md flags in `models/cosmos-policy.yaml`) on one GPU. **Code Apache-2.0; the checkpoint `nvidia/Cosmos-Policy-LIBERO-Predict2-2B` (`@cb689ec0`) is under the NVIDIA One-Way Noncommercial License (NSCLv1) — research/evaluation only.** It also loads the gated base model `nvidia/Cosmos-Predict2-2B-Video2World` at eval time, so the HF token in SSM (`/vla-simulator/hf-token`) must belong to an account that has accepted the NVIDIA Open Model License on that page (`vlasim.py doctor` checks that the token exists, not that the license was accepted — an unaccepted license shows up as a 401/403 at eval time). Three fixes found on live runs: LIBERO's first import prompts via `input()` (headless `EOFError`) → the config is seeded once in a persisted path; a host `systemctl daemon-reload` revokes GPU access inside the container on cgroup v2 → Docker uses the `cgroupfs` driver and the GPU device nodes are passed explicitly; the apt timers are masked. Validated 2026-10-17 in ap-northeast-2: libero_spatial **1.00** (10 tasks × 1 trial, `g6e.xlarge` L40S); reported LIBERO-Spatial 98.1%.
+
+¹⁰ `aspire` is **not a VLA**: [NVlabs/ASPIRE](https://github.com/NVlabs/ASPIRE) (Apache-2.0, pinned `@fa00f0ef`) runs a coding agent that iterates on a Python `cap-harness` program (perception → grasp → IK motions) until it solves the task. `templates/aspire-userdata.sh.j2` bootstraps the LIBERO-Pro fork and the tool services on one GPU (profile `rtx4090`), then runs Claude Code headless on **Amazon Bedrock** with the instance role (`instance.bedrock: true` in `models/aspire.yaml` adds `bedrock:InvokeModel*`). Protocol, chosen so the number is comparable with the LeRobot targets: the agent may only run ASPIRE's development seeds (51-65); the frozen program is then scored on LIBERO saved init states 0-4 — the same states `xvla` / `smolvla` / `fastwam` are scored on. Tool licenses: **SAM3 is gated on Hugging Face (Meta SAM License — the HF token must have been granted access; the boot probes it and stops early if not)** and **Contact-GraspNet is NVIDIA non-commercial**, so treat this target as research/evaluation only. The boot patches one upstream bug: `adapter.py` tests a numpy init-state array for truthiness (`elif not init_states:`), which makes every `--init-mode saved` episode a harness error.
 
 ### Showcase — VLA Rollouts
 
@@ -167,7 +170,7 @@ Same RLDX-1 family again, but on the **RoboCasa Kitchen** 24-task benchmark with
 | MP4: [`rldx-kitchen/kitchen-open-single-door-failure.mp4`](docs/showcase/rldx-kitchen/kitchen-open-single-door-failure.mp4) (clip is 2× speed) |
 | _The one miss on the door task: the run hits the 45-step cap (a *timeout*, not a hard error) without latching the handle. SR 0.80 here means "usually solved" — pair the number with the per-episode step counts in `simulation_results.csv`._ |
 
-#### `xvla` · `smolvla` · `lingbot-va` · `vla-adapter` · `fastwam` · `cosmos-policy` — newer VLA / world action models on LIBERO (Franka Panda 7-DOF)
+#### `xvla` · `smolvla` · `lingbot-va` · `vla-adapter` · `fastwam` · `cosmos-policy` · `aspire` — newer VLA / world action models on LIBERO (Franka Panda 7-DOF)
 
 Three upstream-LeRobot policies run through the shared `lerobot-libero` template, plus VLA-Adapter-Pro on its own OFT-style template (validated 2026-10-14) and FastWAM (2026-10-15, research-only weights — see footnote ⁸) and Cosmos Policy (2026-10-17, its own Docker image, research-only weights — see footnote ⁹), all in ap-northeast-2. Each clip strings together the rendered episodes of the pipe-proof run (the VLA-Adapter preview is sped up ~4× to fit all 10 tasks; LingBot-VA renders at 128 px).
 
@@ -190,6 +193,22 @@ Three upstream-LeRobot policies run through the shared `lerobot-libero` template
 |---|---|
 | ![Cosmos Policy — LIBERO-Spatial rollouts (4x)](docs/showcase/cosmos-policy/libero-spatial-10ep.gif) | ![Cosmos Policy — real vs predicted future frames](docs/showcase/cosmos-policy/libero-spatial-future-frames-5ep.gif) |
 | MP4: [`cosmos-policy/libero-spatial-10ep.mp4`](docs/showcase/cosmos-policy/libero-spatial-10ep.mp4) | MP4: [`cosmos-policy/libero-spatial-future-frames-5ep.mp4`](docs/showcase/cosmos-policy/libero-spatial-future-frames-5ep.mp4) |
+
+| `aspire` — ASPIRE (Claude on Bedrock writes the program) · libero_spatial (2 tasks × 5 ep) **1.00** · `g6e.2xlarge` |
+|---|
+| ![ASPIRE — LIBERO-Spatial rollouts of the discovered programs (3x)](docs/showcase/aspire/libero-spatial-10ep.gif) |
+| MP4: [`aspire/libero-spatial-10ep.mp4`](docs/showcase/aspire/libero-spatial-10ep.mp4) |
+
+**ASPIRE vs the trained models, same 10 episodes** (LIBERO-Spatial tasks 0-1, saved init states 0-4, ap-northeast-2, 2026-10):
+
+| Target | What runs at test time | Task-specific training | Success (10 ep) | Per-task setup cost |
+|---|---|---|---|---|
+| `xvla` | X-VLA-0.9B policy | LIBERO fine-tune (checkpoint) | 0.90 | none (download) |
+| `smolvla` | SmolVLA-450M policy | LIBERO fine-tune (checkpoint) | 0.80 | none (download) |
+| `fastwam` | FastWAM world action model | LIBERO fine-tune (checkpoint) | 0.90 | none (download) |
+| `aspire` | a Python program written by Claude (SAM3 segmentation + depth → grasp → IK) | **none** — the agent explored dev seeds 51-65 only | **1.00** | agent 8-18 min, 31-69 turns, **US$0.91-2.30 Bedrock** per task (US$3.21 for both) |
+
+_Read with care: n = 10 on two easy tasks, so 0.90 vs 1.00 is one episode. The point is the trade-off, not the ranking — ASPIRE needs no robot data or fine-tune, but pays an agent session per new task and leans on gated / non-commercial perception tools (footnote ¹⁰); the trained policies are a fixed download that generalises across the suite. `vla-adapter` and `cosmos-policy` (1.00 each) were scored on 10 tasks × 1 trial, a different episode set, so they are not in this table._
 
 #### `gr00t-gr1` — GR00T N1.6 on RoboCasa GR1 humanoid (22-DOF)
 
@@ -371,6 +390,7 @@ python vlasim.py deploy --vla lingbot-va --email you@example.com   # LingBot-VA 
 python vlasim.py deploy --vla vla-adapter --email you@example.com  # VLA-Adapter-Pro (MIT), LIBERO-Spatial
 python vlasim.py deploy --vla fastwam --email you@example.com      # FastWAM world action model (research-only weights), LIBERO-Spatial (~30-40 min)
 python vlasim.py deploy --vla cosmos-policy --email you@example.com  # Cosmos Policy (NVIDIA WAM, research-only weights; HF token must accept the Cosmos-Predict2 license), LIBERO-Spatial (~60-90 min)
+python vlasim.py deploy --vla aspire --email you@example.com         # ASPIRE agentic skill discovery (Claude Code on Amazon Bedrock; HF token must have SAM3 access), LIBERO-Spatial 2 tasks (~45 min, ~US$3 Bedrock)
 
 # RLDX-1 (RLWRLD) — LIBERO (SOTA open VLA, MSAT/Qwen3-VL-8B, ZeroMQ server + sim client, ~80-120 min)
 # NON-COMMERCIAL weights (sim benchmarking) — AWS-internal enablement only.
@@ -504,6 +524,7 @@ The S3 results bucket is **retained** after stack deletion to preserve simulatio
 | `vla-adapter` | libero_spatial (10 tasks × 1 trial) | 99.6% LIBERO-Spatial-Pro (inference log on the model card) | validated 2026-10-14 — 1.00 (10/10, g6.xlarge L4, ap-northeast-2) |
 | `fastwam` | libero_spatial (2 tasks × 5 ep) | 97.6% LIBERO-Spatial (LeRobot docs, fp32) | validated 2026-10-15 — 0.90 (9/10 ep, bf16, g6e.2xlarge L40S, ap-northeast-2) |
 | `cosmos-policy` | libero_spatial (10 tasks × 1 trial) | 98.1% LIBERO-Spatial (paper / LIBERO.md) | validated 2026-10-17 — 1.00 (10/10, g6e.xlarge L40S, ap-northeast-2; ~55 min end to end incl. Docker build) |
+| `aspire` | libero_spatial (2 tasks × 5 ep, saved init states 0-4) | — (ASPIRE reports LIBERO-Pro perturbation suites, not this split) | validated 2026-10-17 — 1.00 (10/10, g6e.2xlarge L40S, ap-northeast-2; ~41 min end to end; agent 1,544 s / US$3.21 Bedrock for both tasks) |
 | `rldx` | libero_spatial (single task) | 97.8% LIBERO avg (paper, SOTA) | validated 2026-06-20 — 1.0 (5/5 ep, eager, g6.xlarge L4 sm_89, full `deploy.py` smoke) |
 | `rldx-simpler` | simpler_env_google/google_robot_pick_coke_can (Google-VM Fractal) | 81.5% Google-VM (paper README) | validated 2026-06-24 — 1.0 (5/5 ep, eager, g6.2xlarge L4, full `deploy.py` 1-shot smoke) |
 | `rldx-simpler` | simpler_env_google/google_robot_move_near (Google-VM Fractal) | 81.5% Google-VM (paper README) | validated 2026-06-24 — 1.0 (5/5 ep, eager, g6.2xlarge L4, full `deploy.py` 1-shot smoke) |

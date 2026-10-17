@@ -52,7 +52,7 @@ DESTROY_PY = BASE_DIR / "destroy.py"
 VLA_CHOICES = [
     "gr00t", "gr00t-gr1", "gr00t-g1", "pi", "openvla-oft",
     "lap", "rldx", "rldx-simpler", "rldx-gr1", "rldx-kitchen", "openarm-isaac", "openarm-lift-act",
-    "molmoact2", "xvla", "smolvla", "lingbot-va", "vla-adapter", "fastwam",
+    "molmoact2", "xvla", "smolvla", "lingbot-va", "vla-adapter", "fastwam", "cosmos-policy",
 ]
 
 # Regions the userdata templates + DLAMI lookups are validated against (README).
@@ -335,6 +335,7 @@ HF_TOKEN_TARGETS = {
     "gr00t": "nvidia/Cosmos-Reason2-2B",
     "gr00t-g1": "the N1.7 server.hf_repo in models/gr00t-g1.yaml",
     "openarm-isaac": "google/paligemma-3b-pt-224",
+    "cosmos-policy": "nvidia/Cosmos-Predict2-2B-Video2World",
 }
 
 

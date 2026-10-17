@@ -61,7 +61,7 @@ LEROBOT_LIBERO_STACKS = {
 }
 LEROBOT_LIBERO_TARGETS = tuple(LEROBOT_LIBERO_STACKS)
 # Local-only targets with their own template (same CLI handling as the LeRobot family).
-OTHER_LOCAL_STACKS = {"vla-adapter": "VLA-Adapter-Demo"}
+OTHER_LOCAL_STACKS = {"vla-adapter": "VLA-Adapter-Demo", "cosmos-policy": "Cosmos-Policy-Demo"}
 
 def _resolve_ssm(value: str, region: str) -> str:
     """value가 'ssm:/path' 형식이면 SSM Parameter Store에서 조회."""
@@ -406,6 +406,8 @@ def main():
             print("  Estimated time: ~60-90 min (docker pull Isaac Lab image ~20-30min + openarm install + sim boot ~10min + scripted collection; first run small num_demos)")
         elif args.vla == "molmoact2":
             print("  Estimated time: ~60-90 min for the pipe-proof cap (uv sync fork source ~20-30min + MolmoAct2-LIBERO ckpt ~22GB DL ~10min + fp32 LIBERO eval 2 tasks x 5 ep). Full suite (all 10 tasks x 50 ep) is MANY hours in fp32 — scale via models/molmoact2.yaml tasks.")
+        elif args.vla == "cosmos-policy":
+            print("  Estimated time: ~60-120 min (docker build ~10-15min + uv sync ~10-20min + ckpt DL + LIBERO eval, 1 ep x 10 tasks)")
         elif args.vla in LEROBOT_LIBERO_TARGETS:
             print("  Estimated time: ~40-80 min for the pipe-proof cap (uv sync LeRobot source ~15-30min + ckpt DL + LIBERO eval; scale via models/<vla>.yaml tasks)")
         else:

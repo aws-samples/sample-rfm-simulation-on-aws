@@ -1,0 +1,55 @@
+# Cosmos Policy (NVIDIA) — world action model: a Cosmos-Predict2-2B video model fine-tuned to jointly
+# predict actions, future frames and value. Runs in the project's own Docker image (cosmos-policy-userdata.sh.j2).
+# ⚠️ License: code Apache-2.0, weights NVIDIA Source Code License (NSCLv1) — NON-COMMERCIAL / research only.
+# Eval recipe: github.com/NVlabs/cosmos-policy LIBERO.md (single GPU via --available_gpus 0).
+# Reported: LIBERO avg 98.5% (Spatial 98.1 / Object 100 / Goal 98.2 / Long 97.6). Inference VRAM ~6.8 GB.
+model:
+  id: cosmos-policy
+  display_name: "Cosmos Policy"
+  policy_desc: "Cosmos Policy (NVIDIA, Cosmos-Predict2-2B world action model: actions + future frames + value)"
+  license: "code Apache-2.0 / weights NVIDIA NSCLv1 (non-commercial, research only)"
+  hf_repo: "nvidia/Cosmos-Policy-LIBERO-Predict2-2B"
+  hf_model_revision: "cb689ec0e3347c13667d70a78a3447388f5c3bb8"
+  repo_url: "https://github.com/NVlabs/cosmos-policy.git"
+  repo_commit: "18a2accadf4e7a3531e56754102af5a24d2316da"
+  python_version: "3.10"
+  eval_args:
+    - "--config cosmos_predict2_2b_480p_libero__inference_only"
+    - "--ckpt_path nvidia/Cosmos-Policy-LIBERO-Predict2-2B"
+    - "--config_file cosmos_policy/config/config.py"
+    - "--use_wrist_image True"
+    - "--use_proprio True"
+    - "--normalize_proprio True"
+    - "--unnormalize_actions True"
+    - "--dataset_stats_path nvidia/Cosmos-Policy-LIBERO-Predict2-2B/libero_dataset_statistics.json"
+    - "--t5_text_embeddings_path nvidia/Cosmos-Policy-LIBERO-Predict2-2B/libero_t5_embeddings.pkl"
+    - "--trained_with_image_aug True"
+    - "--chunk_size 16"
+    - "--num_open_loop_steps 16"
+    - "--randomize_seed False"
+    - "--data_collection False"
+    - "--use_variance_scale False"
+    - "--deterministic True"
+    - "--ar_future_prediction False"
+    - "--ar_value_prediction False"
+    - "--use_jpeg_compression True"
+    - "--flip_images True"
+    - "--num_denoising_steps_action 5"
+    - "--num_denoising_steps_future_state 1"
+    - "--num_denoising_steps_value 1"
+
+instance:
+  preferred: [g6e.xlarge, g6e.2xlarge, g6.2xlarge, g5.2xlarge]   # ~7 GB VRAM; L40S first for build/eval speed
+  ebs_gb: 300                     # CUDA devel image + uv venv + Cosmos checkpoint
+  creationpolicy_timeout: PT240M
+  min_gpu_mib: 20000
+  min_host_mib: 30000
+
+tasks:
+  - suite: libero_spatial
+    n_episodes: 1                   # per task × all 10 tasks = 10 episodes (pipe-proof)
+    description: "LIBERO-Spatial pipe-proof (Cosmos Policy, 10 tasks x 1 ep)"
+    seed: 195
+
+bridge:
+  enabled: false

@@ -248,6 +248,13 @@ fi
 # Sanity check: compose file must exist
 [ -f "${OPENPI_DIR}/examples/libero/compose.yml" ] || \
     die "compose.yml not found: ${OPENPI_DIR}/examples/libero/compose.yml"
+{%- if mujoco_pin %}
+# Stack knob: swap the physics version the LIBERO client image installs (models/pi.yaml model.mujoco_pin).
+# The LIBERO client runs Python 3.8, so mujoco>=3.2.4 does not resolve; upstream pins 3.2.3.
+sed -i "s/^mujoco==.*/{{ mujoco_pin }}/" "${OPENPI_DIR}/examples/libero/requirements.txt"
+grep -qx "{{ mujoco_pin }}" "${OPENPI_DIR}/examples/libero/requirements.txt" || die "mujoco pin {{ mujoco_pin }} not applied"
+log "  stack knob: LIBERO client mujoco pinned to {{ mujoco_pin }}"
+{%- endif %}
 
 if [ "${BRIDGE_MODE}" = "true" ]; then
     # Bridge mode: skip serve_policy (no local model) — build and start pi_grpc_bridge container
@@ -339,12 +346,31 @@ TASKS_JSON='{{ tasks_json }}'
 TASK_COUNT=$(echo "$TASKS_JSON" | jq length)
 SUMMARY_ALL=""
 
+# Stack knobs (per-task fields in models/<id>.yaml; absent = upstream default). A success rate is only
+# comparable with the stack that produced it ("Same Policy, Different Numbers", AMLC 2026 workshop).
+# stackpatch.py restores the eval script from its .stackorig copy before every task, then applies
+# step_scale / random_init / replan_head, and fails loudly if a patch site is missing.
+cat > /tmp/stackpatch.py <<'STACKPATCH_EOF'
+{{ stackpatch_py }}STACKPATCH_EOF
+
 FAILED_SUITES=""
 for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
     TASK=$(echo "$TASKS_JSON" | jq -r ".[$TASK_IDX]")
     SUITE=$(echo "$TASK" | jq -r '.suite')
     NUM_EPISODES=$(echo "$TASK" | jq -r '.num_episodes')
     DESCRIPTION=$(echo "$TASK" | jq -r '.description // ""')
+    K_COND=$(echo "$TASK" | jq -r '.condition // "S0"')
+    K_REPLAN=$(echo "$TASK" | jq -r '.replan // empty')
+    K_SEED=$(echo "$TASK" | jq -r '.seed // empty')
+    K_STEP_SCALE=$(echo "$TASK" | jq -r '.step_scale // 1')
+    K_RANDOM_INIT=$(echo "$TASK" | jq -r '.random_init // false')
+    K_REPLAN_HEAD=false
+    python3 /tmp/stackpatch.py "${OPENPI_DIR}/examples/libero/main.py" "${K_STEP_SCALE}" "${K_RANDOM_INIT}" "${K_REPLAN_HEAD}" \
+        || die "stack patch failed (task ${TASK_IDX} ${K_COND})"
+    K_ARGS=""
+    [ -n "${K_REPLAN}" ] && K_ARGS="${K_ARGS} --args.replan-steps ${K_REPLAN}"
+    [ -n "${K_SEED}" ] && K_ARGS="${K_ARGS} --args.seed ${K_SEED}"
+    log "  stack condition=${K_COND} replan=${K_REPLAN:-default} seed=${K_SEED:-default} step_scale=${K_STEP_SCALE} random_init=${K_RANDOM_INIT} replan_head=${K_REPLAN_HEAD}"
 
     VIDEO_DIR="${VIDEO_BASE_DIR}/task-${TASK_IDX}"
     mkdir -p "$VIDEO_DIR"
@@ -362,7 +388,7 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
     log "  Starting Docker Compose eval (build + run, ~30-60 min)..."
     mkdir -p "${OPENPI_DIR}/data/libero/videos"
     export MUJOCO_GL=egl
-    export CLIENT_ARGS="--args.task-suite-name ${SUITE} --args.num-trials-per-task ${NUM_EPISODES} --args.video-out-path data/libero/videos/${TASK_IDX}"
+    export CLIENT_ARGS="--args.task-suite-name ${SUITE} --args.num-trials-per-task ${NUM_EPISODES} --args.video-out-path data/libero/videos/${TASK_IDX}${K_ARGS}"
 
     if [ "${BRIDGE_MODE}" = "true" ]; then
         # Bridge mode: skip openpi_server service (pi_grpc_bridge handles port 8000 on host network)
@@ -413,6 +439,14 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
         echo "success_rate: ${SR}"
         echo "num_episodes_per_task: ${NUM_EPISODES}"
         echo "n_tasks: 10"
+        echo "condition: ${K_COND}"
+        echo "replan: ${K_REPLAN:-default}"
+        echo "seed: ${K_SEED:-default}"
+        echo "step_scale: ${K_STEP_SCALE}"
+        echo "random_init: ${K_RANDOM_INIT}"
+        echo "replan_head: ${K_REPLAN_HEAD}"
+        echo "stack_openpi_commit: $(git -C "${OPENPI_DIR}" rev-parse HEAD 2>/dev/null || echo unknown)"
+        echo "stack_mujoco: $(grep -E '^mujoco==' "${OPENPI_DIR}/examples/libero/requirements.txt" 2>/dev/null | cut -d= -f3 || echo unknown)"
         echo "description: ${DESCRIPTION}"
     } > "/tmp/pi_task${TASK_IDX}_summary.txt"
 

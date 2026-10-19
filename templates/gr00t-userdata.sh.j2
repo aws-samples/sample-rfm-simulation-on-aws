@@ -478,6 +478,13 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
     VIDEO_FPS=$(echo "$TASK" | jq -r '.video_fps')
     VIDEO_CRF=$(echo "$TASK" | jq -r '.video_crf')
     STEPS_PER_RENDER=$(echo "$TASK" | jq -r '.steps_per_render')
+    # Stack knobs (absent = upstream default): `replan` = actions executed per predicted chunk
+    # (rollout_policy.py --n-action-steps), `condition` = label carried into summary.txt.
+    K_COND=$(echo "$TASK" | jq -r '.condition // "S0"')
+    K_REPLAN=$(echo "$TASK" | jq -r '.replan // empty')
+    K_ARGS=()
+    [ -n "${K_REPLAN}" ] && K_ARGS+=( --n-action-steps "${K_REPLAN}" )
+    log "  stack condition=${K_COND} replan=${K_REPLAN:-default} max_episode_steps=${MAX_STEPS}"
 
     VIDEO_DIR="${VIDEO_BASE_DIR}/task-${TASK_IDX}"
     mkdir -p "$VIDEO_DIR"
@@ -545,6 +552,7 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
         --n-episodes "${N_EPISODES}" \
         --n-envs "${N_ENVS}" \
         --max-episode-steps "${MAX_STEPS}" \
+        "${K_ARGS[@]}" \
         2>&1 | tee /tmp/gr00t_rollout_task${TASK_IDX}.log \
         || log "  [warn] Task ${TASK_IDX} rollout error (continuing)"
 
@@ -567,6 +575,11 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
         echo "n_episodes: ${N_EPISODES}"
         echo "n_success: ${N_SUCCESS}"
         echo "fps: ${VIDEO_FPS}, crf: ${VIDEO_CRF}, steps_per_render: ${STEPS_PER_RENDER}"
+        echo "condition: ${K_COND}"
+        echo "replan: ${K_REPLAN:-default}"
+        echo "max_episode_steps: ${MAX_STEPS}"
+        echo "stack_isaac_groot_commit: $(git -C "${ISAAC_GROOT_DIR}" rev-parse HEAD 2>/dev/null || echo unknown)"
+        echo "stack_mujoco: $("${VENV}/bin/python" -c 'import mujoco; print(mujoco.__version__)' 2>/dev/null || echo unknown)"
     } > "/tmp/gr00t_task${TASK_IDX}_summary.txt"
 
     # Stop ZMQ server / bridge

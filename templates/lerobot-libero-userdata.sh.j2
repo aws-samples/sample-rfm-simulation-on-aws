@@ -415,6 +415,7 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
         XK="${XA%%=*}"; KEEP=()
         for EA in "${EVAL_ARGS[@]}"; do [ "${EA%%=*}" = "${XK}" ] || KEEP+=( "${EA}" ); done
         EVAL_ARGS=( "${KEEP[@]}" "${XA}" )
+        [ "${XK}" = "--eval.n_episodes" ] && N_EPISODES="${XA#*=}"   # keep the summary's per-task count truthful
     done
     log "  condition=${COND} extra_args=${EXTRA_ARGS[*]:-none}"
 

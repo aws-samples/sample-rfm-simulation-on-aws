@@ -112,8 +112,13 @@ sleep 5
 rm -f /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/lib/apt/lists/lock 2>/dev/null || true
 dpkg --configure -a 2>&1 | tee /tmp/{{ vla }}_dpkg_fix.log || true
 
+# Boot hardening (2026-10): the command-not-found apt hook hung apt-get update for 3 h on a g6e, and the
+# apt-daily timers re-launch unattended-upgrades mid-boot (held the dpkg lock past 5 min). Drop / mask both.
+rm -f /etc/apt/apt.conf.d/50command-not-found 2>/dev/null || true
+systemctl stop apt-daily.timer apt-daily-upgrade.timer 2>/dev/null || true
+systemctl mask apt-daily.timer apt-daily-upgrade.timer unattended-upgrades.service 2>/dev/null || true
 APT_RETRY=0
-until apt-get update -qq -o DPkg::Lock::Timeout=300 2>&1 | tee /tmp/{{ vla }}_apt_update.log; do
+until timeout 600 apt-get update -qq -o DPkg::Lock::Timeout=300 2>&1 | tee /tmp/{{ vla }}_apt_update.log; do
     APT_RETRY=$((APT_RETRY + 1))
     [ $APT_RETRY -ge 3 ] && die "apt-get update failed after 3 retries"
     log "[warn] apt-get update failed (attempt $APT_RETRY), retrying in 30s..."

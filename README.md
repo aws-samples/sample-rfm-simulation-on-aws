@@ -503,6 +503,10 @@ The S3 results bucket is **retained** after stack deletion to preserve simulatio
 
 ## Expected Results
 
+> **A success rate belongs to the stack that produced it.** The companion study [*Same Policy, Different Numbers*](https://github.com/byongwu/pai-same-policy-different-numbers) (AMLC 2026 workshop) ran seven LIBERO policy families through this harness and changed one stack setting at a time: executing one action per predicted chunk instead of the official chunk moved OpenVLA-OFT from 1.00 to 0.00 and FastWAM LIBERO-10 from 0.96 to 0.54, while π0.5 and GR00T stayed within ±0.10. Compare numbers below only when episode count, init states, step cap and chunk execution match — the rows here mix 2 tasks × 5 episodes and 10 tasks × 1 trial.
+>
+> To run such a condition on the shared LeRobot template, add per-task fields in `models/<id>.yaml`: `condition` (a label carried into the results) and `extra_args` (`lerobot-eval` flags appended last, replacing any earlier flag with the same name), e.g. `condition: S3b` + `extra_args: ["--policy.n_action_steps=1"]`. Each `summary.txt` records `n_success`, `n_episodes`, `condition`, `extra_args` and a stack fingerprint (`stack_lerobot_commit`, `stack_mujoco`, `stack_eval_args`).
+
 | `--vla` | Task | Expected Success Rate | Source |
 |---------|------|-----------------------|--------|
 | `gr00t` | KITCHEN_SCENE3 (stove + moka pot) | ~90–100% | validated 2026-04-27 |
@@ -704,7 +708,7 @@ npx cdk deploy Pi-Demo    --output cdk.out-pi    -c vla=pi    -c region=us-east-
 
 ### apt lock on DLAMI boot
 
-`unattended-upgrades` holds the apt lock for ~2 minutes on fresh boot. The UserData waits up to 120 seconds then forcibly kills the process. No action needed.
+`unattended-upgrades` holds the apt lock for ~2 minutes on fresh boot. The UserData waits up to 120 seconds then forcibly kills the process. No action needed. Every template also masks the `apt-daily` timers (they re-launch `unattended-upgrades` later in the boot), removes the `command-not-found` apt hook (it once hung `apt-get update` for 3 h) and bounds each `apt-get update` with `timeout 600`.
 
 ---
 

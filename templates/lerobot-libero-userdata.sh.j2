@@ -108,8 +108,13 @@ sleep 5
 rm -f /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/lib/apt/lists/lock 2>/dev/null || true
 dpkg --configure -a 2>&1 | tee /tmp/{{ vla }}_dpkg_fix.log || true
 
+# Boot hardening (2026-10): the command-not-found apt hook hung apt-get update for 3 h on a g6e, and the
+# apt-daily timers re-launch unattended-upgrades mid-boot (held the dpkg lock past 5 min). Drop / mask both.
+rm -f /etc/apt/apt.conf.d/50command-not-found 2>/dev/null || true
+systemctl stop apt-daily.timer apt-daily-upgrade.timer 2>/dev/null || true
+systemctl mask apt-daily.timer apt-daily-upgrade.timer unattended-upgrades.service 2>/dev/null || true
 APT_RETRY=0
-until apt-get update -qq -o DPkg::Lock::Timeout=300 2>&1 | tee /tmp/{{ vla }}_apt_update.log; do
+until timeout 600 apt-get update -qq -o DPkg::Lock::Timeout=300 2>&1 | tee /tmp/{{ vla }}_apt_update.log; do
     APT_RETRY=$((APT_RETRY + 1))
     [ $APT_RETRY -ge 3 ] && die "apt-get update failed after 3 retries"
     log "[warn] apt-get update failed (attempt $APT_RETRY), retrying in 30s..."
@@ -403,6 +408,15 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
     if [ -n "${TASK_IDS_ARR}" ]; then
         EVAL_ARGS+=( --env.task_ids="${TASK_IDS_ARR}" )
     fi
+    # AMLC stack study (2026-10-15): per-task overrides appended LAST (draccus/argparse: last flag wins)
+    COND=$(echo "$TASK" | jq -r '.condition // "S0"')
+    mapfile -t EXTRA_ARGS < <(echo "$TASK" | jq -r '.extra_args // [] | .[]')
+    for XA in "${EXTRA_ARGS[@]}"; do
+        XK="${XA%%=*}"; KEEP=()
+        for EA in "${EVAL_ARGS[@]}"; do [ "${EA%%=*}" = "${XK}" ] || KEEP+=( "${EA}" ); done
+        EVAL_ARGS=( "${KEEP[@]}" "${XA}" )
+    done
+    log "  condition=${COND} extra_args=${EXTRA_ARGS[*]:-none}"
 
     log "  Checkpoint: {{ hf_repo }} (rev {{ hf_model_revision[:8] if hf_model_revision else 'unpinned' }})"
 
@@ -447,6 +461,15 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
         echo "task_ids: ${TASK_IDS_ARR:-ALL}"
         echo "n_episodes_per_task: ${N_EPISODES}"
         echo "success_rate: ${SR}"
+        echo "n_success: $(jq -r '.overall.n_success // empty' "${INFO_JSON}" 2>/dev/null)"
+        echo "n_episodes: $(jq -r '.overall.n_episodes // empty' "${INFO_JSON}" 2>/dev/null)"
+        echo "condition: ${COND}"
+        echo "extra_args: ${EXTRA_ARGS[*]:-none}"
+        # Stack fingerprint: a success rate is only comparable with the stack that produced it
+        # ("Same Policy, Different Numbers", AMLC 2026 workshop) — record what the episode loop ran on.
+        echo "stack_lerobot_commit: ${ACTUAL_COMMIT}"
+        echo "stack_mujoco: $("${LEROBOT_DIR}/.venv/bin/python" -c 'import mujoco; print(mujoco.__version__)' 2>/dev/null || echo unknown)"
+        echo "stack_eval_args: ${EVAL_ARGS[*]}"
         echo "description: ${DESCRIPTION}"
     } > "/tmp/{{ vla }}_task${TASK_IDX}_summary.txt"
 

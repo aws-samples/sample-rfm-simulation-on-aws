@@ -27,6 +27,12 @@ Subcommands
 
   destroy  Tear down a stack. Forwards all flags to destroy.py unchanged.
 
+  results  Read every vla-sim-results-* bucket in the account and print one row
+           per (stack, run, suite, condition): k/n successes, rate, 95% Wilson
+           interval, and the stack fingerprint from summary.txt. Read-only.
+           Forwards all flags to results.py (--vla, --region, --since,
+           --all-runs, --csv, --json).
+
 Design note: `doctor` deliberately imports boto3/pyyaml/jinja2 lazily. Its whole
 purpose is to run on a fresh host where those are not installed yet, report what
 is missing, and tell you to run `init`. AWS-dependent checks degrade to SKIP when
@@ -599,6 +605,11 @@ def run_destroy(rest):
     return _run(cmd, cwd=str(BASE_DIR)).returncode
 
 
+def run_results(rest):
+    cmd = [sys.executable, str(BASE_DIR / "results.py")] + rest
+    return _run(cmd, cwd=str(BASE_DIR)).returncode
+
+
 # ───────────────────────────── doctor entrypoint ───────────────────────────
 
 def run_doctor_cli(rest):
@@ -621,6 +632,7 @@ Usage:
   python vlasim.py init    [--email A] [--region R] [--bootstrap] [--skip-install]
   python vlasim.py deploy  --vla TARGET [--email A] [--region R] [--skip-doctor] [deploy.py flags...]
   python vlasim.py destroy --vla TARGET [destroy.py flags...]
+  python vlasim.py results [--vla PREFIX] [--region R] [--since RUN_ID] [--all-runs] [--csv F] [--json F]
 
 Three-step quick start:
   python vlasim.py doctor                         # see what's missing
@@ -644,6 +656,7 @@ def main():
         "init": run_init,
         "deploy": run_deploy,
         "destroy": run_destroy,
+        "results": run_results,
     }
     handler = dispatch.get(cmd)
     if handler is None:

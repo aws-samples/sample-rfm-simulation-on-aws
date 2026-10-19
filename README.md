@@ -476,6 +476,21 @@ Each `task-N/` folder contains:
 - `summary.txt` — `success_rate`, `suite`, `num_episodes_per_task`
 - `compose.log` / `userdata.log` — execution logs
 
+To compare runs without downloading them, `vlasim results` reads every `vla-sim-results-*` bucket in the account (read-only) and prints one row per stack, run, suite and condition with k/n, the rate and a 95% Wilson interval, followed by the stack fingerprint recorded in `summary.txt`:
+
+```bash
+python vlasim.py results                                  # latest run of every bucket
+python vlasim.py results --vla openvla-oft --all-runs     # every OFT run
+python vlasim.py results --since 2026-10-19 --csv results.csv
+```
+
+```text
+stack                region          run              suite           condition    k_n    rate  ci95       tasks  not_done
+openvla-oft-spatial  ap-northeast-2  2026-10-19-0558  libero_spatial  smoke-knobs  10/10  1.00  0.72-1.00  1      0
+```
+
+A task with no `summary.txt` (still running, or the run died) is counted under `not_done`, never as a 0.
+
 ---
 
 ## Cleanup
@@ -508,6 +523,24 @@ The S3 results bucket is **retained** after stack deletion to preserve simulatio
 > To run such a condition on the shared LeRobot template, add per-task fields in `models/<id>.yaml`: `condition` (a label carried into the results) and `extra_args` (`lerobot-eval` flags appended last, replacing any earlier flag with the same name), e.g. `condition: S3b` + `extra_args: ["--policy.n_action_steps=1"]`. Each `summary.txt` records `n_success`, `n_episodes`, `condition`, `extra_args` and a stack fingerprint (`stack_lerobot_commit`, `stack_mujoco`, `stack_eval_args`).
 >
 > `openvla-oft`, `pi` and `gr00t` take the same idea as per-task fields (absent = the upstream default): `condition`, `replan` (actions executed per predicted chunk: OFT `--num_open_loop_steps`, π0.5 `--args.replan-steps`, GR00T `--n-action-steps`), `seed`, and for OFT / π0.5 `step_scale` (multiplies the per-suite step cap) and `random_init: true` (random initial states instead of the fixed public ones). OFT also takes `replan_head: true` — **upstream OpenVLA-OFT executes the *last* `num_open_loop_steps` actions of the 8-action chunk when that number is below 8**; this executes the first ones instead. `models/pi.yaml` `model.mujoco_pin` (e.g. `mujoco==3.1.6`) swaps the LIBERO client's physics version. `assets/stack-knobs/stackpatch.py` applies the eval-script edits from a pristine copy before every task and stops the run if a patch site is missing. `cosmos-policy` takes run flags at model level (`model.eval_args`).
+
+### Same-stack baseline (official stack, 50 episodes per suite)
+
+From the companion study, every family on its own official evaluation stack (condition `S0`): 10 tasks × 5 trials per suite = 50 episodes, the public fixed init states, the official step cap and chunk execution. These are the numbers to compare against when you run your own condition with the knobs above — use the same episode count. Brackets are 95% Wilson intervals.
+
+| Family (`--vla`) | LIBERO-Spatial | LIBERO-Object | LIBERO-Goal | LIBERO-10 |
+|---|---|---|---|---|
+| OpenVLA-OFT (`openvla-oft`) | 50/50 [0.93–1.00] | 50/50 [0.93–1.00] | 48/50 [0.87–0.99] | 49/50 [0.90–1.00] |
+| π0.5 (`pi`) | 48/50 [0.87–0.99] | 48/50 [0.87–0.99] | 48/50 [0.87–0.99] | 47/50 [0.84–0.98] |
+| GR00T N1.7 (`gr00t`) | 50/50 [0.93–1.00] | 50/50 [0.93–1.00] | 47/50 [0.84–0.98] | 46/50 [0.81–0.97] |
+| Cosmos Policy (`cosmos-policy`) | 50/50 [0.93–1.00] | 50/50 [0.93–1.00] | 50/50 [0.93–1.00] | 48/50 [0.87–0.99] |
+| FastWAM (`fastwam`) | 44/50 [0.76–0.94] | 49/50 [0.90–1.00] | 49/50 [0.90–1.00] | 48/50 [0.87–0.99] |
+| LingBot-VA (`lingbot-va`) | — | — | — | 49/50 [0.90–1.00] |
+| DreamZero (study harness only) | 41/50 [0.69–0.90] | 46/50 [0.81–0.97] | 29/50 [0.44–0.71] | 28/50 [0.42–0.69] |
+
+Source: [`results/cells.csv`](https://github.com/byongwu/pai-same-policy-different-numbers/blob/main/results/cells.csv) of the study (149 cells). LingBot-VA publishes a LIBERO-10 checkpoint only. DreamZero ran on the study's own RLinf stack (`dreamzero/`), not on a target in this repo.
+
+### Per-target smoke results
 
 | `--vla` | Task | Expected Success Rate | Source |
 |---------|------|-----------------------|--------|
@@ -591,7 +624,7 @@ The S3 results bucket is **retained** after stack deletion to preserve simulatio
 
 ```
 vla-simulator/
-├── vlasim.py                 # CLI front end: doctor / init / deploy / destroy
+├── vlasim.py                 # CLI front end: doctor / init / deploy / destroy / results
 ├── simulator-config.yaml     # Shared deployment settings
 ├── docs/
 │   └── showcase/             # Sample rollout MP4 + GIF preview per VLA policy
@@ -604,6 +637,7 @@ vla-simulator/
 │   └── lap.yaml              # LAP-3B config
 ├── deploy.py                 # 1-click deploy entrypoint
 ├── destroy.py                # Stack teardown
+├── results.py                # Read-only result collector behind `vlasim results`
 ├── generate.py               # Generates assets/userdata/{vla}.sh from templates
 ├── requirements.txt
 ├── cdk/

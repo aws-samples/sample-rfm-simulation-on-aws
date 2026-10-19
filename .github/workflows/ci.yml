@@ -29,6 +29,10 @@ jobs:
         working-directory: cdk
       - run: npx jest
         working-directory: cdk
+      - name: results.py offline check
+        run: |
+          python results.py --help > /dev/null
+          python -c "import results as r; lo, hi = r.wilson(48, 50); assert (round(lo, 2), round(hi, 2)) == (0.87, 0.99), (lo, hi); assert r.wilson(0, 0) == (None, None)"
       - name: render userdata + bash -n (all targets)
         run: |
           for v in $(python -c "import re;print(' '.join(re.findall(r'\"([a-z0-9-]+)\"', re.search(r'choices=\[([^]]+)\]', open('deploy.py').read()).group(1))))"); do

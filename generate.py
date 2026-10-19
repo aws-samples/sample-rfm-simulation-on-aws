@@ -250,6 +250,7 @@ def generate_openvla_oft(config: dict, libero_suite: str, dry_run: bool) -> str:
         "center_crop": model.get("center_crop", True),
         # FIX 14 — renderer pins the eval env must hold after libero_requirements.txt resolves.
         "sim_protect_pins": model.get("sim_protect_pins", ""),
+        "stackpatch_py": (BASE_DIR / "assets" / "stack-knobs" / "stackpatch.py").read_text(),
         # FIX 15 — tensorflow-metadata pin (its declared protobuf floor understates what its
         # generated code needs, so the resolver can pick a version that cannot import here).
         "tfmd_version": model.get("tfmd_version", ""),
@@ -726,6 +727,8 @@ def generate_pi(config: dict, resolved_vpc: str, resolved_nlb: str, dry_run: boo
         "openpi_commit": model.get("openpi_commit", "").strip(),
         "pi_proto": pi_proto_path.read_text() if pi_proto_path.exists() else "",
         "pi_grpc_bridge_py": pi_grpc_bridge_path.read_text() if pi_grpc_bridge_path.exists() else "",
+        "stackpatch_py": (BASE_DIR / "assets" / "stack-knobs" / "stackpatch.py").read_text(),
+        "mujoco_pin": str(model.get("mujoco_pin", "") or "").strip(),
     }
 
     env = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)), keep_trailing_newline=True)  # nosec B701 - shell script template, autoescape not applicable

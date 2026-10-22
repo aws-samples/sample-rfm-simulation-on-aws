@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Documentation
+    url: https://github.com/aws-samples/sample-rfm-simulation-on-aws/tree/main/docs
+    about: Configuration, targets, cost, results and troubleshooting guides.
+  - name: Report a security issue
+    url: https://aws.amazon.com/security/vulnerability-reporting/
+    about: Please do not report security vulnerabilities through public GitHub issues.

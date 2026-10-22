@@ -1,0 +1,67 @@
+name: New target request
+description: Propose a robot foundation model / benchmark pair as a new --vla target.
+title: "[target] <model> on <benchmark>"
+labels: ["enhancement", "new-target"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A target is added only if both the code and the weights can be redistributed or downloaded
+        under terms that allow use in an AWS sample. See [docs/licenses.md](https://github.com/aws-samples/sample-rfm-simulation-on-aws/blob/main/docs/licenses.md)
+        and the "Adding a new target" section of [CONTRIBUTING.md](https://github.com/aws-samples/sample-rfm-simulation-on-aws/blob/main/CONTRIBUTING.md).
+  - type: input
+    id: model
+    attributes:
+      label: Model
+      description: Name, version and checkpoint (for example a Hugging Face repo id and revision).
+      placeholder: org/model-name @ <revision>
+    validations:
+      required: true
+  - type: input
+    id: benchmark
+    attributes:
+      label: Benchmark / simulator
+      placeholder: LIBERO-10, SimplerEnv, RoboCasa, Isaac Lab ...
+    validations:
+      required: true
+  - type: input
+    id: license-code
+    attributes:
+      label: License of the code
+      placeholder: Apache-2.0
+    validations:
+      required: true
+  - type: input
+    id: license-weights
+    attributes:
+      label: License of the weights
+      description: Include whether the weights are gated and any use restrictions.
+      placeholder: Apache-2.0, public / non-gated
+    validations:
+      required: true
+  - type: input
+    id: gpu-memory
+    attributes:
+      label: GPU memory needed for inference
+      description: Measured or documented VRAM for the evaluation, and the smallest instance type you expect to work.
+      placeholder: ~20 GB, g6e.xlarge
+    validations:
+      required: true
+  - type: input
+    id: upstream
+    attributes:
+      label: Upstream repository and commit
+      placeholder: https://github.com/org/repo @ <commit sha>
+    validations:
+      required: true
+  - type: textarea
+    id: reported
+    attributes:
+      label: Reported results and evaluation recipe
+      description: Paper or model-card numbers to reproduce, and the upstream eval command.
+  - type: checkboxes
+    id: contribute
+    attributes:
+      label: Contribution
+      options:
+        - label: I am willing to open a pull request for this target.

@@ -36,6 +36,39 @@ To send us a pull request, please:
 GitHub provides additional document on [forking a repository](https://help.github.com/articles/fork-a-repo/) and
 [creating a pull request](https://help.github.com/articles/creating-a-pull-request/).
 
+## Development
+
+Set up a local environment (Python 3.10 or later, Node.js for the CDK app):
+
+```bash
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt pytest pre-commit
+pre-commit install
+python -m pytest -q tests
+(cd cdk && npm ci && npx tsc --noEmit && npx jest)
+```
+
+Before opening a pull request, render the userdata of every target you touched and check it, then synthesize its stack:
+
+```bash
+python generate.py --vla <target> --output-dir assets/userdata && bash -n assets/userdata/<target>.sh
+(cd cdk && npx cdk synth -q -c region=us-east-1 -c notify_email=ci@example.com -c vla=<target>)
+```
+
+CI runs the same checks for all targets on every pull request.
+
+### Adding a new target
+
+A `--vla` target is defined in five places, and `tests/test_targets_parity.py` fails if they drift:
+
+1. `models/<target>.yaml` - model, checkpoint revision, upstream commit, license and tasks.
+2. A userdata template in `templates/` - either a new `<target>-userdata.sh.j2` or a shared one (for example `lerobot-libero-userdata.sh.j2`), wired up in `generate.py`.
+3. `targets.py` - append the id to `VLA_TARGETS`; `deploy.py`, `destroy.py`, `generate.py` and `vlasim.py` read their choices from it.
+4. `cdk/bin/app.ts` - the allowlist, `stackNameMap` and `descriptionMap` entries.
+5. Documentation - a row in `docs/targets.md` and the code and weights licenses in `docs/licenses.md`.
+
+Also add the id to the target dropdown in `.github/ISSUE_TEMPLATE/bug_report.yml`.
+
 ## Finding contributions to work on
 
 Looking at the existing issues is a great way to find something to contribute on. As our projects, by default, use the default GitHub issue labels (enhancement/bug/duplicate/help wanted/invalid/question/wontfix), looking at any 'help wanted' issues is a great place to start.

@@ -1,0 +1,105 @@
+name: Bug report
+description: A deploy, boot, evaluation or destroy step did not behave as documented.
+title: "[bug] <target>: <short summary>"
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Please run `python vlasim.py doctor --vla <target>` first and check
+        [docs/troubleshooting.md](https://github.com/aws-samples/sample-rfm-simulation-on-aws/blob/main/docs/troubleshooting.md).
+
+        **Do not paste secrets.** Remove AWS access keys, Hugging Face tokens, account IDs, e-mail
+        addresses and presigned URLs from logs before submitting. Security issues must be reported
+        through the [AWS vulnerability reporting page](https://aws.amazon.com/security/vulnerability-reporting/),
+        not as a public issue.
+  - type: dropdown
+    id: target
+    attributes:
+      label: Target (--vla)
+      options:
+        - gr00t
+        - gr00t-gr1
+        - gr00t-g1
+        - pi
+        - openvla-oft
+        - lap
+        - rldx
+        - rldx-simpler
+        - rldx-gr1
+        - rldx-kitchen
+        - openarm-isaac
+        - openarm-lift-act
+        - molmoact2
+        - xvla
+        - smolvla
+        - lingbot-va
+        - vla-adapter
+        - fastwam
+        - cosmos-policy
+        - aspire
+        - other / not target specific
+    validations:
+      required: true
+  - type: input
+    id: region
+    attributes:
+      label: AWS Region
+      placeholder: us-east-1
+    validations:
+      required: true
+  - type: input
+    id: instance-type
+    attributes:
+      label: Instance type
+      description: The instance type the stack actually launched (see the stack outputs or the EC2 console).
+      placeholder: g6e.4xlarge
+    validations:
+      required: true
+  - type: input
+    id: commit
+    attributes:
+      label: Repository commit
+      description: Output of `git rev-parse --short HEAD`.
+      placeholder: 5e52c01
+    validations:
+      required: true
+  - type: textarea
+    id: command
+    attributes:
+      label: Command
+      description: The exact command you ran, including context flags (for example `-c libero_suite=...`).
+      render: shell
+      placeholder: python vlasim.py deploy --vla gr00t-g1
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: What happened instead, including any error printed by the CLI or CloudFormation.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: CloudWatch / userdata log excerpt
+      description: The relevant lines from the instance log (CloudWatch Logs or `userdata.log` / `compose.log` in the results bucket). Redact secrets.
+      render: text
+  - type: textarea
+    id: summary
+    attributes:
+      label: summary.txt
+      description: Contents of `summary.txt` for the affected task(s), if one was written.
+      render: text
+  - type: textarea
+    id: extra
+    attributes:
+      label: Additional context
+      description: Local changes to `simulator-config.yaml` or `models/<target>.yaml`, and anything unusual about the account or environment.

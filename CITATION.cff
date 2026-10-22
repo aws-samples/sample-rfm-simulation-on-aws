@@ -1,0 +1,29 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "RFM Simulation on AWS"
+abstract: >-
+  One-click AWS CDK deployment of robot foundation model (VLA, world action model and
+  agentic policy) simulation and evaluation on Amazon EC2 GPU instances, across LIBERO,
+  SimplerEnv, RoboCasa and Isaac Lab benchmarks.
+type: software
+authors:
+  - given-names: Byong-Wu
+    family-names: Chong
+    affiliation: "Amazon Web Services"
+repository-code: "https://github.com/aws-samples/sample-rfm-simulation-on-aws"
+license: MIT-0
+version: 1.0.0
+date-released: "2026-10-22"
+keywords:
+  - aws
+  - aws-cdk
+  - robotics
+  - robot-learning
+  - robot-foundation-model
+  - vision-language-action
+  - embodied-ai
+  - simulation
+  - libero
+  - robocasa
+  - isaac-lab
+  - amazon-ec2

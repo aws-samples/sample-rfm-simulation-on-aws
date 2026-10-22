@@ -40,6 +40,7 @@ import boto3
 import yaml
 from botocore.exceptions import ClientError
 
+from targets import VLA_TARGETS
 from generate import (
     OFT_DEFAULT_SUITE,
     OFT_LIBERO_SUITES,
@@ -52,7 +53,7 @@ BASE_DIR = Path(__file__).parent
 
 
 # Upstream-LeRobot × LIBERO targets (shared lerobot-libero template) → CDK stack names.
-# Keep in sync with generate.LEROBOT_LIBERO_TARGETS, destroy.STACK_NAMES and cdk/bin/app.ts.
+# Keep in sync with generate.LEROBOT_LIBERO_TARGETS and cdk/bin/app.ts (tests/test_targets_parity.py checks).
 LEROBOT_LIBERO_STACKS = {
     "xvla": "XVLA-Demo",
     "smolvla": "SmolVLA-Demo",
@@ -191,7 +192,7 @@ def _maybe_import_orphan_bucket(
 def main():
     parser = argparse.ArgumentParser(description="RFM Simulation on AWS 1-Click Deploy")
     parser.add_argument("--vla", required=True,
-                        choices=["gr00t", "gr00t-gr1", "gr00t-g1", "pi", "openvla-oft", "lap", "rldx", "rldx-simpler", "rldx-gr1", "rldx-kitchen", "openarm-isaac", "openarm-lift-act", "molmoact2", *LEROBOT_LIBERO_TARGETS, *OTHER_LOCAL_STACKS],
+                        choices=VLA_TARGETS,
                         help="Target (model + simulator) to deploy")
     parser.add_argument("--bridge", action="store_true",
                         help="Bridge mode (experimental): forward inference to your own gRPC endpoint instead of a local model")

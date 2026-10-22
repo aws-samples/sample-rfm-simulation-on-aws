@@ -22,7 +22,7 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.10"
-      - run: pip install -r requirements.txt
+      - run: pip install -r requirements.txt pytest
       - run: npm ci --no-audit --no-fund
         working-directory: cdk
       - run: npx tsc --noEmit
@@ -33,9 +33,13 @@ jobs:
         run: |
           python results.py --help > /dev/null
           python -c "import results as r; lo, hi = r.wilson(48, 50); assert (round(lo, 2), round(hi, 2)) == (0.87, 0.99), (lo, hi); assert r.wilson(0, 0) == (None, None)"
+      - name: pytest (target-list parity across CLIs, models/ and cdk/bin/app.ts)
+        run: python -m pytest -q tests
+      # targets.py is the single source of the --vla targets; the parity test above ties it to
+      # deploy/destroy/generate/vlasim, models/*.yaml and the cdk/bin/app.ts maps.
       - name: render userdata + bash -n (all targets)
         run: |
-          for v in $(python -c "import re;print(' '.join(re.findall(r'\"([a-z0-9-]+)\"', re.search(r'choices=\[([^]]+)\]', open('deploy.py').read()).group(1))))"); do
+          for v in $(python targets.py); do
             python generate.py --vla "$v" --output-dir assets/userdata > /dev/null
             bash -n "assets/userdata/$v.sh"
             echo "ok $v"
@@ -43,7 +47,11 @@ jobs:
       - name: cdk synth (all targets)
         working-directory: cdk
         run: |
-          for v in $(ls ../assets/userdata/*.sh | xargs -n1 basename | sed 's/\.sh$//'); do
+          n=0
+          for v in $(cd .. && python targets.py); do
             npx cdk synth -q -c region=us-east-1 -c notify_email=ci@example.com -c vla="$v" --output "cdk.out-$v" > /dev/null
             echo "synth ok $v"
+            n=$((n + 1))
           done
+          echo "synthesized $n targets"
+          test "$n" -gt 0

@@ -43,6 +43,11 @@ RoboCasa and Isaac Lab, driven by the `vlasim.py` CLI (`doctor`, `init`, `deploy
 - Moved cdk-nag suppressions to `Validations.of().acknowledge()` for cdk-nag 3 (#30).
 - Dependency updates for the CDK app and GitHub Actions (aws-cdk-lib, TypeScript 6, js-yaml 5, actions v7, and others).
 
+### Security
+
+- Least-privilege IAM: the AZ-selector Lambda role is scoped to its own describe/run calls, `iam:PassRole` is limited to the instance role and `ec2.amazonaws.com`, and unused instance grants (`s3:PutObjectAcl`, `cloudformation:SignalResource`) are removed (#47).
+- IMDSv2 is required on every instance (`HttpTokens=required`, hop limit 2 for containers) (#47).
+
 ### Fixed
 
 - Pinned MuJoCo below 3.10 and `tensorflow-metadata` for GR00T, OpenVLA-OFT and RLDX LIBERO targets; read the eval success rate from the plain-text log.
@@ -50,6 +55,7 @@ RoboCasa and Isaac Lab, driven by the `vlasim.py` CLI (`doctor`, `init`, `deploy
 - `vlasim` bootstrap on a fresh checkout (#11).
 - Issues found by a full 13-target deploy (#17).
 - apt boot hardening on the DLAMI (#37).
+- pi boot script now retries `apt-get` on lock contention like the other targets (#47).
 
 [Unreleased]: https://github.com/aws-samples/sample-rfm-simulation-on-aws/compare/v1.0.0...HEAD
 [1.0.0]: https://github.com/aws-samples/sample-rfm-simulation-on-aws/releases/tag/v1.0.0

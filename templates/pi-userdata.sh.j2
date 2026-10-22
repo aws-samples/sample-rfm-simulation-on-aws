@@ -117,12 +117,28 @@ done
 rm -f /etc/apt/apt.conf.d/50command-not-found 2>/dev/null || true
 systemctl stop apt-daily.timer apt-daily-upgrade.timer 2>/dev/null || true
 systemctl mask apt-daily.timer apt-daily-upgrade.timer unattended-upgrades.service 2>/dev/null || true
-timeout 600 apt-get update -qq -o DPkg::Lock::Timeout=120 2>&1 | tee /tmp/pi_apt_update.log
-apt-get install -y --no-install-recommends -o DPkg::Lock::Timeout=120 \
+pkill -9 -f "unattended-upgrade" 2>/dev/null || true
+# unattended-upgrades can re-take the lists lock right after the kill above (seen 2026-10-22 on g5),
+# so wait on the lock and retry instead of failing the whole boot on the first attempt.
+APT_RETRY=0
+until timeout 600 apt-get update -qq -o DPkg::Lock::Timeout=300 2>&1 | tee /tmp/pi_apt_update.log; do
+    APT_RETRY=$((APT_RETRY + 1))
+    [ $APT_RETRY -ge 3 ] && die "apt-get update failed after 3 retries"
+    log "[warn] apt-get update failed (attempt $APT_RETRY), retrying in 30s..."
+    sleep 30
+done
+
+APT_RETRY=0
+until apt-get install -y --no-install-recommends -o DPkg::Lock::Timeout=300 \
     git git-lfs curl ca-certificates awscli jq \
     libgl1-mesa-glx libegl1 libgles2 \
     libglib2.0-0 libsm6 libxext6 libxrender1 \
-    2>&1 | tee /tmp/pi_apt.log
+    2>&1 | tee /tmp/pi_apt.log; do
+    APT_RETRY=$((APT_RETRY + 1))
+    [ $APT_RETRY -ge 3 ] && die "apt-get install failed after 3 retries"
+    log "[warn] apt-get install failed (attempt $APT_RETRY), retrying in 30s..."
+    sleep 30
+done
 
 # ── [1.5/5] CloudWatch Logs agent setup ──────────────────────────
 log "[1.5/5] Setting up CloudWatch Logs agent..."

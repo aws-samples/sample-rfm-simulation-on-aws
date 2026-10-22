@@ -13,6 +13,11 @@
  * 6. On InsufficientInstanceCapacity, try the next AZ
  * 7. If every AZ fails for a type, fall back to the next instance type
  * 8. Delete: terminate by InstanceId
+ *
+ * IAM: RunInstances is limited to the AMI, subnets and security groups passed in, and new instances
+ * must carry the scope tag and require IMDSv2. CreateTags only works as part of RunInstances,
+ * TerminateInstances only on instances with the scope tag, and PassRole only for the instance role
+ * and only to EC2.
  */
 import * as cdk from 'aws-cdk-lib';
 import * as iam from 'aws-cdk-lib/aws-iam';
@@ -27,9 +32,14 @@ export interface AzSelectorProps {
   // Real instance launch params (replaces probe+terminate)
   userDataBase64: string;
   iamInstanceProfileArn: string;
+  // Role inside the instance profile; the only role the Lambda may pass (to EC2).
+  instanceRoleArn: string;
   securityGroupIds: string[];
   ebsGb: number;
   tags: Array<{ key: string; value: string }>;
+  // Tag that RunInstances must set and TerminateInstances requires (e.g. StackName=<stack>).
+  // It must also be one of `tags`.
+  scopeTag: { key: string; value: string };
 }
 
 export class AzSelectorConstruct extends Construct {
@@ -41,6 +51,13 @@ export class AzSelectorConstruct extends Construct {
   constructor(scope: Construct, id: string, props: AzSelectorProps) {
     super(scope, id);
 
+    if (!props.tags.some((t) => t.key === props.scopeTag.key && t.value === props.scopeTag.value)) {
+      throw new Error(`AzSelector: scopeTag ${props.scopeTag.key} must be one of the instance tags`);
+    }
+    const ec2Arn = (resource: string, account: string = cdk.Aws.ACCOUNT_ID) =>
+      `arn:${cdk.Aws.PARTITION}:ec2:${cdk.Aws.REGION}:${account}:${resource}`;
+    const instanceArns = ec2Arn('instance/*');
+
     const lambdaRole = new iam.Role(this, 'AzSelectorRole', {
       assumedBy: new iam.ServicePrincipal('lambda.amazonaws.com'),
       managedPolicies: [
@@ -49,20 +66,51 @@ export class AzSelectorConstruct extends Construct {
       inlinePolicies: {
         AzSelectorPolicy: new iam.PolicyDocument({
           statements: [
+            // Describe* actions do not support resource-level permissions.
             new iam.PolicyStatement({
-              actions: [
-                'ec2:DescribeInstanceTypeOfferings',
-                'ec2:DescribeSubnets',
-                'ec2:RunInstances',
-                'ec2:TerminateInstances',
-                'ec2:DescribeInstances',
-                'ec2:CreateTags',
-              ],
+              actions: ['ec2:DescribeInstanceTypeOfferings', 'ec2:DescribeSubnets'],
               resources: ['*'],
+            }),
+            // RunInstances: the instance itself must be tagged with the scope tag and use IMDSv2.
+            new iam.PolicyStatement({
+              actions: ['ec2:RunInstances'],
+              resources: [instanceArns],
+              conditions: {
+                StringEquals: {
+                  [`aws:RequestTag/${props.scopeTag.key}`]: props.scopeTag.value,
+                  'ec2:MetadataHttpTokens': 'required',
+                },
+              },
+            }),
+            // RunInstances: only the given AMI, subnets and security groups; the root volume and
+            // the primary ENI are created by the call (their IDs are unknown until then).
+            new iam.PolicyStatement({
+              actions: ['ec2:RunInstances'],
+              resources: [
+                ec2Arn(`image/${props.amiId}`, ''),
+                ...props.subnetIds.map((id) => ec2Arn(`subnet/${id}`)),
+                ...props.securityGroupIds.map((id) => ec2Arn(`security-group/${id}`)),
+                ec2Arn('volume/*'),
+                ec2Arn('network-interface/*'),
+              ],
+            }),
+            // Tags only as part of the launch (TagSpecifications), never on existing resources.
+            new iam.PolicyStatement({
+              actions: ['ec2:CreateTags'],
+              resources: [instanceArns],
+              conditions: { StringEquals: { 'ec2:CreateAction': 'RunInstances' } },
+            }),
+            new iam.PolicyStatement({
+              actions: ['ec2:TerminateInstances'],
+              resources: [instanceArns],
+              conditions: {
+                StringEquals: { [`ec2:ResourceTag/${props.scopeTag.key}`]: props.scopeTag.value },
+              },
             }),
             new iam.PolicyStatement({
               actions: ['iam:PassRole'],
-              resources: ['*'],
+              resources: [props.instanceRoleArn],
+              conditions: { StringEquals: { 'iam:PassedToService': 'ec2.amazonaws.com' } },
             }),
           ],
         }),
@@ -110,8 +158,21 @@ export class AzSelectorConstruct extends Construct {
       },
       {
         id: 'AwsSolutions-IAM5',
-        reason: 'AzSelector Lambda requires broad EC2 permissions to launch instances across AZs at deploy time. Resource scoping is not feasible as instance IDs and AZs are unknown at synth time.',
+        reason: 'ec2:DescribeInstanceTypeOfferings and ec2:DescribeSubnets do not support resource-level permissions.',
         appliesTo: ['Resource::*'],
+      },
+      {
+        id: 'AwsSolutions-IAM5',
+        reason: 'Instance IDs are unknown until RunInstances returns. RunInstances requires the scope tag and IMDSv2, CreateTags is limited to ec2:CreateAction=RunInstances, and TerminateInstances requires the scope tag.',
+        appliesTo: ['Resource::arn:<AWS::Partition>:ec2:<AWS::Region>:<AWS::AccountId>:instance/*'],
+      },
+      {
+        id: 'AwsSolutions-IAM5',
+        reason: 'The root EBS volume and primary network interface are created by RunInstances, so their IDs are unknown at synth time. The AMI, subnets and security groups are pinned.',
+        appliesTo: [
+          'Resource::arn:<AWS::Partition>:ec2:<AWS::Region>:<AWS::AccountId>:volume/*',
+          'Resource::arn:<AWS::Partition>:ec2:<AWS::Region>:<AWS::AccountId>:network-interface/*',
+        ],
       },
     ]);
 
@@ -209,6 +270,13 @@ def handler(event, context):
                             }
                         }],
                         TagSpecifications=tag_specs,
+                        # IMDSv2 only. Hop limit 2 so containers on the default Docker bridge
+                        # network can still reach IMDS (one extra hop).
+                        MetadataOptions={
+                            'HttpTokens': 'required',
+                            'HttpPutResponseHopLimit': 2,
+                            'HttpEndpoint': 'enabled',
+                        },
                     )
                     instance_id = run_resp['Instances'][0]['InstanceId']
                     print(f'SUCCESS: {instance_type} in {az} (instance: {instance_id})')

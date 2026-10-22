@@ -6,9 +6,9 @@
 # Goal:    LIBERO evaluation with 1-click deploy on AWS. Single in-process LeRobot inference
 #          (local mode, no policy server) — same shape as openvla-oft / openarm-isaac.
 #
-# CLI:     python deploy.py --vla molmoact2 --email YOU@amazon.com
+# CLI:     python deploy.py --vla molmoact2 --email YOU@EXAMPLE.COM
 #
-# Contract source of truth: .temp/molmoact2/A0-contract.md (fork @ a4f15bf, all path:line cited).
+# Integration contract: the allenai/lerobot fork @ a4f15bf (docs/source/molmoact2.mdx).
 #
 # ── ⚠️ EVAL DTYPE = fp32 (NOT bf16) ─────────────────────────────────────────────────────────────
 # The fork's OFFICIAL LIBERO eval recipe (docs/source/molmoact2.mdx:302) runs

@@ -72,8 +72,8 @@
 #     already post-processed to this form).
 #
 # LICENSE — NON-COMMERCIAL. Weights are under the RLWRLD Model License v1.0:
-#   intended use explicitly includes "simulation benchmarking" (this PoC qualifies).
-#   out-of-scope: commercial deployment. Keep outputs to AWS-internal enablement only.
+#   intended use explicitly includes "simulation benchmarking"; commercial deployment is out of
+#   scope. Use this target for research / simulation benchmarking only.
 #   Weights are downloaded from HF at runtime (NOT vendored) → no non-commercial weight is
 #   committed. RoboCasa (squarefk/robocasa fork of ARISE-Initiative/robocasa) is cloned at
 #   runtime (MIT). See NOTICE + README Acknowledgments for the full attribution chain.
@@ -94,7 +94,7 @@ model:
   version: "FT-ROBOCASA"
 
   # SAME pin as the rldx LIBERO + rldx-simpler + rldx-gr1 targets; independent per-yaml pin so a
-  # re-pin of one target can't silently move kitchen (session risk #10). origin/main HEAD == this.
+  # re-pin of one target can't silently move kitchen. origin/main HEAD == this.
   rldx_commit: "ecbfaf80cd031dcc892186ed30465de3591047e6"
 
   # HF checkpoint (RoboCasa Kitchen fine-tuned). eval_robocasa.sh takes CKPT_NAME as $1 and the
@@ -215,8 +215,7 @@ tasks:
     num_episodes: 5
     description: "RoboCasa Kitchen — open a kitchen drawer (PandaOmron mobile manipulator; articulated drawer; distinct from the GR-1 PnP-into-receptacle clips and all single-arm LIBERO/SimplerEnv tasks)"
 
-# Bridge mode (vla-hub serving) NOT supported — same rationale as the rldx LIBERO/SIMPLER/GR-1
-# targets (fused-kernel/ZeroMQ serving conflicts with vla-hub guardrails). See
-# accounts/startups/rlwrld/README.md §4.
+# Bridge mode NOT supported — same rationale as the rldx LIBERO/SIMPLER/GR-1
+# targets (fused-kernel/ZeroMQ serving does not fit the bridge-mode gRPC adapters).
 bridge:
   enabled: false

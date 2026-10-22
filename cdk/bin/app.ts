@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
- * vla-simulator CDK App Entry Point
+ * RFM Simulation on AWS — CDK app entry point
  *
- * 사용법: deploy.py가 자동 호출 (직접 호출 시 예시):
+ * Usage: deploy.py calls this automatically (examples for direct use):
  *   npx cdk deploy GR00T-Demo                  -c region=us-east-1 -c vla=gr00t
  *   npx cdk deploy GR00T-GR1-Demo              -c region=us-east-1 -c vla=gr00t-gr1
  *   npx cdk deploy Pi-Demo                     -c region=us-east-1 -c vla=pi

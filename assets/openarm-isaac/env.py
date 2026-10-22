@@ -1,4 +1,7 @@
-# Copyright 2026 — vla-simulator openarm-isaac target (Phase 2b adapter)
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: MIT-0
+#
+# RFM Simulation on AWS — openarm-isaac target (Phase 2b adapter)
 #
 # OpenArm bimanual × π0.5 (LeRobot pi05 `folding_latest`) — LeRobot EnvHub `env.py`.
 #
@@ -37,7 +40,7 @@
 #                --eval.batch_size=1 --eval.n_episodes=1 --trust_remote_code=true
 #
 # ─────────────────────────────────────────────────────────────────────────────────────────────
-# [확인 필요] — RUNTIME FACTS to verify on FIRST GPU deploy (cannot be known without Isaac Sim):
+# [TO VERIFY] — RUNTIME FACTS to verify on FIRST GPU deploy (cannot be known without Isaac Sim):
 #
 #   (A1) IMPORT ORDER: AppLauncher MUST boot before ANY `isaaclab.envs` / openarm import. This file
 #        keeps the module top isaaclab-free (only `from isaaclab.app import AppLauncher`, which is the

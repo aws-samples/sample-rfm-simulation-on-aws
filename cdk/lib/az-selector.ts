@@ -1,18 +1,18 @@
 /**
  * AzSelectorConstruct
  *
- * Custom Resource Lambda를 사용하여 probe 후 즉시 실 인스턴스를 launch.
- * probe + terminate → launch 사이의 레이스 컨디션 제거.
+ * Uses a Custom Resource Lambda to launch the real instance directly instead of
+ * probing first, which removes the race between probe + terminate and launch.
  *
- * 동작 방식:
- * 1. 인스턴스 타입 fallback 리스트를 순차 시도
- * 2. 각 인스턴스 타입에 대해 describe-instance-type-offerings로 지원 AZ 목록 조회
- * 3. AZ 목록을 셔플하여 특정 AZ 집중 방지
- * 4. 각 AZ에서 RunInstances (UserData + IAM + SG 포함) 직접 실행
- * 5. 성공하면 InstanceId + AZ + InstanceType 반환 (probe 불필요)
- * 6. InsufficientInstanceCapacity이면 다음 AZ 시도
- * 7. 해당 타입의 모든 AZ 실패 시 다음 인스턴스 타입으로 fallback
- * 8. Delete: InstanceId로 terminate
+ * How it works:
+ * 1. Try the instance-type fallback list in order
+ * 2. For each instance type, list supported AZs with describe-instance-type-offerings
+ * 3. Shuffle the AZ list so launches do not pile onto one AZ
+ * 4. Call RunInstances (with UserData + IAM + SG) directly in each AZ
+ * 5. On success, return InstanceId + AZ + InstanceType (no probe needed)
+ * 6. On InsufficientInstanceCapacity, try the next AZ
+ * 7. If every AZ fails for a type, fall back to the next instance type
+ * 8. Delete: terminate by InstanceId
  */
 import * as cdk from 'aws-cdk-lib';
 import * as iam from 'aws-cdk-lib/aws-iam';

@@ -1,28 +1,29 @@
 #!/usr/bin/env python3
 """
-zmq_grpc_bridge.py — ZMQ ↔ gRPC bridge for GR00T enablement-pack
+zmq_grpc_bridge.py — ZMQ ↔ gRPC bridge for GR00T bridge mode
 
-enablement-pack EC2가 모델을 로컬 로드하지 않고 gr00t-realtime NLB에 추론을 위임한다.
+The simulation EC2 instance does not load the model locally; it delegates inference to a
+remote GR00T gRPC endpoint (behind an NLB).
 
   rollout_policy.py (ZMQ REQ :8000) → [bridge] → gRPC NLB:50051
 
-ZMQ REP(:8000) : 기존 rollout_policy.py와 연결 (Isaac-GR00T 코드 수정 없음)
-gRPC stub      : gr00t-realtime NLB(:50051) 호출
+ZMQ REP(:8000) : talks to the existing rollout_policy.py (no Isaac-GR00T code changes)
+gRPC stub      : calls the remote endpoint NLB(:50051)
 
-메시지 변환 흐름:
+Message conversion flow:
   ZMQ recv  → MsgSerializer { endpoint envelope + obs dict (numpy __ndarray_class__) }
   gRPC send → InferRequest { image_data(JPEG), instruction, joint states }
   gRPC recv → InferResponse { action_chunks map<string, bytes> }
   ZMQ send  → MsgSerializer { [action_dict, {}] } — matches PolicyServer response format
 
-프로토콜 참고: Isaac-GR00T gr00t/policy/server_client.py (MsgSerializer, PolicyServer, PolicyClient)
+Protocol reference: Isaac-GR00T gr00t/policy/server_client.py (MsgSerializer, PolicyServer, PolicyClient)
 
-사용법:
+Usage:
   python zmq_grpc_bridge.py --endpoint NLB_HOST:50051 [--zmq-port 8000]
 
-추가 의존성 (Isaac-GR00T venv 기본 외):
+Extra dependencies (beyond the Isaac-GR00T venv defaults):
   pip install "grpcio>=1.80.0" Pillow
-  (pyzmq, numpy, msgpack은 Isaac-GR00T venv에 이미 포함)
+  (pyzmq, numpy and msgpack are already in the Isaac-GR00T venv)
 """
 
 import argparse
@@ -46,7 +47,7 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-# 관절별 DOF — action_chunks bytes → numpy (H, DOF) 복원에 사용
+# Per-joint DOF — used to restore action_chunks bytes → numpy (H, DOF)
 _DOF_MAP = {
     "left_arm":   7,
     "right_arm":  7,
@@ -57,7 +58,7 @@ _DOF_MAP = {
 
 
 # ── MsgSerializer ─────────────────────────────────────────────────────────────
-# Isaac-GR00T PolicyClient/PolicyServer와 동일한 직렬화 (server_client.py 참고)
+# Same serialization as Isaac-GR00T PolicyClient/PolicyServer (see server_client.py)
 # numpy array: {"__ndarray_class__": True, "as_npy": <bytes>}
 
 class MsgSerializer:
@@ -101,17 +102,17 @@ def _obs_to_infer_request(obs: dict) -> "gr00t_pb2.InferRequest":
     """
     Gymnasium VecEnv obs dict → gRPC InferRequest
 
-    PolicyClient → PolicyServer (Gr00tSimPolicyWrapper) 프로토콜에서
-    obs는 Gr00t sim flat format:
+    In the PolicyClient → PolicyServer (Gr00tSimPolicyWrapper) protocol
+    obs uses the Gr00t sim flat format:
       {
         "video.<key>":  np.ndarray(n_envs, T, H, W, C) uint8,
         "state.<key>":  np.ndarray(n_envs, T, DOF),
         "annotation.human.task_description": np.ndarray or [[str]]
       }
-    nested format ({"video": {...}}) 도 fallback으로 지원.
+    The nested format ({"video": {...}}) is also supported as a fallback.
     """
     # ── Video ───────────────────────────────────────────────────────────────
-    # Flat format: "video.<cam_key>" 우선 시도
+    # Flat format: try "video.<cam_key>" first
     video_dict = {k[len("video."):]: v for k, v in obs.items() if k.startswith("video.")}
     if not video_dict:
         # Nested format fallback
@@ -121,7 +122,7 @@ def _obs_to_infer_request(obs: dict) -> "gr00t_pb2.InferRequest":
 
     image = next(iter(video_dict.values()))
     while image.ndim > 3:
-        image = image[0]  # n_envs=0, T=0, ... 순으로 batch dim 제거
+        image = image[0]  # drop batch dims in order: n_envs=0, T=0, ...
     image_bytes = _encode_image(np.asarray(image, dtype=np.uint8))
 
     # ── Language / instruction ────────────────────────────────────────────────
@@ -152,7 +153,7 @@ def _obs_to_infer_request(obs: dict) -> "gr00t_pb2.InferRequest":
         raw_instr = row[0] if row else ""
         instruction = raw_instr.decode("utf-8") if isinstance(raw_instr, bytes) else str(raw_instr)
 
-    # ── State: 관절 배열 → float32 리스트 ────────────────────────────────────
+    # ── State: joint arrays → float32 lists ────────────────────────────────────
     # Flat format: "state.<joint_key>"
     state_flat = {k[len("state."):]: v for k, v in obs.items() if k.startswith("state.")}
     state_nested = obs.get("state", {})
@@ -182,8 +183,8 @@ def _infer_resp_to_action(resp: "gr00t_pb2.InferResponse") -> dict:
     gRPC InferResponse.action_chunks → action dict with shaped numpy arrays
 
     InferResponse.action_chunks: map<string, bytes> (float32 tobytes())
-    복원: np.frombuffer → reshape (B=1, H, DOF)
-    이 형식은 PolicyServer(로컬 Gr00tPolicy)가 반환하는 action_dict와 동일해야 함.
+    Restore: np.frombuffer → reshape (B=1, H, DOF)
+    This must match the action_dict returned by PolicyServer (local Gr00tPolicy).
     """
     action_dict = {}
     for k, v_bytes in resp.action_chunks.items():
@@ -191,7 +192,7 @@ def _infer_resp_to_action(resp: "gr00t_pb2.InferResponse") -> dict:
         dof = _DOF_MAP.get(k)
         if dof and len(arr) % dof == 0:
             arr = arr.reshape(1, len(arr) // dof, dof)  # (B=1, H, DOF)
-        # "action." 프리픽스 추가 — Gr00tSimPolicyWrapper 출력 포맷과 동일
+        # add the "action." prefix — same as the Gr00tSimPolicyWrapper output format
         # gr00t_policy.py: return {f"action.{key}": action[key] for key in action}, info
         action_dict[f"action.{k}"] = arr
     return action_dict
@@ -200,7 +201,7 @@ def _infer_resp_to_action(resp: "gr00t_pb2.InferResponse") -> dict:
 # ── Bridge main loop ──────────────────────────────────────────────────────────
 
 def run(endpoint: str, zmq_port: int) -> None:
-    # grpc:// prefix 제거
+    # strip the grpc:// prefix
     host = endpoint[len("grpc://"):] if endpoint.startswith("grpc://") else endpoint
 
     # gRPC channel → NLB
@@ -214,7 +215,7 @@ def run(endpoint: str, zmq_port: int) -> None:
     stub = gr00t_pb2_grpc.GR00TInferenceStub(channel)
     log.info("gRPC channel → %s", host)
 
-    # ZMQ REP socket — PolicyServer 드롭인 대체
+    # ZMQ REP socket — drop-in replacement for PolicyServer
     ctx = zmq.Context()
     sock = ctx.socket(zmq.REP)
     sock.bind(f"tcp://*:{zmq_port}")
@@ -225,7 +226,7 @@ def run(endpoint: str, zmq_port: int) -> None:
         while True:
             raw = sock.recv()
 
-            # MsgSerializer 디코딩 — PolicyClient가 보내는 포맷
+            # MsgSerializer decode — the format PolicyClient sends
             try:
                 request = MsgSerializer.from_bytes(raw)
             except Exception as exc:
@@ -235,7 +236,7 @@ def run(endpoint: str, zmq_port: int) -> None:
 
             endpoint_name = request.get("endpoint", "get_action")
 
-            # ── 비추론 엔드포인트 ────────────────────────────────────────────
+            # ── non-inference endpoints ────────────────────────────────────────────
             if endpoint_name == "ping":
                 sock.send(MsgSerializer.to_bytes({"status": "ok", "message": "Server is running"}))
                 continue
@@ -263,11 +264,11 @@ def run(endpoint: str, zmq_port: int) -> None:
                 infer_req = _obs_to_infer_request(obs)
             except Exception as exc:
                 log.error("obs → InferRequest failed: %s", exc)
-                # PolicyServer 포맷으로 빈 응답 반환: [action_dict, info_dict]
+                # return an empty response in PolicyServer format: [action_dict, info_dict]
                 sock.send(MsgSerializer.to_bytes([{}, {}]))
                 continue
 
-            # gRPC Infer 호출
+            # call gRPC Infer
             try:
                 infer_resp = stub.Infer(infer_req, timeout=10.0)
             except grpc.RpcError as exc:
@@ -276,7 +277,7 @@ def run(endpoint: str, zmq_port: int) -> None:
                 continue
 
             # InferResponse → action dict → MsgSerializer → ZMQ REP
-            # 반환 형식: [action_dict, info_dict] (PolicyServer와 동일)
+            # return format: [action_dict, info_dict] (same as PolicyServer)
             # PolicyClient._get_action: return tuple(response) → (action_dict, {})
             action_dict = _infer_resp_to_action(infer_resp)
             sock.send(MsgSerializer.to_bytes([action_dict, {}]))
@@ -295,18 +296,18 @@ def run(endpoint: str, zmq_port: int) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="ZMQ ↔ gRPC bridge — GR00T enablement-pack 원격 모드"
+        description="ZMQ ↔ gRPC bridge — GR00T bridge (remote inference) mode"
     )
     parser.add_argument(
         "--endpoint",
         required=True,
-        help="gRPC endpoint (예: NLB_HOST:50051 또는 grpc://NLB_HOST:50051)",
+        help="gRPC endpoint (e.g. NLB_HOST:50051 or grpc://NLB_HOST:50051)",
     )
     parser.add_argument(
         "--zmq-port",
         type=int,
         default=8000,
-        help="ZMQ REP 리슨 포트 (기본: 8000 — PolicyServer와 동일)",
+        help="ZMQ REP listen port (default: 8000 — same as PolicyServer)",
     )
     args = parser.parse_args()
     run(args.endpoint, args.zmq_port)

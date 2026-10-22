@@ -1,13 +1,13 @@
 """
-generate.py — model yaml + simulator-config.yaml 읽어 assets/userdata/{vla}.sh 생성
+generate.py — read a model yaml + simulator-config.yaml and write assets/userdata/{vla}.sh
 
-동작:
-  1. simulator-config.yaml (공통) + models/{vla}.yaml (모델별) 로드
-  2. bridge SSM 값 해석 (ssm:/path → 실제 값, deploy.py에서 해석 후 전달됨)
-  3. templates/{vla}-userdata.sh.j2 Jinja2 템플릿 렌더링
-  4. assets/userdata/{vla}.sh 저장
+Steps:
+  1. Load simulator-config.yaml (shared) + models/{vla}.yaml (per model)
+  2. Take resolved bridge values (ssm:/path → value; deploy.py resolves and passes them in)
+  3. Render the templates/{vla}-userdata.sh.j2 Jinja2 template
+  4. Write assets/userdata/{vla}.sh
 
-사용법:
+Usage:
     python generate.py --vla gr00t       [--config simulator-config.yaml] [--dry-run]
     python generate.py --vla gr00t-gr1   [--config simulator-config.yaml] [--dry-run]
     python generate.py --vla pi          [--resolved-vpc vpc-xxx --resolved-nlb host:port]
@@ -70,23 +70,23 @@ def oft_stack_name(suite: str) -> str:
 
 
 def _load_merged_config(simulator_config_path: Path, vla: str) -> dict:
-    """simulator-config.yaml + models/{vla}.yaml 병합. 모델 설정 우선."""
+    """Merge simulator-config.yaml + models/{vla}.yaml. Model settings take precedence."""
     sim_cfg = yaml.safe_load(simulator_config_path.read_text())
     model_path = BASE_DIR / "models" / f"{vla}.yaml"
     if not model_path.exists():
         print(f"[error] Model config not found: {model_path}", file=sys.stderr)
         sys.exit(1)
     model_cfg = yaml.safe_load(model_path.read_text())
-    # deployment: simulator-config가 base, model yaml에 deployment 항목 있으면 덮어씀
+    # deployment: simulator-config is the base; a deployment block in the model yaml overrides it
     merged_deployment = {**sim_cfg.get("deployment", {}), **model_cfg.get("deployment", {})}
     return {**sim_cfg, **model_cfg, "deployment": merged_deployment}
 
 
 def _build_gr00t_ctx(config: dict, resolved_grpc: str, model_id: str) -> dict:
-    """gr00t / gr00t-gr1 공통 context 빌드."""
+    """Build the shared context for gr00t / gr00t-gr1."""
     tasks = config.get("tasks", [])
     if not tasks:
-        print(f"[error] models/{model_id}.yaml에 tasks 항목이 없습니다.", file=sys.stderr)
+        print(f"[error] models/{model_id}.yaml has no tasks entry.", file=sys.stderr)
         sys.exit(1)
 
     tasks_json = _tasks_json_for_bash(tasks)
@@ -116,7 +116,7 @@ def _build_gr00t_ctx(config: dict, resolved_grpc: str, model_id: str) -> dict:
         missing = [f for f in ("zmq_grpc_bridge.py", "gr00t_pb2.py", "gr00t_pb2_grpc.py")
                    if not (bridge_dir / f).exists()]
         if missing:
-            print(f"[error] Bridge 파일 없음: {missing} (assets/bridge/gr00t/ 확인)", file=sys.stderr)
+            print(f"[error] Bridge files missing: {missing} (check assets/bridge/gr00t/)", file=sys.stderr)
             sys.exit(1)
         ctx["zmq_grpc_bridge_b64"] = base64.encodebytes(
             (bridge_dir / "zmq_grpc_bridge.py").read_bytes()
@@ -196,7 +196,7 @@ def generate_gr00t_g1(config: dict, resolved_grpc: str, resolved_vpc: str, dry_r
         }
         missing = [fn for fn in asset_files.values() if not (asset_dir / fn).exists()]
         if missing:
-            print(f"[error] gr00t-g1 collect asset 파일 없음: {missing} (assets/gr00t-g1/ 확인)",
+            print(f"[error] gr00t-g1 collect asset files missing: {missing} (check assets/gr00t-g1/)",
                   file=sys.stderr)
             sys.exit(1)
         for ctx_key, fname in asset_files.items():
@@ -220,8 +220,8 @@ def generate_openvla_oft(config: dict, libero_suite: str, dry_run: bool) -> str:
     suites = model.get("suites", {})
     suite_cfg = suites.get(suite)
     if not suite_cfg:
-        print(f"[error] models/openvla-oft.yaml의 model.suites에 '{suite}' 항목이 없습니다. "
-              f"사용 가능: {sorted(suites.keys())}", file=sys.stderr)
+        print(f"[error] models/openvla-oft.yaml model.suites has no '{suite}' entry. "
+              f"Available: {sorted(suites.keys())}", file=sys.stderr)
         sys.exit(1)
 
     tasks_by_suite = config.get("tasks", {})
@@ -231,7 +231,7 @@ def generate_openvla_oft(config: dict, libero_suite: str, dry_run: bool) -> str:
     else:
         tasks = tasks_by_suite.get(suite, [])
     if not tasks:
-        print(f"[error] models/openvla-oft.yaml에 suite '{suite}'의 tasks가 없습니다.", file=sys.stderr)
+        print(f"[error] models/openvla-oft.yaml has no tasks for suite '{suite}'.", file=sys.stderr)
         sys.exit(1)
 
     tasks_json = _tasks_json_for_bash(tasks)
@@ -268,17 +268,17 @@ def generate_rldx(config: dict, dry_run: bool, vla: str = "rldx") -> str:
     (cfn_signal / die / S3 upload / SNS / ZeroMQ warmup) is sim-agnostic single-source;
     only the [5/8] sim-venv setup+fix block, the server args, the rollout values, and
     the result labels diverge by sim. LIBERO (sim_id default) renders byte-identically
-    to the pre-parameterisation template — guarded by the dry-run regression in .temp/.
+    to the pre-parameterisation template (checked by diffing dry-run renders).
 
     `vla` (= the model id / CDK context value) drives the CloudWatch log_prefix so the
     `/rldx/userdata` log group matches the stack's `/${vla}/*` IAM grant. A mismatch
-    deploys fine but silently drops logs (no `aws logs tail`); see session risk #9.
+    deploys fine but silently drops logs (no `aws logs tail`).
 
-    No bridge assets (vla-hub serving deferred — fused-kernel guardrail conflict).
+    No bridge assets (fused-kernel/ZeroMQ serving does not fit the bridge gRPC adapters).
     """
     tasks = config.get("tasks", [])
     if not tasks:
-        print(f"[error] models/{vla}.yaml에 tasks 항목이 없습니다.", file=sys.stderr)
+        print(f"[error] models/{vla}.yaml has no tasks entry.", file=sys.stderr)
         sys.exit(1)
 
     tasks_json = _tasks_json_for_bash(tasks)
@@ -370,7 +370,7 @@ def generate_rldx(config: dict, dry_run: bool, vla: str = "rldx") -> str:
 def generate_lap(config: dict, resolved_nlb: str, dry_run: bool) -> str:
     tasks = config.get("tasks", [])
     if not tasks:
-        print("[error] models/lap.yaml에 tasks 항목이 없습니다.", file=sys.stderr)
+        print("[error] models/lap.yaml has no tasks entry.", file=sys.stderr)
         sys.exit(1)
 
     tasks_json = _tasks_json_for_bash(tasks)
@@ -407,7 +407,7 @@ def generate_openarm_isaac(config: dict, dry_run: bool) -> str:
     """
     tasks = config.get("tasks", [])
     if not tasks:
-        print("[error] models/openarm-isaac.yaml에 tasks 항목이 없습니다.", file=sys.stderr)
+        print("[error] models/openarm-isaac.yaml has no tasks entry.", file=sys.stderr)
         sys.exit(1)
 
     tasks_json = _tasks_json_for_bash(tasks)
@@ -425,7 +425,7 @@ def generate_openarm_isaac(config: dict, dry_run: bool) -> str:
     }
     missing = [fn for fn in asset_files.values() if not (asset_dir / fn).exists()]
     if missing:
-        print(f"[error] openarm-isaac asset 파일 없음: {missing} (assets/openarm-isaac/ 확인)", file=sys.stderr)
+        print(f"[error] openarm-isaac asset files missing: {missing} (check assets/openarm-isaac/)", file=sys.stderr)
         sys.exit(1)
 
     ctx = {
@@ -454,7 +454,7 @@ def generate_openarm_lift_act(config: dict, dry_run: bool) -> str:
     model = config.get("model", {})
     collection = config.get("collection", {})
     if not collection:
-        print("[error] models/openarm-lift-act.yaml에 collection 항목이 없습니다.", file=sys.stderr)
+        print("[error] models/openarm-lift-act.yaml has no collection entry.", file=sys.stderr)
         sys.exit(1)
 
     asset_dir = BASE_DIR / "assets" / "openarm-lift-act"
@@ -464,7 +464,7 @@ def generate_openarm_lift_act(config: dict, dry_run: bool) -> str:
     }
     missing = [fn for fn in asset_files.values() if not (asset_dir / fn).exists()]
     if missing:
-        print(f"[error] openarm-lift-act asset 파일 없음: {missing} (assets/openarm-lift-act/ 확인)", file=sys.stderr)
+        print(f"[error] openarm-lift-act asset files missing: {missing} (check assets/openarm-lift-act/)", file=sys.stderr)
         sys.exit(1)
 
     ctx = {
@@ -502,7 +502,7 @@ def generate_molmoact2(config: dict, dry_run: bool) -> str:
     """
     tasks = config.get("tasks", [])
     if not tasks:
-        print("[error] models/molmoact2.yaml에 tasks 항목이 없습니다.", file=sys.stderr)
+        print("[error] models/molmoact2.yaml has no tasks entry.", file=sys.stderr)
         sys.exit(1)
 
     tasks_json = _tasks_json_for_bash(tasks)
@@ -548,7 +548,7 @@ def generate_lerobot_libero(config: dict, dry_run: bool, vla: str) -> str:
     """
     tasks = config.get("tasks", [])
     if not tasks:
-        print(f"[error] models/{vla}.yaml에 tasks 항목이 없습니다.", file=sys.stderr)
+        print(f"[error] models/{vla}.yaml has no tasks entry.", file=sys.stderr)
         sys.exit(1)
     model = config.get("model", {})
     instance = config.get("instance", {})
@@ -591,7 +591,7 @@ def generate_vla_adapter(config: dict, dry_run: bool, vla: str = "vla-adapter") 
     checkpoint and extra run_libero_eval.py flags taken from models/<vla>.yaml."""
     tasks = config.get("tasks", [])
     if not tasks:
-        print(f"[error] models/{vla}.yaml에 tasks 항목이 없습니다.", file=sys.stderr)
+        print(f"[error] models/{vla}.yaml has no tasks entry.", file=sys.stderr)
         sys.exit(1)
     model = config.get("model", {})
     for key in ("hf_repo", "repo_url", "repo_commit", "task_suite_name"):
@@ -629,7 +629,7 @@ def generate_cosmos_policy(config: dict, dry_run: bool, vla: str = "cosmos-polic
     """
     tasks = config.get("tasks", [])
     if not tasks:
-        print(f"[error] models/{vla}.yaml에 tasks 항목이 없습니다.", file=sys.stderr)
+        print(f"[error] models/{vla}.yaml has no tasks entry.", file=sys.stderr)
         sys.exit(1)
     model = config.get("model", {})
     instance = config.get("instance", {})
@@ -667,7 +667,7 @@ def generate_aspire(config: dict, dry_run: bool, vla: str = "aspire") -> str:
     scored on the LIBERO saved init states the LeRobot targets use. Own template (aspire-userdata.sh.j2)."""
     tasks = config.get("tasks", [])
     if not tasks:
-        print(f"[error] models/{vla}.yaml에 tasks 항목이 없습니다.", file=sys.stderr)
+        print(f"[error] models/{vla}.yaml has no tasks entry.", file=sys.stderr)
         sys.exit(1)
     model = config.get("model", {})
     for key in ("repo_url", "repo_commit", "profile", "providers", "agent", "sanity_program"):
@@ -710,7 +710,7 @@ def generate_aspire(config: dict, dry_run: bool, vla: str = "aspire") -> str:
 def generate_pi(config: dict, resolved_vpc: str, resolved_nlb: str, dry_run: bool) -> str:
     tasks = config.get("tasks", [])
     if not tasks:
-        print("[error] models/pi.yaml에 tasks 항목이 없습니다.", file=sys.stderr)
+        print("[error] models/pi.yaml has no tasks entry.", file=sys.stderr)
         sys.exit(1)
 
     tasks_json = _tasks_json_for_bash(tasks)
@@ -736,16 +736,16 @@ def generate_pi(config: dict, resolved_vpc: str, resolved_nlb: str, dry_run: boo
 
 
 def main():
-    parser = argparse.ArgumentParser(description="vla-simulator UserData 스크립트 생성")
-    parser.add_argument("--vla", required=True, choices=["gr00t", "gr00t-gr1", "gr00t-g1", "pi", "openvla-oft", "lap", "rldx", "rldx-simpler", "rldx-gr1", "rldx-kitchen", "openarm-isaac", "openarm-lift-act", "molmoact2", *LEROBOT_LIBERO_TARGETS, "vla-adapter", "cosmos-policy", "aspire"], help="VLA 모델")
+    parser = argparse.ArgumentParser(description="Generate the EC2 UserData script for an RFM Simulation target")
+    parser.add_argument("--vla", required=True, choices=["gr00t", "gr00t-gr1", "gr00t-g1", "pi", "openvla-oft", "lap", "rldx", "rldx-simpler", "rldx-gr1", "rldx-kitchen", "openarm-isaac", "openarm-lift-act", "molmoact2", *LEROBOT_LIBERO_TARGETS, "vla-adapter", "cosmos-policy", "aspire"], help="Target (model + simulator) to render")
     parser.add_argument(
         "--config", default=str(BASE_DIR / "simulator-config.yaml"),
-        help="공통 설정 파일 경로 (기본: simulator-config.yaml)",
+        help="Shared config file path (default: simulator-config.yaml)",
     )
-    parser.add_argument("--dry-run", action="store_true", help="파일 저장 없이 출력만")
+    parser.add_argument("--dry-run", action="store_true", help="Print the rendered script instead of writing it")
     parser.add_argument("--output-dir", default=str(BASE_DIR / "assets" / "userdata"),
-                        help="결과 저장 디렉토리")
-    # Bridge 해석 값 (deploy.py가 SSM 조회 후 전달)
+                        help="Output directory")
+    # Resolved bridge values (deploy.py looks them up in SSM and passes them in)
     parser.add_argument("--resolved-grpc", default="", help="GR00T: resolved gRPC endpoint")
     parser.add_argument("--resolved-vpc", default="", help="resolved VPC ID")
     parser.add_argument("--resolved-nlb", default="", help="Pi: resolved NLB endpoint")
@@ -760,7 +760,7 @@ def main():
 
     config_path = Path(args.config).resolve()
     if not config_path.exists():
-        print(f"[error] 설정 파일 없음: {config_path}", file=sys.stderr)
+        print(f"[error] Config file not found: {config_path}", file=sys.stderr)
         sys.exit(1)
 
     config = _load_merged_config(config_path, args.vla)
@@ -800,7 +800,7 @@ def main():
 
     if args.dry_run:
         print("=" * 60)
-        print(f"[DRY-RUN] {args.vla}.sh 내용 미리보기:")
+        print(f"[DRY-RUN] {args.vla}.sh preview:")
         print("=" * 60)
         print(rendered)
         return
@@ -827,7 +827,7 @@ def main():
               "description in models/{vla}.yaml.", file=sys.stderr)
         sys.exit(1)
 
-    print(f"생성 완료: {dest}")
+    print(f"Generated: {dest}")
 
 
 if __name__ == "__main__":

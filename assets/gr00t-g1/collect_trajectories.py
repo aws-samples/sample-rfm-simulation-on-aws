@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-# Copyright 2026 — vla-simulator gr00t-g1 target (Step 2 trajectory collector)
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: MIT-0
+#
+# RFM Simulation on AWS — gr00t-g1 target (Step 2 trajectory collector)
 #
 # Collect (observation, action) trajectories from a GR00T N1.6 Unitree-G1 whole-body
 # loco-manipulation rollout, writing the SUCCESSFUL episodes to HDF5 for downstream
@@ -16,7 +19,6 @@
 #   n_action_steps=1 (whole-body balance collapses — the WBC Balance/Walk ONNX assume a smooth,
 #   chunk-consistent action stream; re-querying every sim step makes base/waist commands jitter and
 #   the humanoid falls). action chunk size is NOT a data-format knob, it is PART OF THE POLICY.
-#   (Durable lesson: knowledge/pai/concepts/gr00t/action-chunk-rollout-vs-collection.md.)
 #
 #   So we keep the policy at its native chunk (n_action_steps from the model/config, e.g. 20) and
 #   capture per-timestep transitions from INSIDE the chunk via a recorder wrapper inserted BELOW
@@ -47,7 +49,7 @@
 #   applied (pre-step pairing, standard BC convention) — see PerStepRecorder.step.
 #
 # ──────────────────────────────────────────────────────────────────────────────────────────────
-# [확인 필요] — RUNTIME FACTS to verify on the FIRST collection run (cannot be known off-GPU):
+# [TO VERIFY] — RUNTIME FACTS to verify on the FIRST collection run (cannot be known off-GPU):
 #   (G1) Exact obs / action key NAMES and SHAPES — printed once at the first recorded step to stdout
 #        (survives EC2 termination via the userdata log + S3). The dump is name-agnostic.
 #   (G2) Per-step action slice shape. MultiStepWrapper feeds the base env `act[key] = value[step, :]`

@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
-# Copyright 2026 — vla-simulator openarm-isaac target (Phase 2c driver)
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: MIT-0
+#
+# RFM Simulation on AWS — openarm-isaac target (Phase 2c driver)
 #
 # OpenArm bimanual × π0.5 (LeRobot pi05 `folding_latest`) — thin LeRobot rollout driver.
 #
-# WHY THIS EXISTS (Phase 2c decision — see research artifact "배포 wiring 제약")
+# WHY THIS EXISTS (Phase 2c decision — deployment wiring constraint)
 #   LeRobot's `lerobot-eval` CLI builds the env through `factory.make_env`, which for an
 #   `isaaclab_arena` env ONLY loads `env.py` via the HF-Hub download path
 #   (`IsaaclabArenaEnv.hub_path` → `_download_hub_file` → hf_hub_download/snapshot_download).

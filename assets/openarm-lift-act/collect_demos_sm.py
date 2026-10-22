@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-# Copyright 2026 — vla-simulator openarm-lift-act target (Phase 1b demo collector)
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: MIT-0
+#
+# RFM Simulation on AWS — openarm-lift-act target (Phase 1b demo collector)
 #
 # Autonomous (teleop-free) scripted pick-and-lift demo collector for OpenArm × ACT.
 #
@@ -49,7 +52,7 @@
 #   Phase 1c (hdf5_to_lerobot.py) reads obs/<term> + actions and writes a LeRobotDataset.
 #
 # ─────────────────────────────────────────────────────────────────────────────────────────────
-# [확인 필요] — RUNTIME FACTS to verify on the FIRST GPU run (cannot be known without Isaac Sim).
+# [TO VERIFY] — RUNTIME FACTS to verify on the FIRST GPU run (cannot be known without Isaac Sim).
 #   These determine whether the SM actually GRASPS — if the first run reports ~0 successes, fix
 #   these before scaling N up (and burning GPU):
 #

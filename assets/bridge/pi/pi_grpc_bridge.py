@@ -2,36 +2,36 @@
 """
 pi_grpc_bridge.py — openpi WebSocket ↔ π0.5 gRPC bridge
 
-openpi libero eval이 로컬 openpi_server(WebSocket:8000)에 접속하는 대신
-vla-pi-realtime internal NLB(gRPC:50051)로 추론을 위임한다.
+Instead of connecting the openpi libero eval to a local openpi_server (WebSocket:8000),
+delegate inference to a remote π0.5 gRPC endpoint behind an NLB (gRPC:50051).
 
-프로토콜 흐름:
+Protocol flow:
   openpi libero client (WebSocket ws://localhost:8000)
     → [bridge WebSocket server]
     → gRPC NLB:50051 (PIInference.Infer)
-    → ECS vla-pi-realtime (π0.5 JAX 모델)
+    → remote π0.5 JAX model server
 
-WebSocket 프로토콜 (openpi WebsocketPolicyServer 호환):
-  1. 연결 수락 → metadata dict 전송 (msgpack)
-  2. 루프: obs dict 수신 (msgpack-numpy) → gRPC Infer → action dict 송신 (msgpack-numpy)
+WebSocket protocol (compatible with openpi WebsocketPolicyServer):
+  1. accept connection → send metadata dict (msgpack)
+  2. loop: receive obs dict (msgpack-numpy) → gRPC Infer → send action dict (msgpack-numpy)
 
-gRPC 프로토콜 (pi.proto PIInference):
+gRPC protocol (pi.proto PIInference):
   InferRequest  { exterior_image, wrist_image, instruction, state }
   InferResponse { actions: float32 bytes, shape=(15, 8) }
 
-obs → InferRequest 변환:
-  openpi examples/libero/main.py obs 키:
+obs → InferRequest conversion:
+  openpi examples/libero/main.py obs keys:
     "observation/image"       : (224, 224, 3) uint8 — agentview (exterior)
     "observation/wrist_image" : (224, 224, 3) uint8 — robot eye-in-hand
     "observation/state"       : (8,) float32 — eef_pos(3)+axis_angle(3)+gripper(2)
     "prompt"                  : str — task description
   Note: msgpack default raw=True → keys may be bytes; _normalize_obs() handles both
 
-InferResponse → action dict 변환:
+InferResponse → action dict conversion:
   actions bytes → np.frombuffer → (15, 8) → openpi action format
     "actions": (15, 8) float32
 
-사용법:
+Usage:
   pip install grpcio grpcio-tools msgpack-numpy websockets Pillow numpy
   python -m grpc_tools.protoc -I. --python_out=. --grpc_python_out=. pi.proto
   python pi_grpc_bridge.py --endpoint NLB_HOST:50051 [--port 8000]

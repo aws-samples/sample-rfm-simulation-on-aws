@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-# Copyright 2026 — vla-simulator gr00t-g1 target (Step 2 converter)
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: MIT-0
+#
+# RFM Simulation on AWS — gr00t-g1 target (Step 2 converter)
 #
 # Convert the success-only trajectory HDF5 produced by collect_trajectories.py into a
 # GR00T-flavored LeRobotDataset (LeRobot data/video/meta layout + a meta/modality.json overlay
@@ -27,7 +30,7 @@
 #       obs/<modality_key>    (T, ...)    video.* → (T,H,W,3) uint8 ; state.* → (T, d) float32
 #       action/<action_key>   (T, d)      float32
 #
-# OUTPUT — GR00T LeRobot dataset (documented in knowledge/pai/concepts/gr00t/gr00t-new-robot-training-guide.md §8)
+# OUTPUT — GR00T LeRobot dataset (format documented in the NVIDIA/Isaac-GR00T repo, getting_started/)
 #   <root>/
 #     meta/modality.json        state.<k>/action.<k> → {start,end} index ranges into the flat vectors;
 #                               video.<k> → {original_key}; annotation.human.task_description
@@ -48,8 +51,8 @@
 #     --task "pick up the apple and place it on the plate"
 #
 # ──────────────────────────────────────────────────────────────────────────────────────────────
-# H1-H4 RESOLVED by vla-ft (cc-58921, 2026-06-16), source = NVIDIA/Isaac-GR00T main@65cc4a192e6d
-# (N1.7 EA) actual code. Durable recipe: knowledge/pai/concepts/gr00t/gr00t-n17-finetune-recipe.md.
+# H1-H4 RESOLVED (2026-06-16) against NVIDIA/Isaac-GR00T main@65cc4a192e6d
+# (N1.7 EA) actual code.
 #   (H1) LeRobot VERSION = v2.1, emitted on THIS (producer) side. The N1.7 training loader does NOT
 #        assert codebase_version (reads data_path/chunks_size/fps/features only), but v2.1 is the
 #        producer contract. We assert the created dataset reports v2.x and stamp meta/info.json's

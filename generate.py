@@ -32,6 +32,8 @@ from pathlib import Path
 import yaml
 from jinja2 import Environment, FileSystemLoader
 
+from targets import VLA_TARGETS
+
 BASE_DIR = Path(__file__).parent
 TEMPLATES_DIR = BASE_DIR / "templates"
 
@@ -737,7 +739,7 @@ def generate_pi(config: dict, resolved_vpc: str, resolved_nlb: str, dry_run: boo
 
 def main():
     parser = argparse.ArgumentParser(description="Generate the EC2 UserData script for an RFM Simulation target")
-    parser.add_argument("--vla", required=True, choices=["gr00t", "gr00t-gr1", "gr00t-g1", "pi", "openvla-oft", "lap", "rldx", "rldx-simpler", "rldx-gr1", "rldx-kitchen", "openarm-isaac", "openarm-lift-act", "molmoact2", *LEROBOT_LIBERO_TARGETS, "vla-adapter", "cosmos-policy", "aspire"], help="Target (model + simulator) to render")
+    parser.add_argument("--vla", required=True, choices=VLA_TARGETS, help="Target (model + simulator) to render")
     parser.add_argument(
         "--config", default=str(BASE_DIR / "simulator-config.yaml"),
         help="Shared config file path (default: simulator-config.yaml)",

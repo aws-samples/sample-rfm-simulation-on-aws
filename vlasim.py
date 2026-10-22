@@ -47,6 +47,8 @@ import subprocess  # nosec B404 - used only with hardcoded command lists, no she
 import sys
 from pathlib import Path
 
+from targets import VLA_TARGETS
+
 BASE_DIR = Path(__file__).resolve().parent
 CDK_DIR = BASE_DIR / "cdk"
 CONFIG_PATH = BASE_DIR / "simulator-config.yaml"
@@ -54,12 +56,8 @@ REQUIREMENTS = BASE_DIR / "requirements.txt"
 DEPLOY_PY = BASE_DIR / "deploy.py"
 DESTROY_PY = BASE_DIR / "destroy.py"
 
-# Keep in sync with deploy.py / destroy.py argument choices.
-VLA_CHOICES = [
-    "gr00t", "gr00t-gr1", "gr00t-g1", "pi", "openvla-oft",
-    "lap", "rldx", "rldx-simpler", "rldx-gr1", "rldx-kitchen", "openarm-isaac", "openarm-lift-act",
-    "molmoact2", "xvla", "smolvla", "lingbot-va", "vla-adapter", "fastwam", "cosmos-policy", "aspire",
-]
+# Single source: targets.py (also used by deploy.py / destroy.py / generate.py).
+VLA_CHOICES = list(VLA_TARGETS)
 
 # Regions the userdata templates + DLAMI lookups are validated against (README).
 SUPPORTED_REGIONS = {

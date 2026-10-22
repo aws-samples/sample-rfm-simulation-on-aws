@@ -1,297 +1,33 @@
-# RFM Simulation on AWS — 1-Click Robot Foundation Model Simulation
+# RFM Simulation on AWS
 
-Run robot foundation model (RFM) simulation workloads — Vision-Language-Action (VLA) models, world action models and LLM-agent policies — on AWS GPU instances with a single command. Supports NVIDIA GR00T N1.7, GR00T N1.6 (GR1 humanoid and Unitree G1 whole-body loco-manipulation), π0.5 (openpi), OpenVLA-OFT, LAP-3B, MolmoAct2 (Ai2), and RLDX-1 (RLWRLD) — plus world action models (FastWAM, LingBot-VA, Cosmos Policy), an LLM-agent policy (ASPIRE), and an OpenArm Lift-Cube target in Isaac Lab for scripted ACT demo collection.
+[![CI](https://github.com/aws-samples/sample-rfm-simulation-on-aws/actions/workflows/ci.yml/badge.svg)](https://github.com/aws-samples/sample-rfm-simulation-on-aws/actions/workflows/ci.yml)
+[![License: MIT-0](https://img.shields.io/badge/License-MIT--0-blue.svg)](LICENSE)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
+[![AWS CDK v2](https://img.shields.io/badge/AWS%20CDK-v2-orange.svg)](https://docs.aws.amazon.com/cdk/v2/guide/home.html)
 
-> **Renamed.** This repository was `aws-samples/sample-vla-simulator-on-aws`; GitHub redirects the old URL. The scope grew from VLA models to robot foundation models in general (VLA, WAM, LLM agents), so the repository now uses the RFM name. Internal identifiers are kept on purpose so existing deployments and stored secrets keep working: the CLI is still `vlasim.py`, the SSM prefix is still `/vla-simulator/*` (for example `/vla-simulator/hf-token`), and the CDK stack file is still `cdk/lib/vla-simulator-stack.ts`.
+Run robot foundation model (RFM) simulation and evaluation on AWS GPU instances with one command. Each target pairs a published policy with its benchmark — Vision-Language-Action (VLA) models such as NVIDIA GR00T, π0.5, OpenVLA-OFT and RLDX-1, world action models such as Cosmos Policy, FastWAM and LingBot-VA, and an LLM-agent policy (ASPIRE, Claude on Amazon Bedrock) — on LIBERO, RoboCasa, SimplerEnv, GR00T-WholeBodyControl and Isaac Lab. `vlasim.py deploy` builds a CDK stack, launches a G5 / G6 / G6e instance, installs the model and simulator at pinned commits, runs the evaluation, writes videos and success rates to S3, emails you, and terminates the instance.
 
-> See [Showcase — Rollouts](#showcase--rollouts) for sample rollouts across the trained policies and the OpenArm scripted collection run, spanning a range of LIBERO / RoboCasa verbs.
+> **Renamed.** This repository was `aws-samples/sample-vla-simulator-on-aws`; GitHub redirects the old URL. Internal identifiers are kept on purpose so existing deployments and stored secrets keep working: the CLI is still `vlasim.py`, the SSM prefix is still `/vla-simulator/*` (for example `/vla-simulator/hf-token`), and the CDK stack file is still `cdk/lib/vla-simulator-stack.ts`.
 
-## Overview
+| π0.5 · LIBERO-Spatial | GR00T N1.6 · RoboCasa GR1 humanoid | GR00T N1.6 · Unitree G1 loco-manipulation |
+|---|---|---|
+| ![π0.5 on LIBERO-Spatial: pick the black bowl between the plate and the ramekin](docs/showcase/pi/libero-spatial-between-plate-ramekin-success.gif) | ![GR00T N1.6 on the GR1 humanoid: plate to bowl](docs/showcase/gr00t-gr1/posttrain-pnp-plate-to-bowl-success.gif) | ![GR00T N1.6 on Unitree G1: pick the apple, walk left, place it on the plate](docs/showcase/gr00t-g1/loco-manip-apple-to-plate-success.gif) |
+| **RLDX-1 · SimplerEnv Google Fractal** | **FastWAM world action model · LIBERO-Spatial** | **OpenArm Lift-Cube · Isaac Lab** |
+| ![RLDX-1 on SimplerEnv: pick coke can](docs/showcase/rldx-simpler/simpler-google-pick-coke-can-success.gif) | ![FastWAM on LIBERO-Spatial](docs/showcase/fastwam/libero-spatial-5ep.gif) | ![OpenArm Lift-Cube scripted collection in Isaac Lab](docs/showcase/openarm-lift-act/lift-cube-table-success.gif) |
 
-| Feature | Detail |
-|---------|--------|
-| **Models** | GR00T N1.7-LIBERO, GR00T N1.6-3B (GR1), GR00T N1.6-G1 (Unitree G1 loco-manip), π0.5 (pi05_libero), OpenVLA-OFT (LIBERO-10), LAP-3B (LIBERO-Spatial), MolmoAct2 (Ai2 Action Reasoning Model, LIBERO-Goal), RLDX-1 (RLWRLD — LIBERO / SimplerEnv Fractal / RoboCasa GR-1 Tabletop) |
-| **Simulation** | LIBERO / RoboCasa (robosuite + MuJoCo, headless EGL); Isaac Lab (OpenArm Lift-Cube collection) |
-| **Deploy** | AWS CDK + EC2 GPU (g6/g5, us-east-1; OpenArm needs a 4-GPU `.12xl`) |
-| **Results** | S3 (MP4 video + summary) + SNS email |
-| **Cleanup** | Auto-terminate EC2; run `vlasim.py destroy` for stack teardown |
+More clips, failure cases and full-quality MP4s: [docs/showcase.md](docs/showcase.md).
 
-### Supported VLA Combinations
+## What's inside
 
-| `--vla` | `--libero-suite` | Model | Sim Environment | Robot | Stack |
-|---------|------------------|-------|----------------|-------|-------|
-| `gr00t` | — | GR00T N1.7-LIBERO | LIBERO-10 kitchen tasks | Franka Panda (7-DOF) | `GR00T-Demo` |
-| `gr00t-gr1` | — | GR00T N1.6-3B | RoboCasa GR1 tabletop tasks | Fourier GR1 humanoid (22-DOF) | `GR00T-GR1-Demo` |
-| `gr00t-g1` | — | GR00T N1.6-G1 (community re-finetune) | GR00T-WholeBodyControl loco-manip (GEAR WBC + MuJoCo) | Unitree G1 humanoid (whole-body) | `GR00T-G1-Demo` |
-| `pi` | — | π0.5 (pi05_libero) | LIBERO spatial/object | Franka Panda (7-DOF) | `Pi-Demo` |
-| `openvla-oft` | `spatial` | OpenVLA-OFT-7B (LIBERO-Spatial fine-tune) | LIBERO-Spatial | Franka Panda (7-DOF) | `OpenVLA-OFT-Spatial-Demo` |
-| `openvla-oft` | `object` | OpenVLA-OFT-7B (LIBERO-Object fine-tune) | LIBERO-Object | Franka Panda (7-DOF) | `OpenVLA-OFT-Object-Demo` |
-| `openvla-oft` | `goal` | OpenVLA-OFT-7B (LIBERO-Goal fine-tune) | LIBERO-Goal | Franka Panda (7-DOF) | `OpenVLA-OFT-Goal-Demo` |
-| `openvla-oft` | `10` (default, alias `long`) | OpenVLA-OFT-7B (LIBERO-10 fine-tune) | LIBERO-10 long-horizon | Franka Panda (7-DOF) | `OpenVLA-OFT-Demo` |
-| `lap` | — | LAP-3B (PaliGemma-3B + Flow Matching, JAX) | LIBERO-Spatial | Franka Panda (7-DOF) | `LAP-Demo` |
-| `molmoact2` | — | MolmoAct2 (Ai2 Action Reasoning Model, 5B; Molmo2-ER VLM + flow-matching action expert)⁵ | LIBERO-Goal | Franka Panda (7-DOF) | `MolmoAct2-Demo` |
-| `xvla` | — | X-VLA-0.9B (2toINF / Tsinghua AIR, soft-prompted cross-embodiment VLA)⁶ | LIBERO-Spatial | Franka Panda (7-DOF) | `XVLA-Demo` |
-| `smolvla` | — | SmolVLA-450M (Hugging Face)⁶ | LIBERO-Spatial | Franka Panda (7-DOF) | `SmolVLA-Demo` |
-| `lingbot-va` | — | LingBot-VA (Robbyant world action model: autoregressive video + action, Wan2.2)⁶ | LIBERO-10 long-horizon | Franka Panda (7-DOF) | `LingBot-VA-Demo` |
-| `vla-adapter` | — | VLA-Adapter-Pro (OpenHelix, Qwen2.5-0.5B Prismatic VLM + bridge-attention action head)⁷ | LIBERO-Spatial | Franka Panda (7-DOF) | `VLA-Adapter-Demo` |
-| `fastwam` | — | FastWAM (world action model: Wan2.2 video DiT + Mixture-of-Transformers action expert)⁸ | LIBERO-Spatial | Franka Panda (7-DOF) | `FastWAM-Demo` |
-| `cosmos-policy` | — | Cosmos Policy (NVIDIA world action model: Cosmos-Predict2-2B video model fine-tuned to predict actions, future frames and value)⁹ | LIBERO-Spatial | Franka Panda (7-DOF) | `Cosmos-Policy-Demo` |
-| `aspire` | — | ASPIRE (NVlabs agentic skill discovery: Claude on Amazon Bedrock writes a per-task robot program against SAM3 / Contact-GraspNet / PyRoki tools — no trained policy)¹⁰ | LIBERO-Spatial (LIBERO-Pro fork) | Franka Panda (7-DOF) | `ASPIRE-Demo` |
-| `rldx` | — | RLDX-1 (RLWRLD MSAT / Qwen3-VL-8B, eager)¹ | LIBERO-10 long-horizon | Franka Panda (7-DOF) | `RLDX-Demo` |
-| `rldx-simpler` | — | RLDX-1 (RLWRLD MSAT / Qwen3-VL-8B, eager)¹ ² | SimplerEnv Google-VM (Fractal) | Google Robot (OXE_FRACTAL real-robot embodiment) | `RLDX-Simpler-Demo` |
-| `rldx-gr1` | — | RLDX-1 (RLWRLD MSAT / Qwen3-VL-8B, eager)¹ ³ | RoboCasa GR-1 Tabletop (24-task) | GR-1 humanoid (bimanual + waist) | `RLDX-GR1-Demo` |
-| `rldx-kitchen` | — | RLDX-1 (RLWRLD MSAT / Qwen3-VL-8B, eager)¹ ⁴ | RoboCasa Kitchen (24-task) | PandaOmron (single-arm mobile manipulator) | `RLDX-Kitchen-Demo` |
-| `openarm-lift-act` | — | Scripted state machine (ACT data collection) | Isaac Lab Lift-Cube | OpenArm (unimanual, 7-DOF + gripper) | `OpenArm-Lift-ACT-Demo` |
-
-¹ RLDX-1 weights are under the **RLWRLD Model License v1.0 (non-commercial)**; "simulation benchmarking" is an explicit intended use and commercial deployment is out of scope, so use these targets for research / simulation benchmarking only. Weights are downloaded from Hugging Face at runtime (not vendored).
-
-² `rldx-simpler` is the same RLDX-1 model on SimplerEnv (Google Fractal real-robot embodiment, `OXE_FRACTAL`) instead of LIBERO — the one target here that exercises a real-robot OXE embodiment rather than a simulated Panda/humanoid. Setup clones SimplerEnv + ManiSkill2_real2sim at runtime (MIT). End-to-end validated 2026-06-24 (`g6.2xlarge` L4, full `deploy.py` 1-shot smoke); checkpoint pinned at `@f59c79e1`. See the [showcase](#rldx-simpler--rldx-1-rlwrld-on-simplerenv-google-fractal-real-robot-embodiment) and [Expected Results](#expected-results).
-
-³ `rldx-gr1` is the same RLDX-1 model family on **RoboCasa GR-1 Tabletop** (RLWRLD's own `RLDX-1-FT-GR1` checkpoint) — the only target here on a **bimanual humanoid with a waist DOF** (GR-1, `GR1ArmsAndWaistFourierHands`), distinct from all single-arm LIBERO/SimplerEnv clips. Renders via MuJoCo/robosuite (no Vulkan); the RoboCasa GR-1 tabletop-tasks suite is cloned at runtime (MIT). End-to-end validated 2026-06-25 (`g5.2xlarge` A10G 24GB, full `deploy.py` 1-shot smoke); checkpoint pinned at `@d0277c5c`. As source-verified, GR-1 needed **no SimplerEnv-style code patch** (dispatch + obs/action routing already correct at the pin) — only the shared dependency-pin fixes. Measured 0.80 (PnPCupToDrawerClose) and 0.20 (PnPMilkToMicrowaveClose) at n=5; reported paper SR = 58.7% (24-task average). See [Expected Results](#expected-results).
-
-⁴ `rldx-kitchen` is the same RLDX-1 model family on the **RoboCasa Kitchen** 24-task benchmark (RLWRLD's own `RLDX-1-FT-ROBOCASA` checkpoint) — a **single-arm mobile manipulator** (`PandaOmron`: a Franka Panda arm on an Omron LD mobile base) doing pick-and-place, doors, drawers and appliances across full kitchen scenes, distinct from the GR-1 humanoid and the LIBERO/SimplerEnv clips. Renders via MuJoCo/robosuite (no Vulkan); the RoboCasa kitchen suite (`squarefk/robocasa`, MIT) is cloned at runtime and its ~5 GB of scene assets download during setup. Source-verified clean like GR-1 (no dispatch/obs/action patch) with **three RoboCasa-Kitchen-specific fixes** found by reading source: (a) the cloned `download_kitchen_assets.py` has no `-y` argparse and prompts via `input()` → made non-interactive so it runs headless; (b) a dependency-pin reconciliation (the kitchen fork pins `numpy 1.23.3`/`numba 0.56.4`, but the import-reachable `albumentations` needs `numpy>=1.24.4`, so the GR-1-proven `numpy 1.26.4`/`numba 0.61.2` stack is protected); (c) the env emits each of the 3 cameras at two resolutions (256 + 512) and the video recorder stacks all of them into a six-panel strip — narrowed to the 256-px policy views so the saved video is a clean three-panel clip (cosmetic; obs/policy/SR untouched). Checkpoint pinned at `@e8279a38`. End-to-end validated 2026-06-26 (`g6.2xlarge` L4 24 GB, full `deploy.py` 1-shot smoke); fixes (a)+(b) confirmed live (the ~5 GB asset download ran headless and the `numpy`/`numba`/`albumentations` stack resolved); fix (c) observed in the Gate-3 output and applied to the committed clips (re-validates live on next deploy). Two articulated tasks at n=5: `OpenSingleDoor` `success_rate = 0.80` (4/5) and `OpenDrawer` `success_rate = 0.80` (4/5); reported paper SR = 70.6% (24-task average). See [Expected Results](#expected-results).
-
-⁵ `molmoact2` code is **Apache-2.0** (Ai2 releases the weights as open weights; the `allenai/MolmoAct2-LIBERO` model card has no license field, so check it before commercial use). Unlike the LeRobot-native targets, it is **not on upstream LeRobot** — it is served from the `allenai/lerobot` fork (`molmoact2-policy` branch, pinned `@a4f15bf3`) installed via `uv sync --locked` (Python 3.12), running the public `allenai/MolmoAct2-LIBERO` checkpoint **in-process** on the sim GPU (no separate policy server). The official LIBERO eval recipe is **float32** (`use_amp=false`) + `norm_tag=libero`, continuous action mode — so the ~20 GB fp32 checkpoint forces a ≥40 GB single GPU **and** ≥64 GiB host RAM (`g6e.2xlarge`+ L40S; `g6e.xlarge`'s 32 GiB host RAM thrashes the checkpoint load and is excluded). End-to-end validated 2026-06-28 (`g6e.2xlarge`, us-west-2; full `deploy.py` 1-shot). `libero_goal = 1.000` (2 tasks × 5 episodes); reported paper LIBERO average = 97.2%. See the [showcase](#molmoact2--molmoact2-ai2-on-libero-goal-franka-panda-7-dof) and [Expected Results](#expected-results).
-
-⁶ `xvla`, `smolvla` and `lingbot-va` share one template (`templates/lerobot-libero-userdata.sh.j2`): upstream LeRobot is installed from source at a pinned commit (`uv sync --locked --extra <policy> --extra libero`, Python 3.12) and `lerobot-eval --policy.path=<checkpoint> --env.type=libero` runs the policy in-process on the sim GPU. Adding another LeRobot policy is a new `models/<id>.yaml` (checkpoint, extras, extra `--policy.*`/`--env.*` flags, instance list and VRAM/RAM floors) plus the name maps. All three are **Apache-2.0** (code and weights). Validated 2026-10-14 in ap-northeast-2: `xvla` libero_spatial **0.90** (2 tasks × 5 ep, g6.2xlarge), `smolvla` libero_spatial **0.80** (2 × 5, g6.xlarge), `lingbot-va` libero_10 **1.00** (2 × 3, g6e.2xlarge L40S; ~20 min per episode because the model generates video with the actions).
-
-⁷ `vla-adapter` is an OpenVLA-OFT fork, so `templates/vla-adapter-userdata.sh.j2` is a copy of the `openvla-oft` template (kept separate so the validated `openvla-oft` target cannot regress) with the repo, checkpoint and extra `run_libero_eval.py` flags taken from `models/vla-adapter.yaml`. **MIT** (code and weights). Validated 2026-10-14 in ap-northeast-2: libero_spatial **1.00** (10 tasks × 1 trial, g6.xlarge). The checkpoint is evaluated from its local snapshot directory: with a Hub repo id the eval code skips registering the Prismatic classes and `transformers` rejects the custom config.
-
-⁸ `fastwam` runs on the shared `lerobot-libero` template (footnote ⁶). **Code MIT (FastWAM) / Apache-2.0 (LeRobot); the checkpoint's model card states no license, so treat this target as research/evaluation only and check the card before any other use.** Weights are downloaded at runtime and never committed here. Two deviations from the LeRobot reproduce line, both found on live runs: (a) the checkpoint runs in its default **bf16** — the README's `--policy.dtype=float32` targets a 140 GB GPU, and in fp32 the DiT + umt5-xxl text encoder + Wan2.2 VAE run out of memory on a 48 GB L40S; (b) it uses the `lerobot/fastwam_libero_uncond_2cam224` copy rather than the original upload, whose `config.json` predates the LeRobot port (tokenizer path `"."`) and fails to build the tokenizer; the `lerobot/` config fetches the tokenizer from `google/umt5-xxl` and the text encoder + VAE from `Wan-AI/Wan2.2-TI2V-5B-Diffusers` (both Apache-2.0). Validated 2026-10-15 in ap-northeast-2: libero_spatial **0.90** (2 tasks × 5 ep, g6e.2xlarge L40S).
-
-⁹ `cosmos-policy` is **not on LeRobot**: `templates/cosmos-policy-userdata.sh.j2` clones [NVlabs/cosmos-policy](https://github.com/NVlabs/cosmos-policy) at a pinned commit (`@18a2acca`), builds the project's own CUDA 12.8 Docker image, runs `uv sync --extra cu128 --group libero` inside it and evaluates with the repo's `run_libero_eval.py` (LIBERO.md flags in `models/cosmos-policy.yaml`) on one GPU. **Code Apache-2.0; the checkpoint `nvidia/Cosmos-Policy-LIBERO-Predict2-2B` (`@cb689ec0`) is under the NVIDIA One-Way Noncommercial License (NSCLv1) — research/evaluation only.** It also loads the gated base model `nvidia/Cosmos-Predict2-2B-Video2World` at eval time, so the HF token in SSM (`/vla-simulator/hf-token`) must belong to an account that has accepted the NVIDIA Open Model License on that page (`vlasim.py doctor` checks that the token exists, not that the license was accepted — an unaccepted license shows up as a 401/403 at eval time). Three fixes found on live runs: LIBERO's first import prompts via `input()` (headless `EOFError`) → the config is seeded once in a persisted path; a host `systemctl daemon-reload` revokes GPU access inside the container on cgroup v2 → Docker uses the `cgroupfs` driver and the GPU device nodes are passed explicitly; the apt timers are masked. Validated 2026-10-17 in ap-northeast-2: libero_spatial **1.00** (10 tasks × 1 trial, `g6e.xlarge` L40S); reported LIBERO-Spatial 98.1%.
-
-¹⁰ `aspire` is **not a VLA**: [NVlabs/ASPIRE](https://github.com/NVlabs/ASPIRE) (Apache-2.0, pinned `@fa00f0ef`) runs a coding agent that iterates on a Python `cap-harness` program (perception → grasp → IK motions) until it solves the task. `templates/aspire-userdata.sh.j2` bootstraps the LIBERO-Pro fork and the tool services on one GPU (profile `rtx4090`), then runs Claude Code headless on **Amazon Bedrock** with the instance role (`instance.bedrock: true` in `models/aspire.yaml` adds `bedrock:InvokeModel*`). Protocol, chosen so the number is comparable with the LeRobot targets: the agent may only run ASPIRE's development seeds (51-65); the frozen program is then scored on LIBERO saved init states 0-4 — the same states `xvla` / `smolvla` / `fastwam` are scored on. Tool licenses: **SAM3 is gated on Hugging Face (Meta SAM License — the HF token must have been granted access; the boot probes it and stops early if not)** and **Contact-GraspNet is NVIDIA non-commercial**, so treat this target as research/evaluation only. The boot patches one upstream bug: `adapter.py` tests a numpy init-state array for truthiness (`elif not init_states:`), which makes every `--init-mode saved` episode a harness error.
-
-### Showcase — Rollouts
-
-Sample rollouts captured directly from `deploy.py` runs and synced from each stack's S3 results bucket. GIFs are downsampled previews (288 px, 10 fps, ≤8 s); click-through to the full-quality MP4 in [`docs/showcase/`](docs/showcase/) for the original frame rate and resolution.
-
-#### `pi` — π0.5 on LIBERO (Franka Panda 7-DOF)
-
-`libero_spatial = 0.99` (10 tasks × 10 episodes), `libero_object = 0.96` (10 tasks × 5 episodes) — `g5.xlarge`, validated 2026-04-22.
-
-| LIBERO-Spatial — pick black bowl between plate and ramekin | LIBERO-Object — pick milk and place in basket |
-|---|---|
-| ![π0.5 spatial — between plate and ramekin (success)](docs/showcase/pi/libero-spatial-between-plate-ramekin-success.gif) | ![π0.5 object — milk in basket (success)](docs/showcase/pi/libero-object-milk-success.gif) |
-| MP4: [`pi/libero-spatial-between-plate-ramekin-success.mp4`](docs/showcase/pi/libero-spatial-between-plate-ramekin-success.mp4) | MP4: [`pi/libero-object-milk-success.mp4`](docs/showcase/pi/libero-object-milk-success.mp4) |
-
-#### `openvla-oft` — OpenVLA-OFT on LIBERO-10 long-horizon
-
-Each task is a two-stage instruction. Long-horizon means the policy must complete one sub-goal, recognise it, then proceed to the next. Verb diversity below shows the same checkpoint following structurally different instructions. `g6.xlarge`, validated 2026-05-04. Carries a `mujoco==3.3.1` pin (FIX 14, `sim_protect_pins`) and a `tensorflow-metadata==1.17.3` pin (FIX 15): mujoco 3.10.0 shipped 2026-06-22, after this target validated, and its `mj_fullM` signature change breaks robosuite's call site mid-eval, while an unbounded `tensorflow-metadata` resolves to a release whose code needs a protobuf that `tensorflow==2.15` forbids (see [#4](https://github.com/aws-samples/sample-rfm-simulation-on-aws/issues/4)).
-
-| `put both the alphabet soup and the tomato sauce in the basket` | `turn on the stove and put the moka pot on it` |
-|---|---|
-| ![OpenVLA-OFT — soup + sauce (success)](docs/showcase/openvla-oft/libero-10-soup-and-sauce-success.gif) | ![OpenVLA-OFT — stove + moka pot (success)](docs/showcase/openvla-oft/libero-10-stove-moka-pot-success.gif) |
-| MP4: [`openvla-oft/libero-10-soup-and-sauce-success.mp4`](docs/showcase/openvla-oft/libero-10-soup-and-sauce-success.mp4) | MP4: [`openvla-oft/libero-10-stove-moka-pot-success.mp4`](docs/showcase/openvla-oft/libero-10-stove-moka-pot-success.mp4) |
-
-| `put the white mug on the left plate and the yellow mug on the right` | `pick up the book and place it in the back compartment` |
-|---|---|
-| ![OpenVLA-OFT — mug placement (success)](docs/showcase/openvla-oft/libero-10-mug-left-yellow-right-success.gif) | ![OpenVLA-OFT — book in compartment (success)](docs/showcase/openvla-oft/libero-10-book-compartment-success.gif) |
-| MP4: [`openvla-oft/libero-10-mug-left-yellow-right-success.mp4`](docs/showcase/openvla-oft/libero-10-mug-left-yellow-right-success.mp4) | MP4: [`openvla-oft/libero-10-book-compartment-success.mp4`](docs/showcase/openvla-oft/libero-10-book-compartment-success.mp4) |
-
-#### `lap` — LAP-3B on LIBERO-Spatial
-
-`libero_spatial = 0.98` (10 tasks × 5 trials, `g6.xlarge`, validated 2026-05-17). Same scene as `pi` above, different policy — useful for side-by-side comparison. The `cookie_box` task is the one consistent failure mode (paper Table III range 85–95% leaves 1–2 tasks expected to miss).
-
-| Success — `pick up the black bowl between the plate and the ramekin` | Failure — `pick up the black bowl on the cookie box` |
-|---|---|
-| ![LAP-3B — between plate and ramekin (success)](docs/showcase/lap/libero-spatial-between-plate-ramekin-success.gif) | ![LAP-3B — cookie box (failure)](docs/showcase/lap/libero-spatial-cookie-box-failure.gif) |
-| MP4: [`lap/libero-spatial-between-plate-ramekin-success.mp4`](docs/showcase/lap/libero-spatial-between-plate-ramekin-success.mp4) | MP4: [`lap/libero-spatial-cookie-box-failure.mp4`](docs/showcase/lap/libero-spatial-cookie-box-failure.mp4) |
-
-#### `molmoact2` — MolmoAct2 (Ai2) on LIBERO-Goal (Franka Panda 7-DOF)
-
-MolmoAct2 is Ai2's open **Action Reasoning Model** (5B; a Molmo2-ER VLM backbone + a flow-matching continuous-action expert), **Apache-2.0** weights and code. Unlike the LeRobot-native models above, it is served from the `allenai/lerobot` fork (`molmoact2-policy` branch, not yet merged upstream), pinned at `@a4f15bf3`; the public `allenai/MolmoAct2-LIBERO` checkpoint is run **in-process** on the sim GPU. `libero_goal = 1.000` (2 tasks × 5 episodes = 10/10), `g6e.2xlarge` (L40S 48 GB), **float32** + `norm_tag=libero`, continuous action mode, validated 2026-06-28. Both clips below are the same `put the bowl on the stove` task from different LIBERO initial states (the only task rendered locally this run); the consistent place-on-burner across init states is what 1.000 looks like here.
-
-| Success — `put the bowl on the stove` (init state A) | Success — `put the bowl on the stove` (init state B) |
-|---|---|
-| ![MolmoAct2 — bowl on stove (success)](docs/showcase/molmoact2/libero-goal-bowl-on-stove-success.gif) | ![MolmoAct2 — bowl on stove, second init state (success)](docs/showcase/molmoact2/libero-goal-bowl-on-stove-2-success.gif) |
-| MP4: [`molmoact2/libero-goal-bowl-on-stove-success.mp4`](docs/showcase/molmoact2/libero-goal-bowl-on-stove-success.mp4) | MP4: [`molmoact2/libero-goal-bowl-on-stove-2-success.mp4`](docs/showcase/molmoact2/libero-goal-bowl-on-stove-2-success.mp4) |
-
-#### `rldx` — RLDX-1 (RLWRLD) on LIBERO-10 long-horizon (Franka Panda 7-DOF)
-
-RLDX-1 is an open VLA from RLWRLD (MSAT action head on a Qwen3-VL-8B backbone; the RLDX-1 paper reports a 97.8% LIBERO average). Served eager via a ZeroMQ policy server + sim client (two venvs), `g6.xlarge` L4 sm_89, validated 2026-06-20. Two LIBERO-10 **long-horizon** tasks (distinct scenes from the `pi` / `lap` spatial clips above): `STUDY_SCENE1` book→caddy `success_rate = 1.0` (5/5); `KITCHEN_SCENE6` mug→microwave+close (articulated, two-stage) `success_rate = 0.8` (4/5). Weights are **non-commercial** (RLWRLD Model License v1.0) — sim benchmarking only. Carries a `mujoco==3.3.1` pin (FIX 11, `sim_protect_pins`): mujoco 3.10.0 shipped 2026-06-22 — two days after this target validated — and its `mj_fullM` signature change breaks robosuite's call site, so the LIBERO dependency chain must hold mujoco below 3.10 (see [#4](https://github.com/aws-samples/sample-rfm-simulation-on-aws/issues/4)).
-
-| Success — `STUDY_SCENE1: pick up the book and place it in the back compartment of the caddy` (SR 1.0, 5/5) | Success — `KITCHEN_SCENE6: put the yellow and white mug in the microwave and close it` (SR 0.8, 4/5) |
-|---|---|
-| ![RLDX-1 — book into caddy (success)](docs/showcase/rldx/libero10-study-book-caddy-success.gif) | ![RLDX-1 — mug into microwave + close (success)](docs/showcase/rldx/libero10-kitchen-mug-microwave-success.gif) |
-| MP4: [`rldx/libero10-study-book-caddy-success.mp4`](docs/showcase/rldx/libero10-study-book-caddy-success.mp4) | MP4: [`rldx/libero10-kitchen-mug-microwave-success.mp4`](docs/showcase/rldx/libero10-kitchen-mug-microwave-success.mp4) |
-| _Tight, consistent: all 5 episodes complete in 20–23 env-steps._ | Failure (1/5) — same task, hits the 90-step cap without closing: |
-| | ![RLDX-1 — mug into microwave (failure, timeout)](docs/showcase/rldx/libero10-kitchen-mug-microwave-failure.gif) |
-| | MP4: [`rldx/libero10-kitchen-mug-microwave-failure.mp4`](docs/showcase/rldx/libero10-kitchen-mug-microwave-failure.mp4) (clip is 2× speed) |
-
-> **Reading the success rate — "success" is a binary goal flag, not a quality score.** LIBERO marks an episode `success` the moment its BDDL goal predicate is satisfied; it says nothing about how cleanly or how close to the failure boundary the policy got there. That distinction matters on long-horizon tasks:
-> - `STUDY_SCENE1` (SR 1.0) is genuinely robust — every episode finishes in 20–23 env-steps with margin to spare.
-> - `KITCHEN_SCENE6` (SR 0.8) is **marginal even when it succeeds**: successful episodes range from a clean 32 steps to a labored 47 steps, while the failure runs the full 90-step cap (a *timeout*, not a hard error). The scene also contains a second (grey) mug as a distractor next to the yellow/white target. A near-cap success is one perturbation away from a timeout — so treat 0.8 here as "works, but not yet deployment-margin," not as a 4-in-5 guarantee of reliable execution.
->
-> Takeaway for demos: pair the SR number with the **step-count spread** (in `simulation_results.csv`) and watch the failure clip — a high SR with episodes clustered near the step cap is a weaker result than the same SR with short, consistent runs.
-
-#### `rldx-simpler` — RLDX-1 (RLWRLD) on SimplerEnv Google Fractal (real-robot embodiment)
-
-Same RLDX-1 checkpoint family as `rldx` above, but evaluated on **SimplerEnv** (ManiSkill2_real2sim + SAPIEN) with the Google Robot **`OXE_FRACTAL`** embodiment — the one target here that exercises a *real-robot* Open X-Embodiment embodiment rather than a simulated Panda/humanoid. Served eager via the same ZeroMQ policy server + sim client (two venvs), `g6.2xlarge` L4 sm_89, validated 2026-06-24 via a full `deploy.py` 1-shot smoke. Two Google-VM tasks: `google_robot_pick_coke_can` `success_rate = 1.0` (5/5) and `google_robot_move_near` `success_rate = 1.0` (5/5). Weights are **non-commercial** (RLWRLD Model License v1.0) — sim benchmarking only.
-
-> **Clips are shown at 0.25× (slowed 4×)**, with the playback rate overlaid bottom-left. These are *atomic* Google-robot tasks — each episode runs only 10–25 sim steps, so at native speed it finishes in ~1 second. The 4× slowdown makes the motion legible and paces these clips with the long-horizon GR-1 clips below (up to 720 steps). No frames are dropped or trimmed; only the timestamps are stretched.
-
-| Success — `google_robot_pick_coke_can` (SR 1.0, 5/5) | Success — `google_robot_move_near` (SR 1.0, 5/5) |
-|---|---|
-| ![RLDX-1 — pick coke can (SimplerEnv Fractal, success)](docs/showcase/rldx-simpler/simpler-google-pick-coke-can-success.gif) | ![RLDX-1 — move near (SimplerEnv Fractal, success)](docs/showcase/rldx-simpler/simpler-google-move-near-success.gif) |
-| MP4: [`rldx-simpler/simpler-google-pick-coke-can-success.mp4`](docs/showcase/rldx-simpler/simpler-google-pick-coke-can-success.mp4) | MP4: [`rldx-simpler/simpler-google-move-near-success.mp4`](docs/showcase/rldx-simpler/simpler-google-move-near-success.mp4) |
-| _Tight and consistent: episodes complete in 10–25 env-steps (shown at 0.25×)._ | _Real-robot Fractal embodiment — distinct from every LIBERO/RoboCasa clip above (shown at 0.25×)._ |
-
-#### `rldx-gr1` — RLDX-1 (RLWRLD) on RoboCasa GR-1 Tabletop (bimanual humanoid + waist)
-
-Same RLDX-1 family as `rldx`/`rldx-simpler`, but on **RoboCasa GR-1 Tabletop** with RLWRLD's own `RLDX-1-FT-GR1` checkpoint — the only target here on a **bimanual humanoid with a waist DOF** (`GR1ArmsAndWaistFourierHands`: two 7-DOF arms + Fourier dexterous hands + waist), distinct from every single-arm LIBERO/SimplerEnv clip. Each clip is dual-view (left ego / right third-person); the policy controls both hands and the waist to manipulate **articulated** scene objects (a drawer, a microwave door). Served eager via the same ZeroMQ policy server + sim client (two venvs, MuJoCo/robosuite headless EGL — no Vulkan), `g5.2xlarge` A10G 24 GB, validated 2026-06-25 via a full `deploy.py` 1-shot smoke. Two articulated tasks at n=5: `PnPCupToDrawerClose` `success_rate = 0.80` (4/5) and `PnPMilkToMicrowaveClose` `success_rate = 0.20` (1/5) — the combined 5/10 is consistent with the paper's 58.7% 24-task average. Weights are **non-commercial** (RLWRLD Model License v1.0) — sim benchmarking only.
-
-| Success — `PnPCupToDrawerClose` (SR 0.80, 4/5) | Success — `PnPMilkToMicrowaveClose` (SR 0.20, 1/5) |
-|---|---|
-| ![RLDX-1 GR-1 — cup into drawer + close (success)](docs/showcase/rldx-gr1/gr1-cup-drawer-success.gif) | ![RLDX-1 GR-1 — milk into microwave + close (success)](docs/showcase/rldx-gr1/gr1-milk-microwave-success.gif) |
-| MP4: [`rldx-gr1/gr1-cup-drawer-success.mp4`](docs/showcase/rldx-gr1/gr1-cup-drawer-success.mp4) | MP4: [`rldx-gr1/gr1-milk-microwave-success.mp4`](docs/showcase/rldx-gr1/gr1-milk-microwave-success.mp4) |
-| _Clean bimanual pick-place-close in 19 env-steps; the harder of the two tasks the policy reliably solves._ | _The rare success on the hard task (24 steps) — most runs time out (see failure clip)._ |
-
-| Failure — `PnPMilkToMicrowaveClose` (4/5 of this task, step-cap timeout) |
-|---|
-| ![RLDX-1 GR-1 — milk into microwave (failure, timeout)](docs/showcase/rldx-gr1/gr1-milk-microwave-failure.gif) |
-| MP4: [`rldx-gr1/gr1-milk-microwave-failure.mp4`](docs/showcase/rldx-gr1/gr1-milk-microwave-failure.mp4) (clip is 2× speed) |
-| _The dominant outcome on the microwave task: the run hits the 45-step cap (a *timeout*, not a hard error) without satisfying the goal predicate. SR 0.20 here means "rarely solved," not "1-in-5 reliable" — pair the number with the per-episode step counts in `simulation_results.csv`._ |
-
-#### `rldx-kitchen` — RLDX-1 (RLWRLD) on RoboCasa Kitchen (PandaOmron mobile manipulator)
-
-Same RLDX-1 family again, but on the **RoboCasa Kitchen** 24-task benchmark with RLWRLD's own `RLDX-1-FT-ROBOCASA` checkpoint — a **single-arm mobile manipulator** (`PandaOmron`: a Franka Panda arm on an Omron LD mobile base) operating **articulated kitchen fixtures** (cabinet doors, drawers) inside full procedurally-generated kitchen scenes, distinct from the GR-1 humanoid and every LIBERO/SimplerEnv clip. Each clip is a three-camera strip — the two external views (left / right) plus the wrist camera, exactly the views the policy consumes. Served eager via the same ZeroMQ policy server + sim client (two venvs, MuJoCo/robosuite headless EGL — no Vulkan), `g6.2xlarge` L4 24 GB, validated 2026-06-26 via a full `deploy.py` 1-shot smoke. Two articulated tasks at n=5: `OpenSingleDoor` `success_rate = 0.80` (4/5) and `OpenDrawer` `success_rate = 0.80` (4/5) — consistent with the paper's 70.6% 24-task average. Weights are **non-commercial** (RLWRLD Model License v1.0) — sim benchmarking only.
-
-> RoboCasa Kitchen's env emits each of the three cameras at two resolutions (a 256-px policy input + a raw 512-px copy), and the stock video recorder stacks **all** of them — so the unfiltered MP4 is a six-panel strip showing every camera twice. A target-gated runtime fix (FIX 10) narrows the recorder to the 256-px views, giving the clean three-panel video below. The clips here are post-processed to that same three-panel form; FIX 10 makes it the default on the next deploy.
-
-| Success — `OpenSingleDoor` (SR 0.80, 4/5) | Success — `OpenDrawer` (SR 0.80, 4/5) |
-|---|---|
-| ![RLDX-1 Kitchen — open single door (success)](docs/showcase/rldx-kitchen/kitchen-open-single-door-success.gif) | ![RLDX-1 Kitchen — open drawer (success)](docs/showcase/rldx-kitchen/kitchen-open-drawer-success.gif) |
-| MP4: [`rldx-kitchen/kitchen-open-single-door-success.mp4`](docs/showcase/rldx-kitchen/kitchen-open-single-door-success.mp4) | MP4: [`rldx-kitchen/kitchen-open-drawer-success.mp4`](docs/showcase/rldx-kitchen/kitchen-open-drawer-success.mp4) |
-| _Three-camera strip (left / right / wrist); the arm reaches the cabinet handle and swings the door open in 18 env-steps._ | _Distinct mobile-manipulator embodiment — the PandaOmron base + arm pulls the drawer open in 16 env-steps._ |
-
-| Failure — `OpenSingleDoor` (1/5 of this task, step-cap timeout) |
-|---|
-| ![RLDX-1 Kitchen — open single door (failure, timeout)](docs/showcase/rldx-kitchen/kitchen-open-single-door-failure.gif) |
-| MP4: [`rldx-kitchen/kitchen-open-single-door-failure.mp4`](docs/showcase/rldx-kitchen/kitchen-open-single-door-failure.mp4) (clip is 2× speed) |
-| _The one miss on the door task: the run hits the 45-step cap (a *timeout*, not a hard error) without latching the handle. SR 0.80 here means "usually solved" — pair the number with the per-episode step counts in `simulation_results.csv`._ |
-
-#### `xvla` · `smolvla` · `lingbot-va` · `vla-adapter` · `fastwam` · `cosmos-policy` · `aspire` — newer VLA / world action models on LIBERO (Franka Panda 7-DOF)
-
-Three upstream-LeRobot policies run through the shared `lerobot-libero` template, plus VLA-Adapter-Pro on its own OFT-style template (validated 2026-10-14) and FastWAM (2026-10-15, research-only weights — see footnote ⁸) and Cosmos Policy (2026-10-17, its own Docker image, research-only weights — see footnote ⁹), all in ap-northeast-2. Each clip strings together the rendered episodes of the pipe-proof run (the VLA-Adapter preview is sped up ~4× to fit all 10 tasks; LingBot-VA renders at 128 px).
-
-| `xvla` — X-VLA-0.9B · libero_spatial (2 tasks × 5 ep) **0.90** · `g6.2xlarge` | `smolvla` — SmolVLA-450M · libero_spatial (2 tasks × 5 ep) **0.80** · `g6.xlarge` |
-|---|---|
-| ![X-VLA — LIBERO-Spatial rollouts](docs/showcase/xvla/libero-spatial-5ep.gif) | ![SmolVLA — LIBERO-Spatial rollouts](docs/showcase/smolvla/libero-spatial-5ep.gif) |
-| MP4: [`xvla/libero-spatial-5ep.mp4`](docs/showcase/xvla/libero-spatial-5ep.mp4) | MP4: [`smolvla/libero-spatial-5ep.mp4`](docs/showcase/smolvla/libero-spatial-5ep.mp4) |
-
-| `lingbot-va` — LingBot-VA (world action model) · libero_10 (2 tasks × 3 ep) **1.00** · `g6e.2xlarge` | `vla-adapter` — VLA-Adapter-Pro · libero_spatial (10 tasks × 1 trial) **1.00** · `g6.xlarge` |
-|---|---|
-| ![LingBot-VA — LIBERO-10 long-horizon rollouts](docs/showcase/lingbot-va/libero-long-3ep.gif) | ![VLA-Adapter-Pro — LIBERO-Spatial rollouts (4x)](docs/showcase/vla-adapter/libero-spatial-10ep.gif) |
-| MP4: [`lingbot-va/libero-long-3ep.mp4`](docs/showcase/lingbot-va/libero-long-3ep.mp4) | MP4: [`vla-adapter/libero-spatial-10ep.mp4`](docs/showcase/vla-adapter/libero-spatial-10ep.mp4) |
-
-| `fastwam` — FastWAM (world action model, bf16) · libero_spatial (2 tasks × 5 ep) **0.90** · `g6e.2xlarge` |
-|---|
-| ![FastWAM — LIBERO-Spatial rollouts](docs/showcase/fastwam/libero-spatial-5ep.gif) |
-| MP4: [`fastwam/libero-spatial-5ep.mp4`](docs/showcase/fastwam/libero-spatial-5ep.mp4) |
-
-| `cosmos-policy` — Cosmos Policy (world action model) · libero_spatial (10 tasks × 1 trial) **1.00** · `g6e.xlarge` | `cosmos-policy` — what the world model predicts: real vs predicted wrist / third-person frames 16 steps ahead |
-|---|---|
-| ![Cosmos Policy — LIBERO-Spatial rollouts (4x)](docs/showcase/cosmos-policy/libero-spatial-10ep.gif) | ![Cosmos Policy — real vs predicted future frames](docs/showcase/cosmos-policy/libero-spatial-future-frames-5ep.gif) |
-| MP4: [`cosmos-policy/libero-spatial-10ep.mp4`](docs/showcase/cosmos-policy/libero-spatial-10ep.mp4) | MP4: [`cosmos-policy/libero-spatial-future-frames-5ep.mp4`](docs/showcase/cosmos-policy/libero-spatial-future-frames-5ep.mp4) |
-
-| `aspire` — ASPIRE (Claude on Bedrock writes the program) · libero_spatial (2 tasks × 5 ep) **1.00** · `g6e.2xlarge` |
-|---|
-| ![ASPIRE — LIBERO-Spatial rollouts of the discovered programs (3x)](docs/showcase/aspire/libero-spatial-10ep.gif) |
-| MP4: [`aspire/libero-spatial-10ep.mp4`](docs/showcase/aspire/libero-spatial-10ep.mp4) |
-
-**ASPIRE vs the trained models, same 10 episodes** (LIBERO-Spatial tasks 0-1, saved init states 0-4, ap-northeast-2, 2026-10):
-
-| Target | What runs at test time | Task-specific training | Success (10 ep) | Per-task setup cost |
-|---|---|---|---|---|
-| `xvla` | X-VLA-0.9B policy | LIBERO fine-tune (checkpoint) | 0.90 | none (download) |
-| `smolvla` | SmolVLA-450M policy | LIBERO fine-tune (checkpoint) | 0.80 | none (download) |
-| `fastwam` | FastWAM world action model | LIBERO fine-tune (checkpoint) | 0.90 | none (download) |
-| `aspire` | a Python program written by Claude (SAM3 segmentation + depth → grasp → IK) | **none** — the agent explored dev seeds 51-65 only | **1.00** | agent 8-18 min, 31-69 turns, **US$0.91-2.30 Bedrock** per task (US$3.21 for both) |
-
-_Read with care: n = 10 on two easy tasks, so 0.90 vs 1.00 is one episode. The point is the trade-off, not the ranking — ASPIRE needs no robot data or fine-tune, but pays an agent session per new task and leans on gated / non-commercial perception tools (footnote ¹⁰); the trained policies are a fixed download that generalises across the suite. `vla-adapter` and `cosmos-policy` (1.00 each) were scored on 10 tasks × 1 trial, a different episode set, so they are not in this table._
-
-#### `gr00t-gr1` — GR00T N1.6 on RoboCasa GR1 humanoid (22-DOF)
-
-The GR1 humanoid is a different embodiment from Franka Panda — two arms, waist, Fourier dexterous hands. `PosttrainPnPNovelFromPlateToBowlSplitA` is in distribution for the post-trained N1.6 (~80% success), while `PnPCanToDrawerClose` is **not supported** by the pre-trained checkpoint and consistently fails — included to make the embodiment-coverage limitation visible. `g6.12xlarge`, validated 2026-04-10.
-
-| Success — `PosttrainPnPNovelFromPlateToBowlSplitA` (in-distribution) | Failure — `PnPCanToDrawerClose` (not supported by N1.6) |
-|---|---|
-| ![GR00T-GR1 — plate to bowl (success)](docs/showcase/gr00t-gr1/posttrain-pnp-plate-to-bowl-success.gif) | ![GR00T-GR1 — can to drawer (failure, embodiment OOD)](docs/showcase/gr00t-gr1/pnp-can-to-drawer-failure.gif) |
-| MP4: [`gr00t-gr1/posttrain-pnp-plate-to-bowl-success.mp4`](docs/showcase/gr00t-gr1/posttrain-pnp-plate-to-bowl-success.mp4) | MP4: [`gr00t-gr1/pnp-can-to-drawer-failure.mp4`](docs/showcase/gr00t-gr1/pnp-can-to-drawer-failure.mp4) |
-
-#### `gr00t-g1` — GR00T N1.6 on Unitree G1 (whole-body loco-manipulation)
-
-This is **whole-body loco-manipulation**, not tabletop: the dual-view clips show the G1 humanoid grasp the apple, then *walk left* on its own legs (GR00T-WholeBodyControl Balance/Walk ONNX policies) to a second table and place it on the plate — task `pick up the apple, walk left and place the apple on the plate` (`LMPnPAppleToPlateDC_G1_gear_wbc`). The left pane is the ego/close view, the right is third-person.
-
-> **Checkpoint note.** NVIDIA published no N1.7 Unitree G1 checkpoint, and the only public N1.6 G1 checkpoint (`nvidia/GR00T-N1.6-G1-PnPAppleToPlate`) does **not** reproduce its stated success rate under the released evaluation command — it scores 0/10, matching multiple open Isaac-GR00T issues with no upstream fix. The only public artifact that reproduces the task is a community re-finetune, [`cloudwalk-research/GR00T-N1.6-G1-PnPAppleToPlate`](https://huggingface.co/cloudwalk-research/GR00T-N1.6-G1-PnPAppleToPlate) (same GR00T N1.6 architecture, drop-in compatible), which scores **`success_rate = 0.3` (3/10)** here. `g6.12xlarge`, `n_envs=1`, validated 2026-06-15.
-
-| Success — apple picked, walked left, placed on plate | Failure — grasp + walk OK, placement misses |
-|---|---|
-| ![GR00T-G1 — loco-manip apple to plate (success)](docs/showcase/gr00t-g1/loco-manip-apple-to-plate-success.gif) | ![GR00T-G1 — loco-manip apple to plate (failure)](docs/showcase/gr00t-g1/loco-manip-apple-to-plate-failure.gif) |
-| MP4: [`gr00t-g1/loco-manip-apple-to-plate-success.mp4`](docs/showcase/gr00t-g1/loco-manip-apple-to-plate-success.mp4) | MP4: [`gr00t-g1/loco-manip-apple-to-plate-failure.mp4`](docs/showcase/gr00t-g1/loco-manip-apple-to-plate-failure.mp4) |
-
-##### Optional: run a fine-tuned GR00T **N1.7** Unitree-G1 adapter on the same sim
-
-The same `gr00t-g1` target can serve a fine-tuned **GR00T N1.7** Unitree-G1 adapter instead of the N1.6 demo checkpoint. NVIDIA published no N1.7 G1 checkpoint (`UNITREE_G1` is a post-train tag — the base gives ~0%), so this is a fine-tuned adapter. The default in [`models/gr00t-g1.yaml`](models/gr00t-g1.yaml) points `server.hf_repo` at a gated published checkpoint, [`andrewc76/GR00T-N1.7-G1-AppleToPlate`](https://huggingface.co/andrewc76/GR00T-N1.7-G1-AppleToPlate) (request access, then grant the deploy's Hugging Face token). To use your own instead, set `server.hf_repo` to your HF repo, or `server.s3_ckpt_uri` to an S3 bucket — collect demos with `--collect` (the N1.6 teacher above), fine-tune a G1 adapter on GR00T N1.7, and point the server at your merged checkpoint.
-
-The interesting part is that the N1.7 server (Isaac-GR00T `65cc4a`, `Gr00tN1d7` / Cosmos-Reason2-2B) and the WBC sim env (Isaac-GR00T `77866395`, the only commit where `GR00T-WholeBodyControl` still exists) **cannot share one venv** — so the deploy runs a **2-venv split** across the ZMQ `:8000` boundary and overlays the N1.7 wire codec (`msgpack_numpy`) onto the sim venv to keep obs/action serialization aligned. This is automatic when the `server:` block is present. See the comments in `models/gr00t-g1.yaml` for the design and the **action-horizon consistency** gotcha (a model/processor horizon mismatch is silent at export but crashes the rollout at step 0).
-
-In our run, a G1 adapter fine-tuned on demos collected from the N1.6 teacher reached `success_rate = 0.7` (7/10) on the same `LMPnPAppleToPlateDC_G1_gear_wbc` task — the N1.7 adapter clips below were produced exactly this way (your numbers will depend on your fine-tune).
-
-| N1.7 success — apple picked, walked left, placed on plate | N1.7 failure — grasp + walk OK, placement misses |
-|---|---|
-| ![GR00T-G1 N1.7 — loco-manip apple to plate (success)](docs/showcase/gr00t-g1/n17-loco-manip-apple-to-plate-success.gif) | ![GR00T-G1 N1.7 — loco-manip apple to plate (failure)](docs/showcase/gr00t-g1/n17-loco-manip-apple-to-plate-failure.gif) |
-| MP4: [`gr00t-g1/n17-loco-manip-apple-to-plate-success.mp4`](docs/showcase/gr00t-g1/n17-loco-manip-apple-to-plate-success.mp4) | MP4: [`gr00t-g1/n17-loco-manip-apple-to-plate-failure.mp4`](docs/showcase/gr00t-g1/n17-loco-manip-apple-to-plate-failure.mp4) |
-
-#### `gr00t` — GR00T N1.7 on LIBERO-10 (Franka Panda)
-
-*Video capture pending — KITCHEN_SCENE3/4 success rate is `1.0` on the validated runs (see [Expected Results](#expected-results)), but those rollout videos were not retained locally. Will backfill on the next `--vla gr00t` deploy.*
-
-Carries a `mujoco==3.3.1` pin (FIX 14, `sim_protect_pins`): mujoco 3.10.0 shipped 2026-06-22 — after this target validated 2026-04-27 — and its `mj_fullM` signature change breaks robosuite's call site, so `setup_libero.sh`'s own closing env check fails on a clean deploy without the pin (see [#4](https://github.com/aws-samples/sample-rfm-simulation-on-aws/issues/4)).
-
-#### `openarm-lift-act` — OpenArm unimanual Lift-Cube (Isaac Lab)
-
-> **Not a learned-policy rollout.** Unlike the entries above (each a trained VLA evaluated in LIBERO/RoboCasa), this target runs a **scripted state machine** (`REST → APPROACH → GRASP → LIFT`) on the OpenArm arm in Isaac Lab to *collect* successful pick-and-lift demonstrations — the camera + state + action HDF5 that an ACT policy is then trained on. The clip shows the data-collection rollout, not an evaluated policy. Training ACT on this dataset and showing a *learned* rollout is the next step.
-
-Rendered at 768×768, captured during a `--vla openarm-lift-act` collection run (`g6.12xlarge`, 4× L4, eu-central-1, 2026-06-11). The third-person (table) view is the beauty shot; the wrist view is the gripper POV.
-
-| Third-person (table camera) — pick + lift cube | Wrist camera (gripper POV) |
-|---|---|
-| ![OpenArm Lift-Cube — table view (scripted collection)](docs/showcase/openarm-lift-act/lift-cube-table-success.gif) | ![OpenArm Lift-Cube — wrist view (scripted collection)](docs/showcase/openarm-lift-act/lift-cube-wrist-success.gif) |
-| MP4: [`openarm-lift-act/lift-cube-table-success.mp4`](docs/showcase/openarm-lift-act/lift-cube-table-success.mp4) | MP4: [`openarm-lift-act/lift-cube-wrist-success.mp4`](docs/showcase/openarm-lift-act/lift-cube-wrist-success.mp4) |
-
----
-
-### Architecture
-
-```
-deploy.py
-  │
-  ├─ generate.py          → assets/userdata/{vla}.sh
-  │
-  └─ CDK deploy
-       ├─ VPC + SG
-       ├─ S3 ResultsBucket (RETAIN)
-       ├─ SNS + EmailSubscription
-       ├─ IAM Role
-       ├─ AzSelector Lambda  →  EC2 (g6.12xlarge / g5.xlarge)
-       └─ WaitCondition      ←  cfn_signal from UserData
-```
-
-**Two deployment modes:**
-
-- **Local mode** — model runs directly on the EC2 instance (default)
-- **Bridge mode** (experimental) — EC2 runs the simulation env; model inference is forwarded to a gRPC inference endpoint you provide (see [Bridge Mode](#bridge-mode))
-
----
+- **20 `--vla` targets** (23 stacks counting the four OpenVLA-OFT suites): VLAs, world action models, an LLM-agent policy and two Isaac Lab OpenArm targets ([full list](docs/targets.md)).
+- **One CLI** (`vlasim.py`): `doctor` preflight, `init`, `deploy`, `destroy` and `results`. It runs on the Python standard library, so `doctor` works before anything is installed.
+- **Reproducible stacks**: model checkpoints, upstream repos and simulator dependencies are pinned per target; each `summary.txt` records a stack fingerprint.
+- **AWS CDK v2** stack per target: VPC, retained S3 results bucket, SNS email, IAM role and an AZ / instance-type fallback Lambda for GPU capacity.
+- **Results you can compare**: `vlasim results` prints k/n, rate and a 95% Wilson interval for every run in the account ([results](docs/results.md)).
 
 ## Quick Start
 
-A single CLI (`vlasim.py`) wraps the whole setup into three commands. It runs on
-the standard library alone, so `doctor` works on a fresh host **before** any
-dependencies are installed.
+Prerequisites: an AWS account with credentials configured, On-Demand G and VT vCPU quota for the target instance (`doctor` checks it), Python 3.10+, Node.js and the AWS CLI. A typical run costs about US$0.20 to US$9 of EC2 time ([cost](docs/cost.md)).
 
 ```bash
 # 0. Get the code
@@ -307,508 +43,113 @@ python vlasim.py init --email you@example.com
 
 # 3. Deploy (runs doctor as a preflight first, then deploy.py)
 python vlasim.py deploy --vla gr00t-g1
-```
 
-`doctor` checks: Python/Node/CDK versions and installs, AWS credentials, region
-support, CDK bootstrap, GPU On-Demand vCPU quota (per target), `notify_email`, and —
-for targets that pull a gated Hugging Face model — the HF token in SSM.
-It exits non-zero if any check **FAILs**, so the `deploy` preflight stops a missing
-quota or un-bootstrapped account in seconds rather than mid-deploy (idle GPU billing).
-
-```
-$ python vlasim.py doctor --vla gr00t-g1
-  [ OK ] Python 3.12.1 (>= 3.10)
-  [ OK ] Node v22.22.1
-  [ OK ] AWS credentials valid (account ..., region us-east-1)
-  [ OK ] CDK bootstrap present in us-east-1
-  [ OK ] On-Demand G/VR vCPU quota = 768 in us-east-1 (>= 4 for g6.xlarge ...)
-  [FAIL] notify_email is still the placeholder
-         -> run: python vlasim.py init --email YOU@EXAMPLE.COM
-```
-
-`deploy` and `destroy` forward every flag to `deploy.py` / `destroy.py` unchanged
-(`--bridge`, `--collect`, `--libero-suite`, `--region`, …). Use `--skip-doctor` to
-bypass the deploy preflight. Run `python vlasim.py deploy --help` for the full list.
-
-Supported regions: `us-east-1`, `us-west-2`, `ap-northeast-1`, `ap-northeast-2`, `eu-central-1`
-
-**Hugging Face token (gated models).** `gr00t` (backbone `nvidia/Cosmos-Reason2-2B`),
-`gr00t-g1` (the N1.7 adapter in `server.hf_repo`) and `openarm-isaac` (tokenizer
-`google/paligemma-3b-pt-224`) download gated repos. Accept the model
-license on huggingface.co with your account, then store a read token in **each region you deploy
-to** (SSM parameters are regional):
-
-```bash
-aws ssm put-parameter --region us-east-1 --name /vla-simulator/hf-token \
-  --type SecureString --value <YOUR_HF_TOKEN>
-```
-
-> **Manual setup** (equivalent to `init`, if you prefer to run the steps yourself):
-> ```bash
-> pip install -r requirements.txt          # boto3, pyyaml, jinja2
-> cd cdk && npm install && cd ..           # CDK deps (aws-cdk is pinned in cdk/package.json)
-> aws configure                            # or: export AWS_PROFILE=...
-> # then edit deployment.region / notify_email in simulator-config.yaml
-> ```
-
----
-
-## Deploy Targets
-
-Each target is one `vlasim deploy --vla <target>` (which runs the `doctor` preflight,
-then forwards every flag to `deploy.py` unchanged). The `--email` is only needed the
-first time, or if you skipped `init`.
-
-```bash
-# GR00T N1.7 — LIBERO kitchen tasks (~120 min)
-python vlasim.py deploy --vla gr00t --email you@example.com
-
-# GR00T N1.6 + GR1 humanoid — RoboCasa tabletop tasks (~90 min)
-python vlasim.py deploy --vla gr00t-gr1 --email you@example.com
-
-# GR00T N1.6 + Unitree G1 — whole-body loco-manipulation (GR00T-WholeBodyControl, ~20-30 min)
-python vlasim.py deploy --vla gr00t-g1 --email you@example.com
-
-# π0.5 — LIBERO spatial + object tasks (~4 hrs)
-python vlasim.py deploy --vla pi --email you@example.com
-
-# OpenVLA-OFT — LIBERO-10 long-horizon (~3 hrs, local mode only; default suite)
-python vlasim.py deploy --vla openvla-oft --email you@example.com
-
-# OpenVLA-OFT — LIBERO-Spatial short-horizon (~1.5 hrs)
-python vlasim.py deploy --vla openvla-oft --libero-suite spatial --email you@example.com
-
-# Other short-horizon suites: object, goal
-python vlasim.py deploy --vla openvla-oft --libero-suite object --email you@example.com
-python vlasim.py deploy --vla openvla-oft --libero-suite goal   --email you@example.com
-
-# LAP-3B — LIBERO-Spatial (zero-shot cross-embodiment VLA, JAX policy server, ~1.5-2.5 hrs)
-python vlasim.py deploy --vla lap --email you@example.com
-
-# MolmoAct2 (Ai2) — LIBERO-Goal (Apache-2.0 5B Action Reasoning Model, fp32 in-process, g6e GPU ≥48GB, ~40-60 min)
-# Use --region us-west-2 (g6e capacity); us-east-1 currently has no g6e capacity.
-python vlasim.py deploy --vla molmoact2 --email you@example.com --region us-west-2
-
-# LeRobot × LIBERO family (shared template; Apache-2.0)
-python vlasim.py deploy --vla xvla --email you@example.com         # X-VLA-0.9B, LIBERO-Spatial (~15-30 min)
-python vlasim.py deploy --vla smolvla --email you@example.com      # SmolVLA-450M, LIBERO-Spatial (~15-30 min)
-python vlasim.py deploy --vla lingbot-va --email you@example.com   # LingBot-VA world action model, LIBERO-10, g6e (~2.5 h for 6 episodes)
-python vlasim.py deploy --vla vla-adapter --email you@example.com  # VLA-Adapter-Pro (MIT), LIBERO-Spatial
-python vlasim.py deploy --vla fastwam --email you@example.com      # FastWAM world action model (research-only weights), LIBERO-Spatial (~30-40 min)
-python vlasim.py deploy --vla cosmos-policy --email you@example.com  # Cosmos Policy (NVIDIA WAM, research-only weights; HF token must accept the Cosmos-Predict2 license), LIBERO-Spatial (~60-90 min)
-python vlasim.py deploy --vla aspire --email you@example.com         # ASPIRE agentic skill discovery (Claude Code on Amazon Bedrock; HF token must have SAM3 access), LIBERO-Spatial 2 tasks (~45 min, ~US$3 Bedrock)
-
-# RLDX-1 (RLWRLD) — LIBERO (open VLA, MSAT/Qwen3-VL-8B, ZeroMQ server + sim client, ~80-120 min)
-# NON-COMMERCIAL weights (RLWRLD Model License v1.0) — research / simulation benchmarking only.
-python vlasim.py deploy --vla rldx --email you@example.com
-
-# RLDX-1 (RLWRLD) — SimplerEnv Google-VM (real-robot OXE_FRACTAL embodiment, ~35-45 min)
-# NON-COMMERCIAL weights (RLWRLD Model License v1.0) — research / simulation benchmarking only.
-python vlasim.py deploy --vla rldx-simpler --email you@example.com
-
-# RLDX-1 (RLWRLD) — RoboCasa GR-1 Tabletop (bimanual humanoid + waist, MuJoCo, ~25-35 min)
-# NON-COMMERCIAL weights (RLWRLD Model License v1.0) — research / simulation benchmarking only.
-python vlasim.py deploy --vla rldx-gr1 --email you@example.com
-
-# RLDX-1 (RLWRLD) — RoboCasa Kitchen 24-task (PandaOmron mobile manipulator, MuJoCo, ~25-35 min)
-# NON-COMMERCIAL weights (RLWRLD Model License v1.0) — research / simulation benchmarking only.
-python vlasim.py deploy --vla rldx-kitchen --email you@example.com
-
-# OpenArm Lift-Cube — scripted ACT demo collection in Isaac Lab (HDF5 only; needs a 4-GPU instance)
-python vlasim.py deploy --vla openarm-lift-act --email you@example.com
-```
-
-On first deploy you will receive an SNS subscription confirmation email — **click the link** to enable notifications.
-
-> **Direct invocation.** `vlasim deploy` is a thin wrapper — every command above also
-> runs as `python deploy.py --vla <target> ...` with the same flags, skipping the
-> `doctor` preflight. Use that if you've already run `doctor` and want to bypass it
-> (equivalently, `vlasim deploy --skip-doctor`).
-
----
-
-## Monitor (optional)
-
-```bash
-# GR00T N1.7 logs
-aws logs tail /gr00t/userdata --follow --region us-east-1
-
-# GR00T N1.6 + GR1 logs
-aws logs tail /gr00t-gr1/userdata --follow --region us-east-1
-
-# GR00T N1.6 + Unitree G1 logs
+# 4. Follow the run, then compare results (read-only)
 aws logs tail /gr00t-g1/userdata --follow --region us-east-1
+python vlasim.py results --vla gr00t-g1
 
-# π0.5 logs
-aws logs tail /pi/userdata --follow --region us-east-1
-
-# OpenVLA-OFT logs
-aws logs tail /openvla-oft/userdata --follow --region us-east-1
-
-# LAP-3B logs
-aws logs tail /lap/userdata --follow --region us-east-1
-
-# RLDX-1 logs
-aws logs tail /rldx/userdata --follow --region us-east-1
-
-# RLDX-1 SimplerEnv logs
-aws logs tail /rldx-simpler/userdata --follow --region us-east-1
-
-# RLDX-1 RoboCasa GR-1 Tabletop logs
-aws logs tail /rldx-gr1/userdata --follow --region us-east-1
-
-# RLDX-1 RoboCasa Kitchen logs
-aws logs tail /rldx-kitchen/userdata --follow --region us-east-1
+# 5. Tear down the stack (the S3 results bucket is retained)
+python vlasim.py destroy --vla gr00t-g1
 ```
 
----
+- On first deploy, confirm the SNS subscription email so the result notification reaches you.
+- Supported regions: `us-east-1`, `us-west-2`, `ap-northeast-1`, `ap-northeast-2`, `eu-central-1`.
+- Targets that download gated Hugging Face repos (`gr00t`, `gr00t-g1`, `openarm-isaac`, `cosmos-policy`, `aspire`) need a read token in SSM in each region you deploy to:
+  `aws ssm put-parameter --region us-east-1 --name /vla-simulator/hf-token --type SecureString --value <YOUR_HF_TOKEN>`
+  (details in [configuration.md](docs/configuration.md#hugging-face-token-gated-models)).
+- `deploy` and `destroy` forward every flag to `deploy.py` / `destroy.py` (`--bridge`, `--collect`, `--libero-suite`, `--region`, ...). Run `python vlasim.py deploy --help` for the full list.
+
+## How it works
+
+```
+vlasim.py deploy --vla <target>
+  │
+  ├─ doctor preflight (quota, bootstrap, credentials, HF token)
+  ├─ generate.py          → assets/userdata/<target>.sh   (templates/ + models/<target>.yaml)
+  │
+  └─ CDK deploy (one stack per target)
+       ├─ VPC + SG, IAM role, SNS email, S3 results bucket (RETAIN)
+       ├─ AzSelector Lambda  →  EC2 GPU instance (instance-type and AZ fallback)
+       └─ UserData: install pinned model + simulator → evaluate → S3 → SNS → terminate
+```
+
+Inference runs on the same instance by default. An experimental [bridge mode](docs/bridge-mode.md) forwards inference to a gRPC endpoint you host. Details: [docs/architecture.md](docs/architecture.md).
 
 ## Results
 
-When simulation finishes you receive an SNS email with download instructions:
-
-```bash
-# GR00T results
-aws s3 sync s3://vla-sim-results-gr00t-demo-us-east-1-<ACCOUNT>/RUN_ID/ ./results/ --region us-east-1
-
-# π0.5 results
-aws s3 sync s3://vla-sim-results-pi-demo-us-east-1-<ACCOUNT>/RUN_ID/ ./results/ --region us-east-1
-```
-
-Each `task-N/` folder contains:
-- `videos/rollout_<task_name>_success.mp4` — successful episodes
-- `videos/rollout_<task_name>_failure.mp4` — failed episodes
-- `videos/<name>.txt` — per-video metadata
-- `summary.txt` — `success_rate`, `suite`, `num_episodes_per_task`
-- `compose.log` / `userdata.log` — execution logs
-
-To compare runs without downloading them, `vlasim results` reads every `vla-sim-results-*` bucket in the account (read-only) and prints one row per stack, run, suite and condition with k/n, the rate and a 95% Wilson interval, followed by the stack fingerprint recorded in `summary.txt`:
-
-```bash
-python vlasim.py results                                  # latest run of every bucket
-python vlasim.py results --vla openvla-oft --all-runs     # every OFT run
-python vlasim.py results --since 2026-10-19 --csv results.csv
-```
+Each run writes, per task, rollout videos (`videos/rollout_<task>_success.mp4` / `_failure.mp4`), `summary.txt` (success rate, episode count, condition, stack fingerprint) and logs to the retained bucket `vla-sim-results-<stack name, lowercase>-<region>-<account>` (for example `vla-sim-results-gr00t-demo-us-east-1-<ACCOUNT>`). `vlasim results` reads every such bucket in the account without downloading anything:
 
 ```text
+$ python vlasim.py results --since 2026-10-19
 stack                region          run              suite           condition    k_n    rate  ci95       tasks  not_done
 openvla-oft-spatial  ap-northeast-2  2026-10-19-0558  libero_spatial  smoke-knobs  10/10  1.00  0.72-1.00  1      0
 ```
 
-A task with no `summary.txt` (still running, or the run died) is counted under `not_done`, never as a 0.
-
----
-
-## Cleanup
-
-```bash
-python vlasim.py destroy --vla gr00t
-python vlasim.py destroy --vla gr00t-gr1
-python vlasim.py destroy --vla gr00t-g1
-python vlasim.py destroy --vla pi
-python vlasim.py destroy --vla openvla-oft                         # default suite (10)
-python vlasim.py destroy --vla openvla-oft --libero-suite spatial  # non-default suite
-python vlasim.py destroy --vla lap
-python vlasim.py destroy --vla rldx
-python vlasim.py destroy --vla rldx-simpler
-python vlasim.py destroy --vla rldx-gr1
-python vlasim.py destroy --vla rldx-kitchen
-```
-
-> `vlasim destroy` forwards to `destroy.py` unchanged — `python destroy.py --vla <target>`
-> works identically if you prefer to call it directly.
-
-The S3 results bucket is **retained** after stack deletion to preserve simulation outputs.
-
----
-
-## Expected Results
-
-> **A success rate belongs to the stack that produced it.** The companion study [*Same Policy, Different Numbers*](https://github.com/byongwu/pai-same-policy-different-numbers) (AMLC 2026 workshop) ran seven LIBERO policy families through this harness and changed one stack setting at a time: executing one action per predicted chunk instead of the official chunk moved OpenVLA-OFT from 1.00 to 0.00 and FastWAM LIBERO-10 from 0.96 to 0.54, while π0.5 and GR00T stayed within ±0.10. Compare numbers below only when episode count, init states, step cap and chunk execution match — the rows here mix 2 tasks × 5 episodes and 10 tasks × 1 trial.
->
-> To run such a condition on the shared LeRobot template, add per-task fields in `models/<id>.yaml`: `condition` (a label carried into the results) and `extra_args` (`lerobot-eval` flags appended last, replacing any earlier flag with the same name), e.g. `condition: S3b` + `extra_args: ["--policy.n_action_steps=1"]`. Each `summary.txt` records `n_success`, `n_episodes`, `condition`, `extra_args` and a stack fingerprint (`stack_lerobot_commit`, `stack_mujoco`, `stack_eval_args`).
->
-> `openvla-oft`, `pi` and `gr00t` take the same idea as per-task fields (absent = the upstream default): `condition`, `replan` (actions executed per predicted chunk: OFT `--num_open_loop_steps`, π0.5 `--args.replan-steps`, GR00T `--n-action-steps`), `seed`, and for OFT / π0.5 `step_scale` (multiplies the per-suite step cap) and `random_init: true` (random initial states instead of the fixed public ones). OFT also takes `replan_head: true` — **upstream OpenVLA-OFT executes the *last* `num_open_loop_steps` actions of the 8-action chunk when that number is below 8**; this executes the first ones instead. `models/pi.yaml` `model.mujoco_pin` (e.g. `mujoco==3.1.6`) swaps the LIBERO client's physics version. `assets/stack-knobs/stackpatch.py` applies the eval-script edits from a pristine copy before every task and stops the run if a patch site is missing. `cosmos-policy` takes run flags at model level (`model.eval_args`).
-
-### Same-stack baseline (official stack, 50 episodes per suite)
-
-From the companion study, every family on its own official evaluation stack (condition `S0`): 10 tasks × 5 trials per suite = 50 episodes, the public fixed init states, the official step cap and chunk execution. These are the numbers to compare against when you run your own condition with the knobs above — use the same episode count. Brackets are 95% Wilson intervals.
-
-| Family (`--vla`) | LIBERO-Spatial | LIBERO-Object | LIBERO-Goal | LIBERO-10 |
-|---|---|---|---|---|
-| OpenVLA-OFT (`openvla-oft`) | 50/50 [0.93–1.00] | 50/50 [0.93–1.00] | 48/50 [0.87–0.99] | 49/50 [0.90–1.00] |
-| π0.5 (`pi`) | 48/50 [0.87–0.99] | 48/50 [0.87–0.99] | 48/50 [0.87–0.99] | 47/50 [0.84–0.98] |
-| GR00T N1.7 (`gr00t`) | 50/50 [0.93–1.00] | 50/50 [0.93–1.00] | 47/50 [0.84–0.98] | 46/50 [0.81–0.97] |
-| Cosmos Policy (`cosmos-policy`) | 50/50 [0.93–1.00] | 50/50 [0.93–1.00] | 50/50 [0.93–1.00] | 48/50 [0.87–0.99] |
-| FastWAM (`fastwam`) | 44/50 [0.76–0.94] | 49/50 [0.90–1.00] | 49/50 [0.90–1.00] | 48/50 [0.87–0.99] |
-| LingBot-VA (`lingbot-va`) | — | — | — | 49/50 [0.90–1.00] |
-| DreamZero (study harness only) | 41/50 [0.69–0.90] | 46/50 [0.81–0.97] | 29/50 [0.44–0.71] | 28/50 [0.42–0.69] |
-
-Source: [`results/cells.csv`](https://github.com/byongwu/pai-same-policy-different-numbers/blob/main/results/cells.csv) of the study (149 cells). LingBot-VA publishes a LIBERO-10 checkpoint only. DreamZero ran on the study's own RLinf stack (`dreamzero/`), not on a target in this repo.
-
-### Per-target smoke results
-
-| `--vla` | Task | Expected Success Rate | Source |
-|---------|------|-----------------------|--------|
-| `gr00t` | KITCHEN_SCENE3 (stove + moka pot) | ~90–100% | validated 2026-04-27 |
-| `gr00t` | KITCHEN_SCENE4 (black bowl in drawer) | ~90–100% | validated 2026-04-27 |
-| `gr00t-gr1` | PosttrainPnPNovelFromPlateToBowlSplitA (GR1) | ~80% | validated 2026-04-12 |
-| `gr00t-gr1` | PnPCanToDrawerClose (GR1) | 0% (pre-trained N1.6 not supported) | validated 2026-04-12 |
-| `gr00t-g1` | LMPnPAppleToPlateDC (G1 loco-manip, community re-finetune) | 30% (3/10) | validated 2026-06-15 — `nvidia/...` checkpoint scores 0%; `cloudwalk-research` re-finetune used |
-| `pi` | libero_object | ~80–94% | validated 2026-04-27 |
-| `pi` | libero_spatial | ~85–95% | validated 2026-04-27 |
-| `openvla-oft --libero-suite spatial` | libero_spatial | 97.6% (paper Table I) | validated 2026-06-01 — 0.92 (46/50, 5 trials/task × 10 tasks, g6.xlarge); within paper ±5%p band at n=50 |
-| `openvla-oft --libero-suite object` | libero_object | 98.4% (paper Table I) | pending smoke test |
-| `openvla-oft --libero-suite goal` | libero_goal | 97.9% (paper Table I) | pending smoke test |
-| `openvla-oft --libero-suite 10` | libero_10 (long-horizon) | 94.5% (paper Table I) | validated 2026-05-04 |
-| `lap` | libero_spatial | ~85-95% (paper Table III, LIBERO fine-tuned) | validated 2026-05-17 — 0.98 @ 5 trials/task |
-| `molmoact2` | libero_goal (2 tasks × 5 ep) | 97.2% LIBERO avg (paper) | validated 2026-06-28 — 1.000 (10/10 ep, fp32 in-process, g6e.2xlarge L40S 48GB, full `deploy.py` 1-shot smoke, us-west-2) |
-| `xvla` | libero_spatial (2 tasks × 5 ep) | 98.1% LIBERO avg (paper) · 93% (LeRobot card) | validated 2026-10-14 — 0.90 (9/10 ep, g6.2xlarge L4, ap-northeast-2) |
-| `smolvla` | libero_spatial (2 tasks × 5 ep) | — (not stated on the model card) | validated 2026-10-14 — 0.80 (8/10 ep, g6.xlarge L4, ap-northeast-2) |
-| `lingbot-va` | libero_10 (2 tasks × 3 ep) | 98.5% LIBERO-Long (LeRobot docs) | validated 2026-10-14 — 1.00 (6/6 ep, g6e.2xlarge L40S, ap-northeast-2; ~20 min/episode) |
-| `vla-adapter` | libero_spatial (10 tasks × 1 trial) | 99.6% LIBERO-Spatial-Pro (inference log on the model card) | validated 2026-10-14 — 1.00 (10/10, g6.xlarge L4, ap-northeast-2) |
-| `fastwam` | libero_spatial (2 tasks × 5 ep) | 97.6% LIBERO-Spatial (LeRobot docs, fp32) | validated 2026-10-15 — 0.90 (9/10 ep, bf16, g6e.2xlarge L40S, ap-northeast-2) |
-| `cosmos-policy` | libero_spatial (10 tasks × 1 trial) | 98.1% LIBERO-Spatial (paper / LIBERO.md) | validated 2026-10-17 — 1.00 (10/10, g6e.xlarge L40S, ap-northeast-2; ~55 min end to end incl. Docker build) |
-| `aspire` | libero_spatial (2 tasks × 5 ep, saved init states 0-4) | — (ASPIRE reports LIBERO-Pro perturbation suites, not this split) | validated 2026-10-17 — 1.00 (10/10, g6e.2xlarge L40S, ap-northeast-2; ~41 min end to end; agent 1,544 s / US$3.21 Bedrock for both tasks) |
-| `rldx` | libero_spatial (single task) | 97.8% LIBERO avg (paper) | validated 2026-06-20 — 1.0 (5/5 ep, eager, g6.xlarge L4 sm_89, full `deploy.py` smoke) |
-| `rldx-simpler` | simpler_env_google/google_robot_pick_coke_can (Google-VM Fractal) | 81.5% Google-VM (paper README) | validated 2026-06-24 — 1.0 (5/5 ep, eager, g6.2xlarge L4, full `deploy.py` 1-shot smoke) |
-| `rldx-simpler` | simpler_env_google/google_robot_move_near (Google-VM Fractal) | 81.5% Google-VM (paper README) | validated 2026-06-24 — 1.0 (5/5 ep, eager, g6.2xlarge L4, full `deploy.py` 1-shot smoke) |
-| `rldx-gr1` | gr1_unified/PnPCupToDrawerClose (GR-1 bimanual + waist) | 58.7% 24-task avg (paper README) | validated 2026-06-25 — 0.80 (4/5 ep, eager, g5.2xlarge A10G 24GB, full `deploy.py` 1-shot smoke) |
-| `rldx-gr1` | gr1_unified/PnPMilkToMicrowaveClose (GR-1 bimanual + waist) | 58.7% 24-task avg (paper README) | validated 2026-06-25 — 0.20 (1/5 ep, eager, g5.2xlarge A10G 24GB, full `deploy.py` 1-shot smoke) |
-| `rldx-kitchen` | robocasa_panda_omron/OpenSingleDoor (PandaOmron mobile manip) | 70.6% 24-task avg (paper README) | 0.80 (4/5), validated 2026-06-26 (g6.2xlarge L4) |
-| `rldx-kitchen` | robocasa_panda_omron/OpenDrawer (PandaOmron mobile manip) | 70.6% 24-task avg (paper README) | 0.80 (4/5), validated 2026-06-26 (g6.2xlarge L4) |
-
-**Validated results (us-east-1, g6.12xlarge / g5.xlarge / g6.xlarge):**
-- GR00T N1.7: KITCHEN_SCENE3 = 1.0 (5/5), KITCHEN_SCENE4 = 1.0 (3/3)
-- GR00T N1.6 + GR1: PosttrainPnP = 0.8 (4/5), PnPCanToDrawer = 0.0 (pre-trained model limitation)
-- GR00T N1.6 + Unitree G1 (whole-body loco-manip): LMPnPAppleToPlateDC = 0.3 (3/10, `n_envs=1`, g6.12xlarge, us-west-2) — `cloudwalk-research` community re-finetune; the `nvidia/GR00T-N1.6-G1-PnPAppleToPlate` checkpoint scores 0/10 under the same command (matches open Isaac-GR00T issues, no upstream fix)
-- π0.5: libero_object = 0.94 (47/50)
-- OpenVLA-OFT: libero_10 = 1.0 (10/10 at 1 trial/task, g6.xlarge)
-- OpenVLA-OFT: libero_spatial = 0.92 (46/50, 5 trials/task × 10 tasks, g6.xlarge) — paper Table I = 97.6%; the gap (5.6%p) is within sampling noise at n=50 (SE ≈ 3.8%p). 8/10 tasks at 5/5; misses concentrated on `on_the_ramekin` (2/5) and `next_to_the_plate` (4/5)
-- LAP-3B: libero_spatial = 0.98 (49/50, 5 trials/task × 10 tasks, g6.xlarge) — exceeds paper Table III range (85–95%); requires upstream `scripts/libero/main.py` vertical-flip patch (see `templates/lap-userdata.sh.j2`)
-- MolmoAct2 (Ai2): libero_goal = 1.000 (10/10, 2 tasks × 5 ep, g6e.2xlarge L40S 48GB, us-west-2) — paper LIBERO average = 97.2%. Apache-2.0 5B Action Reasoning Model run **in-process** on the sim GPU (no policy server) from the `allenai/lerobot` fork (`molmoact2-policy@a4f15bf3`, not upstream); official fp32 LIBERO recipe (`model_dtype=float32`, `use_amp=false`, `norm_tag=libero`, continuous). The ~20 GB fp32 checkpoint forces a ≥40 GB single GPU **and** ≥64 GiB host RAM (`g6e.xlarge`'s 32 GiB host RAM thrashes the load → excluded); checkpoint `allenai/MolmoAct2-LIBERO@0d24a92b`, Python pinned 3.12. Full `deploy.py` 1-shot smoke; pipe-proof cap was 2 tasks × 5 ep (drop `task_ids` + `n_episodes: 50` for the full 10-task suite)
-- RLDX-1 (RLWRLD): libero_10 long-horizon, two tasks (eager, g6.xlarge L4 sm_89) — `STUDY_SCENE1` book→caddy = 1.0 (5/5, tight 20–23 steps), `KITCHEN_SCENE6` mug→microwave+close = 0.8 (4/5; successes span 32–47 steps and the one failure is a 90-step-cap timeout — marginal even when it succeeds, see the showcase caveat). Full `deploy.py` deploy; ZeroMQ policy server + sim client, two-venv (main + `libero_uv`). Default `n_envs=1` (5 recommended on g6.2xlarge+); checkpoint `RLWRLD/RLDX-1-FT-LIBERO@989037c6`, repo `RLWRLD/RLDX-1@ecbfaf80`
-- RLDX-1 (RLWRLD) GR-1 Tabletop: two articulated tasks (eager, g5.2xlarge A10G 24GB) — `PnPCupToDrawerClose` = 0.80 (4/5, clean 13–19 steps), `PnPMilkToMicrowaveClose` = 0.20 (1/5; the single success at 24 steps, the four failures all hit the 45-step cap as timeouts). Combined 5/10 ≈ paper 24-task avg 58.7%. The only target on a **bimanual humanoid + waist** (`GR1ArmsAndWaistFourierHands`); MuJoCo/robosuite headless EGL (no Vulkan). Source-verified needed **no SimplerEnv-style code patch** — confirmed live: the `[5/8]` gr1-venv verify (dispatch + obs/action contract + import-time env registration) passed without FIX 4/6/7, and `setup_gr1.sh` exited 0 (committed-as-files submodule → `git submodule update` is a no-op, no FIX 5). Server cold-load fast (~210s). Checkpoint `RLWRLD/RLDX-1-FT-GR1@d0277c5c`, repo `RLWRLD/RLDX-1@ecbfaf80`
-
----
-
-## Configuration Reference
-
-### `simulator-config.yaml` (shared)
-
-| Key | Default | Description |
-|-----|---------|-------------|
-| `deployment.region` | `us-east-1` | AWS region |
-| `deployment.notify_email` | *(required)* | SNS notification email |
-| `deployment.s3_results_prefix` | `vla-sim-results` | S3 bucket name prefix |
-| `deployment.auto_terminate` | `true` | Auto-terminate EC2 after completion |
-
-### `models/gr00t.yaml`
-
-| Key | Description |
-|-----|-------------|
-| `model.hf_repo` | HuggingFace repo for checkpoint download |
-| `model.hf_subfolder` | Subfolder within repo (e.g. `libero_10`) |
-| `model.hf_model_revision` | Pinned commit SHA for reproducibility |
-| `model.isaac_groot_commit` | Pinned Isaac-GR00T commit SHA |
-| `instance.preferred` | GPU instance type fallback list |
-| `instance.ebs_gb` | Root EBS volume size (GB) |
-| `tasks` | List of LIBERO tasks to evaluate |
-
-### `models/pi.yaml`
-
-| Key | Description |
-|-----|-------------|
-| `model.openpi_commit` | Pinned openpi commit SHA |
-| `instance.preferred` | GPU instance type fallback list |
-| `tasks[].suite` | LIBERO suite name (`libero_spatial`, `libero_object`, etc.) |
-| `tasks[].num_episodes` | Episodes per task |
-
----
-
-## Project Structure
-
-```
-sample-rfm-simulation-on-aws/
-├── vlasim.py                 # CLI front end: doctor / init / deploy / destroy / results
-├── simulator-config.yaml     # Shared deployment settings
-├── docs/
-│   └── showcase/             # Sample rollout MP4 + GIF preview per VLA policy
-├── models/
-│   ├── gr00t.yaml            # GR00T N1.7 config
-│   ├── gr00t-gr1.yaml        # GR00T N1.6 + GR1 humanoid config
-│   ├── gr00t-g1.yaml         # GR00T N1.6 + Unitree G1 whole-body loco-manip config
-│   ├── pi.yaml               # π0.5 config
-│   ├── openvla-oft.yaml      # OpenVLA-OFT config (per-suite checkpoints)
-│   └── lap.yaml              # LAP-3B config
-├── deploy.py                 # 1-click deploy entrypoint
-├── destroy.py                # Stack teardown
-├── results.py                # Read-only result collector behind `vlasim results`
-├── generate.py               # Generates assets/userdata/{vla}.sh from templates
-├── requirements.txt
-├── cdk/
-│   ├── bin/app.ts
-│   └── lib/
-│       ├── vla-simulator-stack.ts   # Unified CDK stack
-│       └── az-selector.ts           # GPU capacity Lambda (AZ/type fallback)
-├── assets/
-│   ├── userdata/             # Generated scripts (gitignored)
-│   └── bridge/
-│       ├── gr00t/            # ZMQ-gRPC bridge for GR00T
-│       ├── pi/               # gRPC bridge for π0.5
-│       └── lap/              # WebSocket↔gRPC bridge for LAP-3B (port 50055)
-└── templates/
-    ├── gr00t-userdata.sh.j2        # Jinja2 template for GR00T UserData
-    ├── gr00t-gr1-userdata.sh.j2    # GR00T N1.6 + GR1 humanoid
-    ├── gr00t-g1-userdata.sh.j2     # GR00T N1.6 + Unitree G1 (GR00T-WholeBodyControl loco-manip)
-    ├── pi-userdata.sh.j2           # π0.5 (Docker Compose)
-    ├── openvla-oft-userdata.sh.j2  # OpenVLA-OFT (single conda env)
-    ├── lap-userdata.sh.j2          # LAP-3B (uv 2-venv: JAX policy + LIBERO sim)
-    ├── openarm-isaac-userdata.sh.j2     # OpenArm bimanual π0.5 eval (Isaac Lab container)
-    └── openarm-lift-act-userdata.sh.j2  # OpenArm Lift-Cube scripted ACT collection (Isaac Lab)
-```
-
----
-
-## Bridge Mode
-
-Bridge mode (experimental) connects the simulation environment on EC2 to a policy inference endpoint that **you** host (for example a GPU service on Amazon ECS behind a Network Load Balancer in the same VPC), without downloading the model locally. This repository does not deploy that endpoint: you bring a gRPC server that implements the contract in `assets/bridge/<model>/` (`pi.proto`, `lap.proto`, or the GR00T stubs in `gr00t_pb2*.py`). Endpoints can be given as a literal `host:port` or as an `ssm:/path` that `deploy.py` resolves at deploy time; the default paths under `/vla-hub/*` are only parameter names — create them yourself or replace them with literal values.
-
-### GR00T bridge
-
-```bash
-# Set endpoint in models/gr00t.yaml (literal host:port, or an SSM parameter you created):
-#   bridge.remote_grpc_endpoint: ssm:/vla-hub/gr00t/n1-7/grpc-endpoint
-#   bridge.vpc_id: ssm:/vla-hub/vpc-id
-
-python vlasim.py deploy --vla gr00t --bridge
-```
-
-### π0.5 bridge
-
-```bash
-# Set in models/pi.yaml:
-#   bridge.vpc_id: vpc-xxxxxxxxxxxxxxxxx
-#   bridge.nlb_endpoint: internal-xxx.elb.us-east-1.amazonaws.com:50052
-
-python vlasim.py deploy --vla pi --bridge
-```
-
-### LAP-3B bridge
-
-LAP shares π0.5's openpi WebSocket bridge pattern. The instance runs only the LIBERO
-sim + a WebSocket↔gRPC bridge (`assets/bridge/lap/`); the LAP-3B JAX model runs on the
-remote LAP gRPC endpoint you provide (port 50055). No local checkpoint download.
-
-```bash
-# Set in models/lap.yaml (or use ssm: for nlb_endpoint):
-#   bridge.vpc_id: vpc-xxxxxxxxxxxxxxxxx                       # the VPC of your endpoint
-#   bridge.nlb_endpoint: internal-xxx.elb.us-west-2.amazonaws.com:50055
-#                        or ssm:/vla-hub/lap/3b/grpc-endpoint
-
-python vlasim.py deploy --vla lap --bridge
-```
-
-> Bridge differs from π0.5 only in the wire contract: LAP uses a nested observation
-> (`observation.base_0_rgb` / `left_wrist_0_rgb` / `state`), a 10-dim state
-> (eef_pos 3 + eef_rot6d 6 + gripper 1), a `frame_description` field, and a (10,7)
-> action chunk — see `assets/bridge/lap/lap.proto`.
-
----
-
-## Troubleshooting
-
-### "Embodiment tag 'LIBERO_PANDA' is not supported"
-
-The **base** GR00T N1.7-3B model does not support LIBERO simulation. Use the fine-tuned checkpoint:
-
-```yaml
-# models/gr00t.yaml
-model:
-  hf_repo: nvidia/GR00T-N1.7-LIBERO
-  hf_subfolder: libero_10
-```
-
-### "No visible GPU devices" (π0.5 task-0)
-
-JAX inside the Docker container fails if GPU passthrough isn't ready before the task loop starts. The `[2.5/5]` step in the UserData script polls `docker run --gpus all nvidia-smi` until GPU is confirmed before proceeding.
-
-### Stack rollback / InsufficientInstanceCapacity
-
-The `AzSelectorConstruct` Lambda automatically retries across AZs and falls back through the instance type preference list (`g6.12xlarge` → `g5.12xlarge` → `g6.xlarge` → `g5.xlarge` for GR00T). No manual intervention needed — CDK rollback means no capacity was found; re-deploying will retry.
-
-### CDK synth cdk.out conflict (parallel deploys)
-
-Use model-specific output directories:
-
-```bash
-npx cdk deploy GR00T-Demo --output cdk.out-gr00t -c vla=gr00t -c region=us-east-1 ...
-npx cdk deploy Pi-Demo    --output cdk.out-pi    -c vla=pi    -c region=us-east-1 ...
-```
-
-`deploy.py` handles this automatically.
-
-### apt lock on DLAMI boot
-
-`unattended-upgrades` holds the apt lock for ~2 minutes on fresh boot. The UserData waits up to 120 seconds then forcibly kills the process. No action needed. Every template also masks the `apt-daily` timers (they re-launch `unattended-upgrades` later in the boot), removes the `command-not-found` apt hook (it once hung `apt-get update` for 3 h) and bounds each `apt-get update` with `timeout 600`.
-
----
-
-## Cost Estimate (us-east-1, on-demand)
-
-| Instance | Spot/OD | Hourly | GR00T (~2h) | π0.5 (~4h) | LAP (~2.5h) |
-|----------|---------|--------|-------------|------------|-------------|
-| g6.12xlarge | On-Demand | ~$4.09 | ~$8.18 | — | — |
-| g5.xlarge   | On-Demand | ~$1.01 | — | ~$4.04 | — |
-| g6.xlarge   | On-Demand | ~$0.80 | — | — | ~$2.00 |
-
-Use Spot instances via `deploy.py --spot` (not yet implemented) for 60–70% savings.
-
----
-
-## Related Projects
-
-- [Isaac-GR00T](https://github.com/NVIDIA/Isaac-GR00T) — NVIDIA GR00T foundation model
-- [openpi](https://github.com/Physical-Intelligence/openpi) — Physical Intelligence π0.5
-- [openvla-oft](https://github.com/moojink/openvla-oft) — OpenVLA-OFT (Optimized Fine-Tuning)
-- [lap](https://github.com/lihzha/lap) — LAP: Language-Action Pre-Training (zero-shot cross-embodiment, JAX)
-- [RLDX-1](https://github.com/RLWRLD/RLDX-1) — RLWRLD dexterity-first VLA (MSAT / Qwen3-VL-8B, Apache-2.0 code)
-- [LIBERO](https://libero-project.github.io/) — Long-horizon robot benchmark
-- [SimplerEnv](https://github.com/allenzren/SimplerEnv) + [ManiSkill2_real2sim](https://github.com/allenzren/ManiSkill2_real2sim) — real-to-sim eval for Google Fractal / WidowX Bridge (MIT)
-- [robocasa-gr1-tabletop-tasks](https://github.com/robocasa/robocasa-gr1-tabletop-tasks) — RoboCasa GR-1 humanoid tabletop benchmark (24 tasks, MIT)
-
----
-
-## Acknowledgments & Licensing
-
-This sample's own code (CDK, generators, templates) is **MIT-0** (see `LICENSE`). It orchestrates several third-party models and simulators, each under its own license — pulled at **runtime** (not vendored in this repo):
-
-| Component | Used by | Code license | Weights / assets license | Notes |
-|-----------|---------|--------------|--------------------------|-------|
-| [NVIDIA Isaac-GR00T](https://github.com/NVIDIA/Isaac-GR00T) | `gr00t`, `gr00t-gr1`, `gr00t-g1` | Apache-2.0 | `nvidia/GR00T-N1.7-LIBERO`: NVIDIA Open Model License; **`nvidia/GR00T-N1.6-3B`: NVIDIA One-Way Noncommercial License (NON-COMMERCIAL)**; `nvidia/Cosmos-Reason2-2B` (gated): NVIDIA Open Model License | `gr00t-g1` uses the community fine-tune `cloudwalk-research/GR00T-N1.6-G1-PnPAppleToPlate` (card: Apache-2.0; derived from GR00T N1.6 — review the base-model terms) |
-| [GR00T-WholeBodyControl](https://github.com/NVlabs/GR00T-WholeBodyControl) | `gr00t-g1` | Apache-2.0 | NVIDIA Open Model License | uses the [xieleo5/robosuite](https://github.com/xieleo5/robosuite) fork (MIT) |
-| [Physical Intelligence openpi](https://github.com/Physical-Intelligence/openpi) (π0.5) | `pi` | Apache-2.0 | per the openpi project | |
-| [OpenVLA-OFT](https://github.com/moojink/openvla-oft) | `openvla-oft` | MIT | MIT (`moojink/openvla-7b-oft-finetuned-libero-*`) | uses [transformers-openvla-oft](https://github.com/moojink/transformers-openvla-oft) (Apache-2.0) |
-| [LAP-3B](https://github.com/lihzha/lap) | `lap` | Apache-2.0 | Apache-2.0 (`lihzha/LAP-3B-Libero`) | |
-| [MolmoAct2 (Ai2)](https://github.com/allenai/molmoact2) | `molmoact2` | Apache-2.0 (served from the [allenai/lerobot](https://github.com/allenai/lerobot) fork, Apache-2.0) | open weights (`allenai/MolmoAct2-LIBERO`); the model card has no license field — check it | |
-| [Hugging Face LeRobot](https://github.com/huggingface/lerobot) | `xvla`, `smolvla`, `lingbot-va`, `fastwam`, `openarm-isaac` | Apache-2.0 | see the rows below | shared `lerobot-libero` template |
-| [X-VLA](https://github.com/2toINF/X-VLA) | `xvla` | Apache-2.0 | Apache-2.0 (`lerobot/xvla-libero`) | |
-| SmolVLA | `smolvla` | Apache-2.0 (LeRobot) | Apache-2.0 (`lerobot/smolvla_libero`) | |
-| [LingBot-VA](https://github.com/Robbyant/lingbot-va) | `lingbot-va` | Apache-2.0 | Apache-2.0 (`lerobot/lingbot_va_libero_long`) | |
-| [FastWAM](https://github.com/yuantianyuan01/FastWAM) | `fastwam` | MIT | **unspecified** — `lerobot/fastwam_libero_uncond_2cam224` states no license; research/evaluation only | also fetches `google/umt5-xxl` and `Wan-AI/Wan2.2-TI2V-5B-Diffusers` (both Apache-2.0) |
-| π0.5 `folding_latest` (LeRobot) | `openarm-isaac` | Apache-2.0 (LeRobot) | Apache-2.0 (`lerobot/folding_latest`) | |
-| [VLA-Adapter](https://github.com/OpenHelix-Team/VLA-Adapter) | `vla-adapter` | MIT | MIT (`VLA-Adapter/LIBERO-Spatial-Pro`) | |
-| [NVIDIA Cosmos Policy](https://github.com/NVlabs/cosmos-policy) | `cosmos-policy` | Apache-2.0 | **NVIDIA One-Way Noncommercial License, NSCLv1 (NON-COMMERCIAL)** (`nvidia/Cosmos-Policy-LIBERO-Predict2-2B`); base `nvidia/Cosmos-Predict2-2B-Video2World` (gated): NVIDIA Open Model License | |
-| [NVIDIA ASPIRE](https://github.com/NVlabs/ASPIRE) | `aspire` | Apache-2.0 | tools: **SAM3 — SAM License (gated)**; **[Contact-GraspNet](https://github.com/NVlabs/contact_graspnet) — NVIDIA Source Code License (NON-COMMERCIAL)**; [PyRoki](https://github.com/chungmin99/pyroki) — MIT | the agent calls Claude models on Amazon Bedrock in your account |
-| **[RLDX-1 (RLWRLD)](https://github.com/RLWRLD/RLDX-1)** | `rldx`, `rldx-simpler`, `rldx-gr1`, `rldx-kitchen` | Apache-2.0 | **RLWRLD Model License v1.0 (NON-COMMERCIAL)** (`RLWRLD/RLDX-1-FT-*`); backbone `Qwen/Qwen3-VL-8B-Instruct` Apache-2.0 | "simulation benchmarking" is an explicit intended use; commercial deployment is out of scope — research / simulation benchmarking only |
-| [LIBERO](https://github.com/Lifelong-Robot-Learning/LIBERO) | LIBERO targets | MIT | MIT | |
-| [SimplerEnv](https://github.com/allenzren/SimplerEnv) + [ManiSkill2_real2sim](https://github.com/allenzren/ManiSkill2_real2sim) | `rldx-simpler` | MIT / Apache-2.0 | — | cloned at runtime by `setup_SimplerEnv.sh` |
-| [RoboCasa GR-1 Tabletop tasks](https://github.com/robocasa/robocasa-gr1-tabletop-tasks) | `gr00t-gr1`, `rldx-gr1` | MIT | — | cloned at runtime by `setup_gr1.sh` |
-| RoboCasa (Kitchen) + [robosuite](https://github.com/ARISE-Initiative/robosuite) | `rldx-kitchen` | MIT | RoboCasa asset terms | cloned at runtime by `setup_robocasa.sh` ([squarefk/robocasa](https://github.com/squarefk/robocasa), fork of the RoboCasa project); ~5 GB scene assets download during setup |
-| [MuJoCo](https://github.com/google-deepmind/mujoco) | LIBERO / RoboCasa / G1 targets | Apache-2.0 | — | |
-| [NVIDIA Isaac Lab](https://github.com/isaac-sim/IsaacLab) + Isaac Sim | `openarm-isaac`, `openarm-lift-act` | BSD-3-Clause (Isaac Lab) | NGC image `nvcr.io/nvidia/isaac-lab` bundles Isaac Sim under NVIDIA's license terms | |
-| [OpenArm Isaac Lab](https://github.com/enactic/openarm_isaac_lab) | `openarm-isaac`, `openarm-lift-act` | Apache-2.0 | — | |
-
-Licenses were checked on 2026-10-22 against each upstream repository's license file and Hugging Face model card; upstream terms can change, so re-check before use. **This is sample code, not production-ready software.** It downloads third-party models, datasets and simulators at runtime into your AWS account; you are responsible for reviewing and complying with each component's license and terms of use (several weights above are non-commercial or have no stated license). See `NOTICE`.
-
-The `rldx`/`rldx-simpler`/`rldx-gr1`/`rldx-kitchen` targets are built on **RLDX-1 by [RLWRLD](https://github.com/RLWRLD/RLDX-1)** — gratefully acknowledged. RLDX-1's eval harness vendors LIBERO, SimplerEnv, RoboCasa, and GR-1 task suites as submodules (all MIT); this sample clones the RLDX-1 repo at a pinned commit at runtime and applies small in-place runtime fixes to the clone only — the upstream repo is never modified and no model weights are committed here. Per target: `rldx` needs only the shared dependency-pin fixes; `rldx-simpler` adds a SimplerEnv dispatch + obs/action adapter patch; `rldx-gr1` needs no code patch (dispatch + obs/action routing already correct at the pin); `rldx-kitchen` needs no dispatch/obs/action patch but adds three RoboCasa-Kitchen-specific runtime fixes (making the cloned asset downloader non-interactive for headless setup; a `numpy`/`numba` pin reconciliation so the import-reachable `albumentations` resolves against the kitchen fork; and a cosmetic video-recorder narrowing so the saved clip shows each camera once rather than duplicating it at two resolutions).
+A task with no `summary.txt` (still running, or the run died) is counted under `not_done`, never as a 0. Download commands, expected success rates per target and the 50-episode same-stack baseline: [docs/results.md](docs/results.md).
+
+## Supported targets
+
+Instance = first choice in `models/<target>.yaml`; the deploy falls back to other types and AZs when capacity is short. **NC** = non-commercial or research-only weights or tools (see [License](#license)).
+
+| `--vla` | Model | Benchmark | GPU instance |
+|---|---|---|---|
+| `gr00t` | GR00T N1.7-LIBERO | LIBERO-10 | `g6.12xlarge` |
+| `gr00t-gr1` | GR00T N1.6-3B (**NC**) | RoboCasa GR1 tabletop (Fourier GR1 humanoid) | `g6.12xlarge` |
+| `gr00t-g1` | GR00T N1.6-G1 community re-finetune (optional N1.7 adapter) | GR00T-WholeBodyControl loco-manipulation (Unitree G1) | `g6.12xlarge` |
+| `pi` | π0.5 (`pi05_libero`) | LIBERO-Spatial / Object | `g5.xlarge` |
+| `openvla-oft` | OpenVLA-OFT-7B (per-suite fine-tunes; `--libero-suite spatial\|object\|goal\|10`) | LIBERO-10 (default) / Spatial / Object / Goal | `g6.xlarge` |
+| `lap` | LAP-3B | LIBERO-Spatial | `g6.xlarge` |
+| `molmoact2` | MolmoAct2 (Ai2, 5B) | LIBERO-Goal | `g6e.2xlarge` |
+| `xvla` | X-VLA-0.9B | LIBERO-Spatial | `g6.2xlarge` |
+| `smolvla` | SmolVLA-450M | LIBERO-Spatial | `g6.xlarge` |
+| `lingbot-va` | LingBot-VA (world action model) | LIBERO-10 | `g6e.2xlarge` |
+| `vla-adapter` | VLA-Adapter-Pro | LIBERO-Spatial | `g6.xlarge` |
+| `fastwam` | FastWAM (world action model, **NC**) | LIBERO-Spatial | `g6e.2xlarge` |
+| `cosmos-policy` | NVIDIA Cosmos Policy (world action model, **NC**) | LIBERO-Spatial | `g6e.xlarge` |
+| `aspire` | ASPIRE: Claude on Amazon Bedrock writes the robot program (**NC** tools) | LIBERO-Spatial (LIBERO-Pro fork) | `g6e.2xlarge` |
+| `rldx` | RLDX-1 (RLWRLD, **NC**) | LIBERO-10 | `g6.xlarge` |
+| `rldx-simpler` | RLDX-1 (RLWRLD, **NC**) | SimplerEnv Google-VM (Fractal) | `g6.2xlarge` |
+| `rldx-gr1` | RLDX-1 (RLWRLD, **NC**) | RoboCasa GR-1 Tabletop | `g6.2xlarge` |
+| `rldx-kitchen` | RLDX-1 (RLWRLD, **NC**) | RoboCasa Kitchen (PandaOmron) | `g6.2xlarge` |
+| `openarm-lift-act` | Scripted state machine (ACT demo collection) | Isaac Lab Lift-Cube (OpenArm) | `g6.12xlarge` |
+| `openarm-isaac` | π0.5 `folding_latest`, experimental pipe proof | Isaac Lab bimanual Reach (OpenArm) | `g6.12xlarge` |
+
+Stack names, robots, per-target notes, deploy and cleanup commands: [docs/targets.md](docs/targets.md). Measured success rates: [docs/results.md](docs/results.md).
+
+> **A success rate belongs to the stack that produced it.** Episode count, init states, step cap and action-chunk execution all move the number; compare runs only when they match. See [Expected Results](docs/results.md#expected-results) for the same-stack baseline.
+
+## Documentation
+
+| | |
+|---|---|
+| [Targets](docs/targets.md) | All targets, notes, GPU instances, deploy / monitor / cleanup |
+| [Showcase](docs/showcase.md) | Full rollout gallery |
+| [Results](docs/results.md) | Downloading results, `vlasim results`, expected results, baselines |
+| [Configuration](docs/configuration.md) | `doctor`, regions, Hugging Face token, config keys |
+| [Architecture](docs/architecture.md) | Deploy flow and project structure |
+| [Cost](docs/cost.md) | Instance prices and per-target estimate |
+| [Bridge mode](docs/bridge-mode.md) | Experimental: use your own gRPC inference endpoint |
+| [Troubleshooting](docs/troubleshooting.md) | Known errors and fixes |
+| [Licenses](docs/licenses.md) | Third-party licenses per target, acknowledgments, related projects |
+
+## Contributing
+
+Issues and pull requests are welcome. CI (`.github/workflows/ci.yml`) compiles and tests the CDK app, synthesizes every target and renders every UserData script; run the same steps locally before opening a pull request. See [CONTRIBUTING](CONTRIBUTING.md) and the [Code of Conduct](CODE_OF_CONDUCT.md).
+
+## Security
+
+See [CONTRIBUTING](CONTRIBUTING.md#security-issue-notifications) for more information.
+
+## License
+
+This sample's own code (CDK, generators, templates) is licensed under the MIT-0 License. See the [LICENSE](LICENSE) file.
+
+It orchestrates third-party models, datasets and simulators that are downloaded at **runtime** into your AWS account (not vendored here), each under its own license. **Several are non-commercial or have no stated license:**
+
+- **RLDX-1** weights (`rldx`, `rldx-simpler`, `rldx-gr1`, `rldx-kitchen`): RLWRLD Model License v1.0, **non-commercial**; research / simulation benchmarking only.
+- **GR00T N1.6-3B** (`gr00t-gr1`): NVIDIA One-Way Noncommercial License, **non-commercial**.
+- **Cosmos Policy** checkpoint (`cosmos-policy`): NVIDIA One-Way Noncommercial License (NSCLv1), **non-commercial**.
+- **ASPIRE** tools (`aspire`): SAM3 (Meta SAM License, gated) and Contact-GraspNet (NVIDIA, **non-commercial**).
+- **FastWAM** checkpoint (`fastwam`): no license stated; research / evaluation only.
+
+You are responsible for reviewing and complying with each component's license and terms of use. **This is sample code, not production-ready software.** Full table: [docs/licenses.md](docs/licenses.md); attributions: [NOTICE](NOTICE).

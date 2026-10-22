@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-vlasim — VLA Simulator deployment CLI
+vlasim — RFM Simulation on AWS deployment CLI
 
 A thin, dependency-light front end that turns the multi-step manual setup into a
 three-command flow:
@@ -625,7 +625,7 @@ def run_doctor_cli(rest):
 
 # ───────────────────────────── dispatch ────────────────────────────────────
 
-USAGE = """vlasim — VLA Simulator deployment CLI
+USAGE = """vlasim — RFM Simulation on AWS deployment CLI
 
 Usage:
   python vlasim.py doctor  [--vla TARGET] [--region R] [--email A]

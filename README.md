@@ -1,6 +1,8 @@
-# VLA Simulator — 1-Click VLA Simulation on AWS
+# RFM Simulation on AWS — 1-Click Robot Foundation Model Simulation
 
-Run Vision-Language-Action (VLA) robot simulation workloads on AWS GPU instances with a single command. Supports NVIDIA GR00T N1.7, GR00T N1.6 (GR1 humanoid and Unitree G1 whole-body loco-manipulation), π0.5 (openpi), OpenVLA-OFT, LAP-3B, MolmoAct2 (Ai2), and RLDX-1 (RLWRLD) — plus an OpenArm Lift-Cube target in Isaac Lab for scripted ACT demo collection.
+Run Vision-Language-Action (VLA) robot simulation workloads on AWS GPU instances with a single command. Supports NVIDIA GR00T N1.7, GR00T N1.6 (GR1 humanoid and Unitree G1 whole-body loco-manipulation), π0.5 (openpi), OpenVLA-OFT, LAP-3B, MolmoAct2 (Ai2), and RLDX-1 (RLWRLD) — plus world action models (FastWAM, LingBot-VA, Cosmos Policy), an LLM-agent policy (ASPIRE), and an OpenArm Lift-Cube target in Isaac Lab for scripted ACT demo collection.
+
+> **Renamed.** This repository was `aws-samples/sample-vla-simulator-on-aws`; GitHub redirects the old URL. The scope grew from VLA models to robot foundation models in general (VLA, WAM, LLM agents), so the repository now uses the RFM name. Internal identifiers are kept on purpose so existing deployments and stored secrets keep working: the CLI is still `vlasim.py`, the SSM prefix is still `/vla-simulator/*` (for example `/vla-simulator/hf-token`), and the CDK stack file is still `cdk/lib/vla-simulator-stack.ts`.
 
 > See [Showcase — VLA Rollouts](#showcase--vla-rollouts) for sample rollouts across the trained policies and the OpenArm scripted collection run, spanning a range of LIBERO / RoboCasa verbs.
 
@@ -292,6 +294,10 @@ the standard library alone, so `doctor` works on a fresh host **before** any
 dependencies are installed.
 
 ```bash
+# 0. Get the code
+git clone https://github.com/aws-samples/sample-rfm-simulation-on-aws.git
+cd sample-rfm-simulation-on-aws
+
 # 1. See what's missing (read-only — safe to run anytime)
 python vlasim.py doctor
 
@@ -623,7 +629,7 @@ Source: [`results/cells.csv`](https://github.com/byongwu/pai-same-policy-differe
 ## Project Structure
 
 ```
-vla-simulator/
+sample-rfm-simulation-on-aws/
 ├── vlasim.py                 # CLI front end: doctor / init / deploy / destroy / results
 ├── simulator-config.yaml     # Shared deployment settings
 ├── docs/

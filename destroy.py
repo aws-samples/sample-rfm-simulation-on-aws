@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-vla-simulator Stack Destroy
+RFM Simulation on AWS Stack Destroy
 Usage: python destroy.py --vla gr00t        [--region REGION]
        python destroy.py --vla gr00t-gr1    [--region REGION]
        python destroy.py --vla pi           [--region REGION]
@@ -65,7 +65,7 @@ def _validate_region(region: str) -> str:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="vla-simulator Stack Destroy")
+    parser = argparse.ArgumentParser(description="RFM Simulation on AWS Stack Destroy")
     parser.add_argument("--vla", required=True,
                         choices=["gr00t", "gr00t-gr1", "gr00t-g1", "pi", "openvla-oft", "lap", "rldx", "rldx-simpler", "rldx-gr1", "rldx-kitchen", "openarm-isaac", "openarm-lift-act", "molmoact2", "xvla", "smolvla", "lingbot-va", "fastwam", "vla-adapter", "cosmos-policy", "aspire"],
                         help="VLA model stack to destroy")

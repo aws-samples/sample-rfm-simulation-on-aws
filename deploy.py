@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-vla-simulator 1-Click Deploy
+RFM Simulation on AWS 1-Click Deploy
 Usage:
   python deploy.py --vla gr00t              # GR00T N1.7 + LIBERO local mode
   python deploy.py --vla gr00t-gr1          # GR00T N1.6 + GR1 humanoid + RoboCasa local mode
@@ -188,7 +188,7 @@ def _maybe_import_orphan_bucket(
 
 
 def main():
-    parser = argparse.ArgumentParser(description="vla-simulator 1-Click Deploy")
+    parser = argparse.ArgumentParser(description="RFM Simulation on AWS 1-Click Deploy")
     parser.add_argument("--vla", required=True,
                         choices=["gr00t", "gr00t-gr1", "gr00t-g1", "pi", "openvla-oft", "lap", "rldx", "rldx-simpler", "rldx-gr1", "rldx-kitchen", "openarm-isaac", "openarm-lift-act", "molmoact2", *LEROBOT_LIBERO_TARGETS, *OTHER_LOCAL_STACKS],
                         help="VLA model to deploy")

@@ -1,4 +1,4 @@
-# vla-simulator — Shared Deployment Configuration
+# RFM Simulation on AWS — Shared Deployment Configuration
 # Usage: python deploy.py --vla gr00t
 #        python deploy.py --vla pi
 

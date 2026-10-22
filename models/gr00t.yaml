@@ -49,8 +49,8 @@ tasks:
     video_crf: 22
     steps_per_render: 2
 
-# Bridge mode — vla-hub ECS gRPC endpoint (leave empty for local mode)
-# Set via SSM: ssm:/vla-hub/gr00t/n1-7/grpc-endpoint
+# Bridge mode (experimental) — bring-your-own gRPC inference endpoint (leave empty for local mode)
+# Read from SSM (only used with --bridge): ssm:/vla-hub/gr00t/n1-7/grpc-endpoint — create it yourself
 # Or set directly:  remote_grpc_endpoint: "internal-xxx.elb.amazonaws.com:50051"
 bridge:
   remote_grpc_endpoint: "ssm:/vla-hub/gr00t/n1-7/grpc-endpoint"  # auto-resolved from SSM

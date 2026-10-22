@@ -3,7 +3,7 @@
 #        arXiv:2605.03269 (RLWRLD, 2026)
 # Repo:  https://github.com/RLWRLD/RLDX-1 (code: Apache-2.0)
 # Goal:  SimplerEnv (Google Fractal real-robot embodiment) 1-click eval — a NEW capability
-#        no existing vla-simulator target covers (all others are LIBERO/RoboCasa/GR-1/Isaac;
+#        no other target in this repo covers (all others are LIBERO/RoboCasa/GR-1/Isaac;
 #        none use the OXE real-robot embodiments OXE_FRACTAL / OXE_BRIDGE_ORIG).
 #
 # CLI:   python deploy.py --vla rldx-simpler [--email YOUR@EMAIL.COM]
@@ -16,8 +16,8 @@
 #   Structurally identical to the `rldx` LIBERO target; SHARED template, branched by sim_id.
 #
 # LICENSE — NON-COMMERCIAL. Weights are under the RLWRLD Model License v1.0:
-#   intended use explicitly includes "simulation benchmarking" (this PoC qualifies).
-#   out-of-scope: commercial deployment. Keep outputs to AWS-internal enablement only.
+#   intended use explicitly includes "simulation benchmarking"; commercial deployment is out of
+#   scope. Use this target for research / simulation benchmarking only.
 #   Weights are downloaded from HF at runtime (NOT vendored) → no non-commercial weight is
 #   committed. SimplerEnv/ManiSkill2_real2sim are cloned at runtime (MIT). See NOTICE +
 #   README Acknowledgments for the full attribution chain (RLWRLD + SimplerEnv/allenzren).
@@ -28,7 +28,7 @@ model:
 
   # git ls-remote https://github.com/RLWRLD/RLDX-1.git HEAD → main == ecbfaf80 (2026-06-23).
   # SAME pin as the rldx LIBERO target; independent per-yaml pin so a LIBERO re-pin can't
-  # silently move SIMPLER (session risk #10). The SIMPLER dispatch bug (FIX 4) lives at this
+  # silently move SIMPLER. The SIMPLER dispatch bug (FIX 4) lives at this
   # commit and is unpatched on upstream HEAD.
   rldx_commit: "ecbfaf80cd031dcc892186ed30465de3591047e6"
 
@@ -103,7 +103,7 @@ model:
   server_warmup_timeout: 2400
 
 instance:
-  # [확인 필요] SIMPLER VRAM/RAM not yet measured (Gate 1). SIMPLER renders via SAPIEN+ManiSkill;
+  # [TO VERIFY] SIMPLER VRAM/RAM not yet measured (Gate 1). SIMPLER renders via SAPIEN+ManiSkill;
   # the policy server is the same ~17GB MSAT/Qwen3-VL-8B as LIBERO (Phase-0 measured on L40S).
   # Start on the LIBERO-proven single-GPU envelope but lead with .2xlarge for more system RAM
   # (SAPIEN renderer + 5-env spawn headroom). g6/g5 = L4/A10G 24GB.
@@ -130,7 +130,7 @@ tasks:
     num_episodes: 5
     description: "SimplerEnv Google-VM — move near target object (real-robot Fractal embodiment)"
 
-# Bridge mode (vla-hub serving) NOT supported — same rationale as the rldx LIBERO target
-# (fused-kernel/ZeroMQ serving conflicts with vla-hub guardrails). See accounts/startups/rlwrld/README.md §4.
+# Bridge mode NOT supported — same rationale as the rldx LIBERO target
+# (fused-kernel/ZeroMQ serving does not fit the bridge-mode gRPC adapters).
 bridge:
   enabled: false

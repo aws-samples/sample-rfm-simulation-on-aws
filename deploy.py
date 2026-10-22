@@ -10,9 +10,9 @@ Usage:
   python deploy.py --vla openarm-isaac      # π0.5 (folding_latest) + Isaac Lab bimanual OpenArm local mode
   python deploy.py --vla openarm-lift-act   # OpenArm unimanual Lift-Cube × ACT — scripted demo COLLECTION (HDF5)
   python deploy.py --vla molmoact2          # MolmoAct2 (Ai2 5B) + LIBERO-Goal — fp32 in-process eval (allenai/lerobot fork)
-  python deploy.py --vla gr00t --bridge     # GR00T bridge mode (vla-hub ECS)
-  python deploy.py --vla gr00t-gr1 --bridge # GR00T-GR1 bridge mode (vla-hub ECS, if N1.6 supported)
-  python deploy.py --vla pi    --bridge     # π0.5  bridge mode (vla-hub ECS)
+  python deploy.py --vla gr00t --bridge     # GR00T bridge mode (bring-your-own gRPC endpoint, experimental)
+  python deploy.py --vla gr00t-gr1 --bridge # GR00T-GR1 bridge mode (your endpoint must serve N1.6)
+  python deploy.py --vla pi    --bridge     # π0.5  bridge mode (bring-your-own gRPC endpoint, experimental)
 
 Steps:
   1. Load simulator-config.yaml + models/{vla}.yaml
@@ -64,7 +64,7 @@ LEROBOT_LIBERO_TARGETS = tuple(LEROBOT_LIBERO_STACKS)
 OTHER_LOCAL_STACKS = {"vla-adapter": "VLA-Adapter-Demo", "cosmos-policy": "Cosmos-Policy-Demo", "aspire": "ASPIRE-Demo"}
 
 def _resolve_ssm(value: str, region: str) -> str:
-    """value가 'ssm:/path' 형식이면 SSM Parameter Store에서 조회."""
+    """If value has the form 'ssm:/path', look it up in SSM Parameter Store."""
     if not value.startswith("ssm:"):
         return value
     param_name = value[4:]
@@ -76,7 +76,8 @@ def _resolve_ssm(value: str, region: str) -> str:
         return resolved
     except ssm_client.exceptions.ParameterNotFound:
         print(f"[error] SSM parameter not found: {param_name}", file=sys.stderr)
-        print("  Deploy VlaHubStack first: cd projects/vla-hub && npx cdk deploy VlaHubStack",
+        print("  Bridge mode needs your own inference endpoint. Create this parameter (or put a literal "
+              "host:port / vpc-id in the model yaml bridge block), or deploy without --bridge.",
               file=sys.stderr)
         sys.exit(1)
 
@@ -103,7 +104,7 @@ def _validate_vpc_id(vpc_id: str) -> str:
 
 
 def _load_config(vla: str) -> dict:
-    """simulator-config.yaml + models/{vla}.yaml 병합. 모델 설정 우선."""
+    """Merge simulator-config.yaml + models/{vla}.yaml. Model settings take precedence."""
     sim_path = BASE_DIR / "simulator-config.yaml"
     model_path = BASE_DIR / "models" / f"{vla}.yaml"
     if not sim_path.exists():
@@ -130,7 +131,7 @@ def _maybe_import_orphan_bucket(
     vla: str = "",
     libero_suite: str = "",
 ) -> None:
-    """S3 bucket이 orphan (RETAIN 후 stack 삭제됨)이면 cdk import로 재채택."""
+    """If the S3 bucket is orphaned (RETAINed after its stack was deleted), re-adopt it with cdk import."""
     sts = boto3.client("sts", region_name=region)
     account_id = sts.get_caller_identity()["Account"]
     bucket_name = f"{s3_results_prefix}-{stack_name.lower()}-{region}-{account_id}"
@@ -191,9 +192,9 @@ def main():
     parser = argparse.ArgumentParser(description="RFM Simulation on AWS 1-Click Deploy")
     parser.add_argument("--vla", required=True,
                         choices=["gr00t", "gr00t-gr1", "gr00t-g1", "pi", "openvla-oft", "lap", "rldx", "rldx-simpler", "rldx-gr1", "rldx-kitchen", "openarm-isaac", "openarm-lift-act", "molmoact2", *LEROBOT_LIBERO_TARGETS, *OTHER_LOCAL_STACKS],
-                        help="VLA model to deploy")
+                        help="Target (model + simulator) to deploy")
     parser.add_argument("--bridge", action="store_true",
-                        help="Bridge mode: use vla-hub ECS endpoint instead of local model")
+                        help="Bridge mode (experimental): forward inference to your own gRPC endpoint instead of a local model")
     parser.add_argument("--email", "-e", metavar="ADDRESS",
                         help="Notification email (overrides simulator-config.yaml)")
     parser.add_argument("--region", "-r", metavar="REGION",
@@ -259,7 +260,7 @@ def main():
             sys.exit(1)
         if args.vla.startswith("rldx"):
             print(f"[error] Bridge mode not supported for {args.vla} (local only — fused-kernel/ZeroMQ serving "
-                  "conflicts with vla-hub guardrails; see accounts/startups/rlwrld/README.md §4).", file=sys.stderr)
+                  "is not supported by the bridge gRPC adapters).", file=sys.stderr)
             sys.exit(1)
         if args.vla in ("gr00t", "gr00t-gr1", "gr00t-g1"):
             raw_grpc = str(bridge_cfg.get("remote_grpc_endpoint", "")).strip()

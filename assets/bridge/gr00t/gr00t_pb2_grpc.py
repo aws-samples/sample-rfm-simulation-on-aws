@@ -26,8 +26,8 @@ if _version_not_supported:
 
 
 class GR00TInferenceStub(object):
-    """GR00T N1.6 원격 추론 서비스
-    2026-04-12: ZMQ 방식 → gRPC 재설계 (NLB + mTLS 지원)
+    """GR00T N1.6 remote inference service
+    2026-04-12: redesigned from ZMQ to gRPC (NLB + mTLS support)
     """
 
     def __init__(self, channel):
@@ -49,19 +49,19 @@ class GR00TInferenceStub(object):
 
 
 class GR00TInferenceServicer(object):
-    """GR00T N1.6 원격 추론 서비스
-    2026-04-12: ZMQ 방식 → gRPC 재설계 (NLB + mTLS 지원)
+    """GR00T N1.6 remote inference service
+    2026-04-12: redesigned from ZMQ to gRPC (NLB + mTLS support)
     """
 
     def Infer(self, request, context):
-        """로봇 관절 액션 추론
+        """Robot joint action inference
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
     def Health(self, request, context):
-        """서버 / 모델 로드 상태 확인
+        """Check server / model load status
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -89,8 +89,8 @@ def add_GR00TInferenceServicer_to_server(servicer, server):
 
  # This class is part of an EXPERIMENTAL API.
 class GR00TInference(object):
-    """GR00T N1.6 원격 추론 서비스
-    2026-04-12: ZMQ 방식 → gRPC 재설계 (NLB + mTLS 지원)
+    """GR00T N1.6 remote inference service
+    2026-04-12: redesigned from ZMQ to gRPC (NLB + mTLS support)
     """
 
     @staticmethod

@@ -28,8 +28,8 @@ tasks:
 #   libero_object: ~80-90%
 #   libero_goal: ~75-85%
 
-# Bridge mode — vla-hub ECS NLB endpoint (leave empty for local mode)
-# Values from VlaHubStack CloudFormation outputs (VpcId, Pi05GrpcEndpoint)
+# Bridge mode (experimental) — bring-your-own π0.5 gRPC endpoint behind an NLB (leave empty for local mode)
+# vpc_id = the VPC that hosts your endpoint; nlb_endpoint = its host:port (proto: assets/bridge/pi/)
 bridge:
-  vpc_id: ""       # e.g. vpc-0e6952afa316c1971
+  vpc_id: ""       # e.g. vpc-xxxxxxxxxxxxxxxxx
   nlb_endpoint: "" # e.g. internal-xxx.elb.us-east-1.amazonaws.com:50052

@@ -1,4 +1,7 @@
-# Copyright 2026 — vla-simulator openarm-lift-act target (Phase 1a overlay)
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: MIT-0
+#
+# RFM Simulation on AWS — openarm-lift-act target (Phase 1a overlay)
 #
 # OpenArm UNIMANUAL Lift-Cube × ACT (LeRobot) — Isaac Lab 2.3 env overlay.
 #
@@ -47,7 +50,7 @@
 #   ACT eval rollout target `Isaac-Lift-Cube-OpenArm-ACT-v0` (or its -Play variant).
 #
 # ─────────────────────────────────────────────────────────────────────────────────────────────
-# [확인 필요] — RUNTIME FACTS to verify on FIRST GPU deploy (cannot be known without Isaac Sim):
+# [TO VERIFY] — RUNTIME FACTS to verify on FIRST GPU deploy (cannot be known without Isaac Sim):
 #
 #   (L1) IK body_offset / TCP alignment. The scripted SM reads the `ee_frame` FrameTransformer
 #        (target prim `openarm_ee_tcp`) as the EE pose, and commands desired EE poses back through
@@ -117,7 +120,7 @@ _FINGER = ["openarm_finger_joint.*"]               # gripper (regex robust to 1 
 # (GRASP state: des_ee_pose = object_pose); without this offset the IK instead places `openarm_hand`
 # (9.3 cm proximal) at the cube → the gripper closes 9.3 cm ABOVE it → zero grasps → zero demos.
 # This was the demos=0 root cause on run_id 2026-06-08-0526 (NOT a recorder bug — recorder attached
-# fine, 5 active terms; the cube was simply never reached). [확인 필요] confirm grasp on next GPU run.
+# fine, 5 active terms; the cube was simply never reached). [TO VERIFY] confirm grasp on next GPU run.
 _TCP_OFFSET = [0.0, 0.0, 0.093]
 
 # Camera image resolution. ACT typically trains at 96–224 px; 224 matches common pretrained vision
@@ -221,7 +224,7 @@ class OpenArmCubeLiftACTEnvCfg(OpenArmCubeLiftEnvCfg):
         # ── Cameras (require AppLauncher --enable_cameras) ──────────────────────────────────────
         # wrist cam: mounted on the hand link, looking down the gripper approach axis.
         self.scene.wrist_cam = TiledCameraCfg(
-            prim_path="{ENV_REGEX_NS}/Robot/openarm_hand/wrist_cam",  # [확인 필요] L3 prim nesting
+            prim_path="{ENV_REGEX_NS}/Robot/openarm_hand/wrist_cam",  # [TO VERIFY] L3 prim nesting
             update_period=0.0,
             width=_CAM_W,
             height=_CAM_H,
@@ -258,7 +261,7 @@ class OpenArmCubeLiftACTEnvCfg(OpenArmCubeLiftEnvCfg):
         # cube reaching the goal command pose) is the canonical lift-task success criterion and is
         # exported by unimanual/lift/mdp.terminations. threshold=0.04 (vs the stock 0.02) is a
         # first-pass loosen so the scripted SM — whose LIFT target is the goal pose — registers
-        # success reliably; [확인 필요] tighten after observing the first GPU run's success rate.
+        # success reliably; [TO VERIFY] tighten after observing the first GPU run's success rate.
         self.terminations.success = DoneTerm(
             func=mdp.object_reached_goal,
             params={"command_name": "object_pose", "threshold": 0.04},

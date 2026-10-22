@@ -2,44 +2,44 @@
 """
 lap_grpc_bridge.py — openpi WebSocket ↔ LAP-3B gRPC bridge
 
-LAP의 LIBERO eval(scripts/libero/main.py)이 로컬 LAP policy server(WebSocket:8000)에
-접속하는 대신 vla-lap-realtime internal NLB(gRPC:50055)로 추론을 위임한다.
+Instead of connecting LAP's LIBERO eval (scripts/libero/main.py) to a local LAP policy server
+(WebSocket:8000), delegate inference to a remote LAP gRPC endpoint behind an NLB (gRPC:50055).
 
-프로토콜 흐름:
+Protocol flow:
   LAP libero client (openpi_client.WebsocketClientPolicy ws://localhost:8000)
     → [bridge WebSocket server]
     → gRPC NLB:50055 (LAPInference.Infer)
-    → ECS vla-lap-realtime (LAP-3B JAX 모델)
+    → remote LAP-3B JAX model server
 
-π0.5 bridge(pi_grpc_bridge.py)와 동일 구조 — 둘 다 openpi WebsocketClientPolicy 클라이언트.
-LAP 고유 차이점 (lap@3958d146 scripts/libero/main.py obs_to_request 기준):
-  - obs dict가 NESTED — "observation" 하위에 base_0_rgb/left_wrist_0_rgb/state.
-    (π0.5는 "observation/image" 처럼 slash-flat 키)
-  - state 10-dim: eef_pos(3) + eef_rot6d(6) + gripper(1). (π0.5는 8-dim)
-  - prompt + frame_description 둘 다 전달 (flow 정책은 빈 frame_description 무시).
-  - flow 정책 출력 actions shape = (action_horizon=10, action_dim=7).
+Same structure as the π0.5 bridge (pi_grpc_bridge.py) — both serve an openpi WebsocketClientPolicy client.
+LAP-specific differences (per lap@3958d146 scripts/libero/main.py obs_to_request):
+  - the obs dict is NESTED — base_0_rgb/left_wrist_0_rgb/state live under "observation".
+    (π0.5 uses slash-flat keys such as "observation/image")
+  - state is 10-dim: eef_pos(3) + eef_rot6d(6) + gripper(1). (π0.5 is 8-dim)
+  - both prompt and frame_description are sent (the flow policy ignores an empty frame_description).
+  - flow policy output actions shape = (action_horizon=10, action_dim=7).
 
-WebSocket 프로토콜 (openpi WebsocketPolicyServer 호환):
-  1. 연결 수락 → metadata dict 전송 (msgpack)
-  2. 루프: obs dict 수신 (msgpack-numpy) → gRPC Infer → action dict 송신 (msgpack-numpy)
+WebSocket protocol (compatible with openpi WebsocketPolicyServer):
+  1. accept connection → send metadata dict (msgpack)
+  2. loop: receive obs dict (msgpack-numpy) → gRPC Infer → send action dict (msgpack-numpy)
 
-gRPC 프로토콜 (lap.proto LAPInference):
+gRPC protocol (lap.proto LAPInference):
   InferRequest  { base_image, wrist_image, instruction, state(10), frame_description }
   InferResponse { actions: float32 bytes shape=(10,7), shape_info: {chunk_length, action_dim} }
 
-obs → InferRequest 변환 (LAP main.py obs_to_request가 보내는 키):
+obs → InferRequest conversion (keys sent by LAP main.py obs_to_request):
   "observation" : {
       "base_0_rgb"       : (224, 224, 3) uint8 — agentview (third-person)
       "left_wrist_0_rgb" : (224, 224, 3) uint8 — robot eye-in-hand
       "state"            : (10,) float32 — eef_pos(3)+eef_rot6d(6)+gripper(1)
   }
   "prompt"            : str — task description
-  "frame_description" : str — CoT 프레임 힌트
+  "frame_description" : str — CoT frame hint
 
-InferResponse → action dict 변환:
+InferResponse → action dict conversion:
   actions bytes → np.frombuffer → (chunk_length, action_dim) → {"actions": (H, 7)}
 
-사용법:
+Usage:
   pip install grpcio grpcio-tools msgpack-numpy websockets Pillow numpy
   python -m grpc_tools.protoc -I. --python_out=. --grpc_python_out=. lap.proto
   python lap_grpc_bridge.py --endpoint NLB_HOST:50055 [--port 8000]
@@ -85,7 +85,7 @@ def _decode_key(k):
 def _normalize_obs(raw_obs: dict) -> dict:
     """Normalize obs dict: decode bytes keys to str, unpack nested __ndarray__ dicts.
 
-    LAP obs는 한 단계 nested — top-level "observation"이 dict라서 그 안의 키도 재귀 정규화.
+    LAP obs is nested one level — top-level "observation" is a dict, so its keys are normalized recursively too.
     """
     obs = {}
     for k, v in raw_obs.items():
@@ -108,7 +108,7 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-# LAP lap_libero 고정값 (vla-hub serve.py / lap.proto): action_dim=7, action_horizon=10.
+# LAP lap_libero fixed values (lap.proto / the LAP server): action_dim=7, action_horizon=10.
 STATE_DIM = 10
 ACTION_DIM = 7
 ACTION_HORIZON = 10
@@ -205,7 +205,7 @@ def _infer_response_to_action(resp: lap_pb2.InferResponse) -> dict:
     gRPC InferResponse.actions → openpi action dict
 
     actions bytes → np.frombuffer → reshape using shape_info (fallback action_dim=7).
-    flow 정책: (action_horizon=10, action_dim=7).
+    flow policy: (action_horizon=10, action_dim=7).
     """
     raw = np.frombuffer(resp.actions, dtype=np.float32).copy()
     # Prefer shape_info from the server; fall back to ACTION_DIM column inference.

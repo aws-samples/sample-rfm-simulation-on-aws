@@ -1,28 +1,75 @@
 RFM Simulation on AWS (formerly VLA Simulator on AWS)
-Copyright 2025 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 
 This sample code is made available under the MIT-0 license. See the LICENSE file.
 
+This is sample code for evaluation and experimentation, not for production use.
+It does not include any third-party model, simulator or dataset. The deploy scripts
+download the components below at RUNTIME on your own EC2 instance; nothing listed here
+is vendored in this repository. Each component is governed by its own license. You are responsible for reviewing and
+complying with the license and terms of use of every model, checkpoint, dataset and
+tool you choose to download and run, including any non-commercial restrictions.
+
+Licenses below were checked on 2026-10-22 against the upstream GitHub repository
+license file and the Hugging Face model card. "unspecified" means the source states
+no license; treat such components as research/evaluation only until the owner says
+otherwise.
+
 ------------------------------------------------------------------------------
-Third-party components (pulled at RUNTIME by the deploy scripts — NOT vendored
-in this repository). Each is governed by its own license:
-
-- NVIDIA Isaac-GR00T (N1.7 / N1.6) — NVIDIA license. github.com/NVIDIA/Isaac-GR00T
-- Physical Intelligence openpi (pi0.5) — Apache-2.0. github.com/Physical-Intelligence/openpi
-- OpenVLA-OFT — MIT. github.com/moojink/openvla-oft
-- LAP-3B — MIT (code). github.com/lihzha/lap
-- LIBERO — MIT. github.com/Lifelong-Robot-Learning/LIBERO
-- SimplerEnv + ManiSkill2_real2sim — MIT. github.com/allenzren/SimplerEnv
-- RoboCasa GR-1 Tabletop tasks — MIT. github.com/robocasa/robocasa-gr1-tabletop-tasks
-- RoboCasa (Kitchen, 24-task) — MIT. github.com/squarefk/robocasa (fork of
-  github.com/ARISE-Initiative/robocasa); kitchen scene assets (~5 GB) download at runtime
-  from the RoboCasa asset host. robosuite — MIT. github.com/ARISE-Initiative/robosuite
-
-- RLDX-1 (RLWRLD) — github.com/RLWRLD/RLDX-1
+Policies / models (code and weights)
+------------------------------------------------------------------------------
+- NVIDIA Isaac-GR00T (targets gr00t, gr00t-gr1, gr00t-g1) — github.com/NVIDIA/Isaac-GR00T
+    * Code: Apache-2.0.
+    * nvidia/GR00T-N1.7-LIBERO weights (gr00t): NVIDIA Open Model License.
+    * nvidia/GR00T-N1.6-3B weights (gr00t-gr1): NVIDIA One-Way Noncommercial License
+      — NON-COMMERCIAL.
+    * nvidia/Cosmos-Reason2-2B backbone (N1.7 paths; gated): NVIDIA Open Model License.
+    * cloudwalk-research/GR00T-N1.6-G1-PnPAppleToPlate (gr00t-g1, community fine-tune):
+      model card states Apache-2.0; it is derived from GR00T N1.6, so also review the
+      base-model terms.
+- NVIDIA GR00T-WholeBodyControl (gr00t-g1) — github.com/NVlabs/GR00T-WholeBodyControl
+    * Code Apache-2.0; model weights NVIDIA Open Model License (dual license).
+    * Uses a robosuite fork (github.com/xieleo5/robosuite) — MIT.
+- Physical Intelligence openpi, pi0.5 (pi) — github.com/Physical-Intelligence/openpi
+    * Code: Apache-2.0. Checkpoints are distributed by the openpi project under its terms.
+- OpenVLA-OFT (openvla-oft) — github.com/moojink/openvla-oft — MIT.
+    * moojink/openvla-7b-oft-finetuned-libero-* weights: MIT.
+    * github.com/moojink/transformers-openvla-oft — Apache-2.0.
+- LAP-3B (lap) — github.com/lihzha/lap — Apache-2.0; lihzha/LAP-3B-Libero weights Apache-2.0.
+- MolmoAct2, Ai2 (molmoact2) — github.com/allenai/molmoact2 (Apache-2.0); served from the
+  github.com/allenai/lerobot fork (Apache-2.0). allenai/MolmoAct2-LIBERO weights: released
+  by Ai2 as open weights; the model card carries no license field — check the card.
+- Hugging Face LeRobot (xvla, smolvla, lingbot-va, fastwam, openarm-isaac)
+  — github.com/huggingface/lerobot — Apache-2.0.
+    * X-VLA (xvla) — github.com/2toINF/X-VLA — Apache-2.0; lerobot/xvla-libero Apache-2.0.
+    * SmolVLA (smolvla) — lerobot/smolvla_libero — Apache-2.0.
+    * LingBot-VA (lingbot-va) — github.com/Robbyant/lingbot-va — Apache-2.0;
+      lerobot/lingbot_va_libero_long Apache-2.0.
+    * FastWAM (fastwam) — github.com/yuantianyuan01/FastWAM — code MIT.
+      lerobot/fastwam_libero_uncond_2cam224 checkpoint: license UNSPECIFIED (the model card
+      states none) — research/evaluation only. Also fetches google/umt5-xxl (Apache-2.0)
+      and Wan-AI/Wan2.2-TI2V-5B-Diffusers (Apache-2.0).
+    * pi0.5 folding_latest (openarm-isaac) — lerobot/folding_latest — Apache-2.0.
+- VLA-Adapter (vla-adapter) — github.com/OpenHelix-Team/VLA-Adapter — MIT;
+  VLA-Adapter/LIBERO-Spatial-Pro weights MIT.
+- NVIDIA Cosmos Policy (cosmos-policy) — github.com/NVlabs/cosmos-policy
+    * Code: Apache-2.0.
+    * nvidia/Cosmos-Policy-LIBERO-Predict2-2B weights: NVIDIA One-Way Noncommercial
+      License (NSCLv1) — NON-COMMERCIAL / research only.
+    * nvidia/Cosmos-Predict2-2B-Video2World base model (gated): NVIDIA Open Model License.
+- NVIDIA ASPIRE (aspire) — github.com/NVlabs/ASPIRE — Apache-2.0. Tools fetched at runtime:
+    * SAM3 (facebook/sam3, gated with manual approval) — SAM License.
+    * Contact-GraspNet (github.com/NVlabs/contact_graspnet) — NVIDIA Source Code License
+      — NON-COMMERCIAL.
+    * PyRoki (github.com/chungmin99/pyroki) — MIT.
+    * The agent itself calls Anthropic Claude models on Amazon Bedrock in your account,
+      under the Amazon Bedrock and model-provider terms.
+- RLDX-1, RLWRLD (rldx, rldx-simpler, rldx-gr1, rldx-kitchen) — github.com/RLWRLD/RLDX-1
     * Code: Apache-2.0, Copyright (c) RLWRLD.
     * Model weights (RLWRLD/RLDX-1-FT-*): RLWRLD Model License v1.0 — NON-COMMERCIAL.
-      "simulation benchmarking" is an explicit intended use; commercial deployment
-      is out of scope. Used here for AWS-internal enablement / benchmarking only.
+      "simulation benchmarking" is an explicit intended use; commercial deployment is
+      out of scope. Use these targets for research / simulation benchmarking only.
+    * Backbone Qwen/Qwen3-VL-8B-Instruct: Apache-2.0.
     * The rldx / rldx-simpler / rldx-gr1 / rldx-kitchen targets clone the RLDX-1 repo at a
       pinned commit at runtime and apply small in-place fixes to that clone only (dependency
       pins; plus, for rldx-simpler only, a SimplerEnv dispatch + obs/action adapter patch;
@@ -30,3 +77,21 @@ in this repository). Each is governed by its own license:
       runs on a headless host). rldx-gr1 needs no code patch. The upstream repository is not
       modified, and no model weights are committed to this repository (they download from
       Hugging Face at runtime).
+- openarm-lift-act runs a scripted state machine (no third-party policy weights).
+
+------------------------------------------------------------------------------
+Simulators and benchmarks
+------------------------------------------------------------------------------
+- LIBERO — MIT. github.com/Lifelong-Robot-Learning/LIBERO
+- SimplerEnv — MIT. github.com/allenzren/SimplerEnv
+- ManiSkill2_real2sim — Apache-2.0. github.com/allenzren/ManiSkill2_real2sim
+- RoboCasa GR-1 Tabletop tasks — MIT. github.com/robocasa/robocasa-gr1-tabletop-tasks
+- RoboCasa (Kitchen, 24-task) — MIT. github.com/squarefk/robocasa (fork of the RoboCasa
+  project); kitchen scene assets (~5 GB) download at runtime from the RoboCasa asset host.
+- robosuite — MIT. github.com/ARISE-Initiative/robosuite
+- MuJoCo — Apache-2.0. github.com/google-deepmind/mujoco
+- NVIDIA Isaac Lab (openarm-isaac, openarm-lift-act) — BSD-3-Clause.
+  github.com/isaac-sim/IsaacLab. Runs from the NGC image nvcr.io/nvidia/isaac-lab, which
+  bundles NVIDIA Isaac Sim under the NVIDIA Isaac Sim / NGC software license terms.
+- OpenArm Isaac Lab (openarm-isaac, openarm-lift-act) — Apache-2.0.
+  github.com/enactic/openarm_isaac_lab

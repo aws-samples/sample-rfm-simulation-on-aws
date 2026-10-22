@@ -2,7 +2,7 @@
 # Paper: "LAP: Language-Action Pre-Training Enables Zero-Shot Cross-Embodiment Transfer"
 #        arXiv:2602.10556 (Zha et al., 2026)
 # Repo:  https://github.com/lihzha/lap (Apache-2.0)
-# Goal:  LIBERO-Spatial 1-click eval as 5th VLA in vla-simulator
+# Goal:  LIBERO-Spatial 1-click eval as the 5th VLA target in this repo
 #
 # CLI:   python deploy.py --vla lap [--email YOUR@EMAIL.COM]
 #
@@ -45,12 +45,12 @@ tasks:
     num_trials_per_task: 5
     description: "LIBERO-Spatial (10 tasks × 5 trials) — smoke test"
 
-# Bridge mode — forward inference to a deployed vla-hub LAP gRPC endpoint (port 50055)
+# Bridge mode (experimental) — forward inference to your own LAP gRPC endpoint (port 50055)
 # instead of running LAP locally. The EC2 instance runs only the LIBERO sim + a
 # WebSocket↔gRPC bridge (assets/bridge/lap/), no local checkpoint download.
 #   python deploy.py --vla lap --bridge
-# nlb_endpoint accepts a literal host:port or ssm:/path (vla-hub publishes
-#   /vla-hub/lap/3b/grpc-endpoint). vpc_id must be the vla-hub VPC (same-VPC NLB).
+# nlb_endpoint accepts a literal host:port or ssm:/path (default reads the SSM parameter
+#   /vla-hub/lap/3b/grpc-endpoint, which you create). vpc_id must be the endpoint's VPC (same-VPC NLB).
 bridge:
-  vpc_id: ""                               # e.g. vpc-xxxxxxxxxxxxxxxxx — vla-hub VlaHubStack VpcId (leave empty for local mode)
+  vpc_id: ""                               # e.g. vpc-xxxxxxxxxxxxxxxxx — VPC of your endpoint (leave empty for local mode)
   nlb_endpoint: "ssm:/vla-hub/lap/3b/grpc-endpoint"  # internal NLB :50055, resolved at deploy (literal host:port or ssm:/path)

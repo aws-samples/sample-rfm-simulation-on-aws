@@ -1,5 +1,5 @@
 /**
- * vla-simulator Unified CDK Stack
+ * RFM Simulation on AWS — unified CDK stack (file/class names keep the original vla-simulator name)
  *
  * Supports GR00T and π0.5 via a single stack parameterised by `vla` context.
  *
@@ -60,20 +60,20 @@ const INSTANCE_TYPES: Record<string, string[]> = {
   // (~6.6GB headroom). Single-GPU xlarge sufficient; .2xlarge offers more system RAM for n_envs>1.
   rldx:          ['g6.xlarge',   'g6.2xlarge',  'g5.xlarge',  'g5.2xlarge'],
   // SIMPLER = same ~17GB MSAT/Qwen3-VL-8B policy server as rldx, + SAPIEN/ManiSkill renderer.
-  // [확인 필요] VRAM/RAM unmeasured (Gate 1) — lead with .2xlarge for SAPIEN + 5-env-spawn RAM
+  // [TO VERIFY] VRAM/RAM unmeasured (Gate 1) — lead with .2xlarge for SAPIEN + 5-env-spawn RAM
   // headroom, single-GPU xlarge kept as fallback. MUST have an explicit entry: the
   // `?? INSTANCE_TYPES['gr00t']` fallback below would otherwise pick gr00t's 12xlarge (wrong+costly).
   'rldx-simpler': ['g6.2xlarge', 'g5.2xlarge',  'g6.xlarge',  'g5.xlarge'],
   // GR-1 Tabletop = same ~17GB MSAT/Qwen3-VL-8B policy server as rldx, + MuJoCo/robosuite
   // renderer (LIGHTER than SIMPLER's SAPIEN — no Vulkan device alloc). n_envs=1 (sequential).
-  // [확인 필요] VRAM/RAM unmeasured (Gate 1) — lead with .2xlarge for robosuite + tabletop-asset
+  // [TO VERIFY] VRAM/RAM unmeasured (Gate 1) — lead with .2xlarge for robosuite + tabletop-asset
   // RAM headroom, single-GPU xlarge as fallback. MUST have an explicit entry: the
   // `?? INSTANCE_TYPES['gr00t']` fallback below would otherwise pick gr00t's 12xlarge (wrong+costly).
   'rldx-gr1':    ['g6.2xlarge', 'g5.2xlarge',  'g6.xlarge',  'g5.xlarge'],
   // RoboCasa Kitchen = same ~17GB MSAT/Qwen3-VL-8B policy server as rldx, + MuJoCo/robosuite
   // renderer (like GR-1 — no Vulkan device alloc). n_envs=1 (sequential). Loads full kitchen
   // scenes (heavier ~5GB asset set than GR-1 tabletop) → lead with .2xlarge for system RAM,
-  // single-GPU xlarge as fallback. [확인 필요] VRAM/RAM unmeasured (Gate 3 pending). MUST have an
+  // single-GPU xlarge as fallback. [TO VERIFY] VRAM/RAM unmeasured (Gate 3 pending). MUST have an
   // explicit entry: the `?? INSTANCE_TYPES['gr00t']` fallback below would otherwise pick gr00t's
   // 12xlarge (wrong+costly).
   'rldx-kitchen': ['g6.2xlarge', 'g5.2xlarge',  'g6.xlarge',  'g5.xlarge'],

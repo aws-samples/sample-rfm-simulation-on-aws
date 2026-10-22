@@ -102,7 +102,7 @@ server:
   hf_token_ssm: "/vla-simulator/hf-token"
   embodiment_tag: "UNITREE_G1"   # → unitree_g1_full_body_with_waist_height_nav_cmd (baked in ckpt processor/embodiment_id.json)
 
-# Bridge mode — vla-hub ECS gRPC endpoint (leave empty for local mode)
+# Bridge mode (experimental) — bring-your-own gRPC inference endpoint (leave empty for local mode)
 # G1 WBC bridge not yet validated → local mode only.
 bridge:
   remote_grpc_endpoint: ""  # local mode by default
@@ -120,7 +120,7 @@ collection:
   lerobot_task: "pick up the apple and place it on the plate"   # NL task string stored per frame
   repo_id: "local/gr00t-g1-applepnp"                            # LeRobotDataset repo id
   # num_demos = SUCCESSFUL demos to export (collect target), decoupled from tasks[].n_episodes (eval).
-  # MAIN run (cc-11416, 2026-06-17): run#2 validated the pipeline end-to-end at num_demos=5
+  # MAIN run (2026-06-17): run#2 validated the pipeline end-to-end at num_demos=5
   #   (5/5 exported, 13GiB HDF5, per-step capture OK; converter import/finalize bug fixed in bc41cf3).
   #   run#2 measured success rate = 5/11 attempts ≈ 45%; ~2.6 GiB HDF5 per demo (per-step, 2 cams).
   #   Sizing for 50 demos: ~110 attempts expected (cap 165 = 1.5x margin); HDF5 ~130GiB + lerobot

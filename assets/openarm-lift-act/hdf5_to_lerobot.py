@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-# Copyright 2026 — vla-simulator openarm-lift-act target (Phase 1c converter)
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: MIT-0
+#
+# RFM Simulation on AWS — openarm-lift-act target (Phase 1c converter)
 #
 # Convert an Isaac Lab demo HDF5 (produced by collect_demos_sm.py) into a LeRobotDataset that
 # `lerobot-train` can train an ACT policy on.
@@ -46,7 +49,7 @@
 #     --task "lift the cube"
 #
 # ─────────────────────────────────────────────────────────────────────────────────────────────
-# [확인 필요] — verify on first real conversion (after the first GPU collection produces an HDF5):
+# [TO VERIFY] — verify on first real conversion (after the first GPU collection produces an HDF5):
 #   (D1) State term order. We read obs/arm_joint_pos then obs/gripper_pos and concatenate in THAT
 #        order. If the overlay's PolicyCfg field order ever changes, update _STATE_TERMS to match —
 #        the ACT eval env builds observation.state the same way, so the two MUST agree.

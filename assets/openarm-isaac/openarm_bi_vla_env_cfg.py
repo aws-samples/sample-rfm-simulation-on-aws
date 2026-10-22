@@ -1,4 +1,7 @@
-# Copyright 2026 — vla-simulator openarm-isaac target (Phase 2a overlay)
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: MIT-0
+#
+# RFM Simulation on AWS — openarm-isaac target (Phase 2a overlay)
 #
 # OpenArm bimanual × π0.5 (LeRobot pi05 `folding_latest`) — Isaac Lab 2.3 env overlay.
 #
@@ -27,7 +30,7 @@
 #     python -c "import ...bimanual.reach.config.openarm_bi_vla_env_cfg"  (before lerobot-eval)
 #
 # ─────────────────────────────────────────────────────────────────────────────────────────────
-# [확인 필요] — RUNTIME FACTS to verify on FIRST GPU deploy (cannot be known without Isaac Sim):
+# [TO VERIFY] — RUNTIME FACTS to verify on FIRST GPU deploy (cannot be known without Isaac Sim):
 #
 #   (G1) Gripper finger joints: is it 1 or 2 mimic joints per side, and the exact name
 #        (`openarm_left_finger_joint1`? `..._joint`?). The regex `openarm_*_finger_joint.*` is
@@ -187,12 +190,12 @@ class OpenArmBiVLAReachEnvCfg(OpenArmReachEnvCfg):
             height=_CAM_H,
             data_types=["rgb"],
             spawn=_PINHOLE,
-            # [확인 필요] G3 — first-pass framing: ~0.8m in front, 0.6m high, tilted down toward origin.
+            # [TO VERIFY] G3 — first-pass framing: ~0.8m in front, 0.6m high, tilted down toward origin.
             offset=TiledCameraCfg.OffsetCfg(pos=(0.9, 0.0, 0.6), rot=(0.9239, 0.0, 0.3827, 0.0), convention="world"),
         )
         # wrist cams: mounted on each hand link, looking down the gripper approach axis.
         self.scene.left_wrist_cam = TiledCameraCfg(
-            prim_path="{ENV_REGEX_NS}/Robot/openarm_left_hand/left_wrist_cam",  # [확인 필요] G2 prim nesting
+            prim_path="{ENV_REGEX_NS}/Robot/openarm_left_hand/left_wrist_cam",  # [TO VERIFY] G2 prim nesting
             update_period=0.0,
             width=_CAM_W,
             height=_CAM_H,
@@ -201,7 +204,7 @@ class OpenArmBiVLAReachEnvCfg(OpenArmReachEnvCfg):
             offset=TiledCameraCfg.OffsetCfg(pos=(0.05, 0.0, 0.0), rot=(0.0, 0.7071, 0.0, 0.7071), convention="ros"),
         )
         self.scene.right_wrist_cam = TiledCameraCfg(
-            prim_path="{ENV_REGEX_NS}/Robot/openarm_right_hand/right_wrist_cam",  # [확인 필요] G2
+            prim_path="{ENV_REGEX_NS}/Robot/openarm_right_hand/right_wrist_cam",  # [TO VERIFY] G2
             update_period=0.0,
             width=_CAM_W,
             height=_CAM_H,

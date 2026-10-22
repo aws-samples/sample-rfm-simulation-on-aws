@@ -13,8 +13,7 @@
 # actually grasp+lift?). Stripping LeRobot/ckpt removes the openarm-isaac py3.11 patch +
 # gated-HF blockers entirely, so a near-zero success count points squarely at C1–C4.
 #
-# Source of truth for the integration contract + C1–C4 runtime facts:
-#   research/pai/innovation-hub-apj/openarm-pnp-act-path-2026-06-07.md
+# Integration contract + C1–C4 runtime facts:
 #   assets/openarm-lift-act/{openarm_uni_lift_act_env_cfg,collect_demos_sm,hdf5_to_lerobot}.py heads
 
 model:

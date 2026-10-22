@@ -5,8 +5,7 @@
 # SUCCESS BAR = PIPE PROOF (not task success). folding_latest is a real-robot cloth-folding policy;
 # run on an EMPTY bimanual Reach scene it is OOD → success ~0 by design. The video proves
 # "π0.5 → 16-joint OpenArm bimanual motion in Isaac Lab sim". Honest label, no fabricated success.
-# Source of truth for the integration contract:
-#   research/pai/innovation-hub-apj/pi05-openarm-sim-integration-spike-2026-06-04.md
+# Integration contract: assets/openarm-isaac/{env,openarm_bi_vla_env_cfg,run_eval}.py headers.
 #
 # Local mode ONLY (no bridge): inference runs in-process via LeRobot PI05Policy on the same GPU
 # as the sim (unlike gr00t/pi which have a separate policy server). The driver bypasses

@@ -3,7 +3,7 @@
 #        arXiv:2605.03269 (RLWRLD, 2026)
 # Repo:  https://github.com/RLWRLD/RLDX-1 (code: Apache-2.0)
 # Goal:  GR-1 humanoid (bimanual + waist) Tabletop 1-click eval — a NEW capability no existing
-#        vla-simulator target covers. gr00t-gr1 evaluates a *different model* (NVIDIA GR00T N1.6)
+#        target in this repo covers. gr00t-gr1 evaluates a *different model* (NVIDIA GR00T N1.6)
 #        on RoboCasa; this target evaluates RLWRLD's own RLDX-1-FT-GR1 on the 24-task RoboCasa
 #        GR-1 Tabletop benchmark (GR1ArmsAndWaistFourierHands embodiment) — bimanual + waist DOF,
 #        distinct from all LIBERO/SimplerEnv single-arm clips.
@@ -32,8 +32,8 @@
 #   4.57.0, same masking_utils gap as LIBERO/SIMPLER).
 #
 # LICENSE — NON-COMMERCIAL. Weights are under the RLWRLD Model License v1.0:
-#   intended use explicitly includes "simulation benchmarking" (this PoC qualifies).
-#   out-of-scope: commercial deployment. Keep outputs to AWS-internal enablement only.
+#   intended use explicitly includes "simulation benchmarking"; commercial deployment is out of
+#   scope. Use this target for research / simulation benchmarking only.
 #   Weights are downloaded from HF at runtime (NOT vendored) → no non-commercial weight is
 #   committed. RoboCasa GR-1 Tabletop tasks (robocasa/robocasa-gr1-tabletop-tasks) are cloned
 #   at runtime (MIT). See NOTICE + README Acknowledgments for the full attribution chain.
@@ -43,7 +43,7 @@ model:
   version: "FT-GR1"
 
   # SAME pin as the rldx LIBERO + rldx-simpler targets; independent per-yaml pin so a re-pin of
-  # one target can't silently move GR-1 (session risk #10). origin/main HEAD == this commit.
+  # one target can't silently move GR-1. origin/main HEAD == this commit.
   rldx_commit: "ecbfaf80cd031dcc892186ed30465de3591047e6"
 
   # HF checkpoint (GR-1 Tabletop fine-tuned). eval_gr1.sh defaults MODEL_PATH to
@@ -53,7 +53,7 @@ model:
   hf_repo: "RLWRLD/RLDX-1-FT-GR1"
   # Pinned to the repo's frozen main HEAD (HF API: lastModified 2026-05-06, gated=False, 13
   # siblings). The repo has not moved since the FT-GR1 release, so pinning up-front == locking
-  # the validated SHA; makes the Gate-3 deploy bit-for-bit reproducible (cc-77060, 2026-06-25).
+  # the validated SHA; makes the Gate-3 deploy bit-for-bit reproducible (2026-06-25).
   hf_model_revision: "d0277c5c5f94c49bf915ebcddc9420a8de094a56"
   # VLM backbone pulled by the checkpoint config at server load — pre-download in userdata so
   # the first server load does not race the warmup timeout fetching ~16GB on a fresh instance.
@@ -152,7 +152,7 @@ tasks:
     num_episodes: 5
     description: "GR-1 Tabletop — pick milk, place in microwave, close door (bimanual humanoid + waist, articulated microwave)"
 
-# Bridge mode (vla-hub serving) NOT supported — same rationale as the rldx LIBERO/SIMPLER targets
-# (fused-kernel/ZeroMQ serving conflicts with vla-hub guardrails). See accounts/startups/rlwrld/README.md §4.
+# Bridge mode NOT supported — same rationale as the rldx LIBERO/SIMPLER targets
+# (fused-kernel/ZeroMQ serving does not fit the bridge-mode gRPC adapters).
 bridge:
   enabled: false

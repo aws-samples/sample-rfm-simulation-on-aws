@@ -5,7 +5,7 @@
 # Goal:  LIBERO {Spatial, Object, Goal, Long(10)} evaluation with 1-click deploy on AWS
 #
 # CLI:   python deploy.py --vla openvla-oft --libero-suite {spatial|object|goal|10|long}
-#        (default: 10; alias `long` → `10` — OFT 논문 LIBERO-Long = LIBERO-10)
+#        (default: 10; alias `long` → `10` — the OFT paper's LIBERO-Long = LIBERO-10)
 
 model:
   id: openvla-oft
@@ -99,6 +99,6 @@ tasks:
       # Full paper: num_trials_per_task=50 (500 trials total) takes >10h on single GPU.
 
 # Bridge mode not supported in initial version.
-# OpenVLA-OFT client/server split would require a vla-hub Docker image — deferred.
+# OpenVLA-OFT client/server split would require a separate policy-server image — deferred.
 bridge:
   enabled: false

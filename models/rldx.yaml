@@ -2,7 +2,7 @@
 # Paper: "RLDX-1: A Dexterity-First Vision-Language-Action Foundation Model"
 #        arXiv:2605.03269 (RLWRLD, 2026)
 # Repo:  https://github.com/RLWRLD/RLDX-1 (code: Apache-2.0)
-# Goal:  LIBERO 1-click eval as a new SOTA showcase target in vla-simulator.
+# Goal:  LIBERO 1-click eval as a showcase target in this repo.
 #
 # CLI:   python deploy.py --vla rldx [--email YOUR@EMAIL.COM]
 #
@@ -13,9 +13,8 @@
 # Structurally mirrors LAP (server+client, two venvs), NOT openvla-oft (single env).
 #
 # LICENSE — NON-COMMERCIAL. Weights are under the RLWRLD Model License v1.0:
-#   intended use explicitly includes "simulation benchmarking" (this PoC qualifies).
-#   out-of-scope: commercial deployment. Keep outputs to AWS-internal enablement only;
-#   do NOT use in customer-facing commercial positioning. The userdata downloads the
+#   intended use explicitly includes "simulation benchmarking"; commercial deployment is out of
+#   scope. Use this target for research / simulation benchmarking only. The userdata downloads the
 #   weights from HF at runtime (not vendored), so no non-commercial weight is committed.
 
 model:
@@ -98,10 +97,9 @@ tasks:
     num_episodes: 5
     description: "LIBERO-10 long-horizon — mug into microwave + close door (articulated, distinct from gr00t's KITCHEN_SCENE3/4)"
 
-# Bridge mode (vla-hub serving) NOT supported.
-# RLDX-1's speed stack is fused Triton + CUDA Graph, which collides head-on with vla-hub's
-# "no specialized CUDA kernel / non-standard runtime" guardrail; serving is ZeroMQ, not gRPC.
-# vla-simulator runs a one-shot eager eval (no guardrail conflict). vla-hub would need an
-# eager-mode thin gRPC adapter — deferred to a separate review. See accounts/startups/rlwrld/README.md §4.
+# Bridge mode NOT supported.
+# RLDX-1's speed stack is fused Triton + CUDA Graph and its serving is ZeroMQ, not gRPC, so it
+# does not fit the bridge-mode gRPC adapters. This target runs a one-shot eager eval on the
+# instance instead; a remote endpoint would need an eager-mode thin gRPC adapter (not provided).
 bridge:
   enabled: false

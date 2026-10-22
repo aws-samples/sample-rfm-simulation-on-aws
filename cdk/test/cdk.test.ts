@@ -88,3 +88,58 @@ test('yaml-driven targets launch their own preferred instance list', () => {
     InstanceTypes: 'g6.2xlarge,g5.2xlarge,g6.xlarge,g5.xlarge',
   });
 });
+
+// IAM hardening (audit A20/A21): PassRole is pinned to the instance role and to EC2, nothing passes
+// any role, EC2 mutations are scoped, and the launched instance requires IMDSv2.
+type Stmt = { Action: string | string[]; Resource: unknown; Condition?: Record<string, Record<string, unknown>> };
+function statements(template: Template): Stmt[] {
+  const out: Stmt[] = [];
+  const collect = (doc: { Statement?: Stmt[] } | undefined) => out.push(...(doc?.Statement ?? []));
+  for (const r of Object.values(template.findResources('AWS::IAM::Role'))) {
+    for (const p of (r.Properties.Policies ?? []) as Array<{ PolicyDocument: { Statement: Stmt[] } }>) collect(p.PolicyDocument);
+  }
+  for (const r of Object.values(template.findResources('AWS::IAM::Policy'))) collect(r.Properties.PolicyDocument);
+  return out;
+}
+const actionsOf = (s: Stmt) => (Array.isArray(s.Action) ? s.Action : [s.Action]);
+const resourcesOf = (s: Stmt) => (Array.isArray(s.Resource) ? s.Resource : [s.Resource]);
+
+test.each(VLAS)('%s: iam:PassRole is never on Resource "*" and is limited to EC2', (vla) => {
+  const stmts = statements(Template.fromStack(makeApp(vla)));
+  const passRole = stmts.filter((s) => actionsOf(s).some((a) => a === 'iam:PassRole' || a === 'iam:*' || a === '*'));
+  expect(passRole.length).toBeGreaterThan(0);
+  for (const s of passRole) {
+    expect(resourcesOf(s)).not.toContain('*');
+    expect(s.Condition?.StringEquals?.['iam:PassedToService']).toBe('ec2.amazonaws.com');
+  }
+});
+
+test.each(VLAS)('%s: EC2 mutating actions are not granted on Resource "*"', (vla) => {
+  const stmts = statements(Template.fromStack(makeApp(vla)));
+  for (const s of stmts) {
+    if (actionsOf(s).some((a) => ['ec2:RunInstances', 'ec2:CreateTags', 'ec2:TerminateInstances'].includes(a))) {
+      expect(resourcesOf(s)).not.toContain('*');
+    }
+    // Neither of these is used by any template (WaitCondition URL, private bucket without ACLs).
+    expect(actionsOf(s)).not.toContain('s3:PutObjectAcl');
+    expect(actionsOf(s)).not.toContain('cloudformation:SignalResource');
+  }
+  const create = stmts.filter((s) => actionsOf(s).includes('ec2:CreateTags'));
+  expect(create.length).toBeGreaterThan(0);
+  for (const s of create) expect(s.Condition?.StringEquals?.['ec2:CreateAction']).toBe('RunInstances');
+  const terminate = stmts.filter((s) => actionsOf(s).includes('ec2:TerminateInstances'));
+  expect(terminate.length).toBe(2); // AzSelector Lambda (stack delete) + instance (self-terminate)
+  for (const s of terminate) expect(s.Condition?.StringEquals?.['ec2:ResourceTag/StackName']).toBeDefined();
+});
+
+test.each(VLAS)('%s: AzSelector launches with IMDSv2 required (hop limit 2 for Docker)', (vla) => {
+  const template = Template.fromStack(makeApp(vla));
+  const fns = Object.values(template.findResources('AWS::Lambda::Function'))
+    .map((r) => String(r.Properties.Code?.ZipFile ?? ''))
+    .filter((code) => code.includes('run_instances'));
+  expect(fns).toHaveLength(1);
+  expect(fns[0]).toMatch(/'HttpTokens': 'required'/);
+  expect(fns[0]).toMatch(/'HttpPutResponseHopLimit': 2/);
+  const run = statements(template).filter((s) => actionsOf(s).includes('ec2:RunInstances') && s.Condition);
+  expect(run.some((s) => s.Condition?.StringEquals?.['ec2:MetadataHttpTokens'] === 'required')).toBe(true);
+});

@@ -242,21 +242,19 @@ export class VlaSimulatorStack extends cdk.Stack {
         VlaSimPolicy: new iam.PolicyDocument({
           statements: [
             new iam.PolicyStatement({
-              actions: ['s3:PutObject', 's3:PutObjectAcl'],
+              actions: ['s3:PutObject'],
               resources: [`${bucket.bucketArn}/*`],
             }),
             new iam.PolicyStatement({
               actions: ['sns:Publish'],
               resources: [topic.topicArn],
             }),
+            // Self-terminate at the end of a run (AutoTerminate); only instances of this stack.
+            // No cloudformation:SignalResource: the run reports to the WaitCondition presigned URL.
             new iam.PolicyStatement({
               actions: ['ec2:TerminateInstances'],
-              resources: ['*'],
+              resources: [`arn:${cdk.Aws.PARTITION}:ec2:${cdk.Aws.REGION}:${cdk.Aws.ACCOUNT_ID}:instance/*`],
               conditions: { StringEquals: { 'ec2:ResourceTag/StackName': stackName } },
-            }),
-            new iam.PolicyStatement({
-              actions: ['cloudformation:SignalResource'],
-              resources: ['*'],
             }),
             new iam.PolicyStatement({
               actions: [
@@ -389,12 +387,14 @@ export class VlaSimulatorStack extends cdk.Stack {
       subnetIds: vpc.privateSubnets.map((s) => s.subnetId),
       userDataBase64: userDataRendered,
       iamInstanceProfileArn: instanceProfile.attrArn,
+      instanceRoleArn: role.roleArn,
       securityGroupIds: [sg.securityGroupId],
       ebsGb,
       tags: [
         { key: 'Name',      value: `${stackName}-${vla}` },
         { key: 'StackName', value: stackName },
       ],
+      scopeTag: { key: 'StackName', value: stackName },
     });
     // WaitCondition timeout starts when CFN processes it. The instance is launched by AzSelector
     // Lambda. No explicit DependsOn needed — WaitConditionHandle URL is embedded in UserData,
@@ -454,7 +454,7 @@ export class VlaSimulatorStack extends cdk.Stack {
     acknowledge(role, [
       { id: 'AwsSolutions-IAM4', reason: 'AmazonSSMManagedInstanceCore enables SSM Session Manager for browser-based terminal access.', appliesTo: ['Policy::arn:<AWS::Partition>:iam::aws:policy/AmazonSSMManagedInstanceCore'] },
       { id: 'AwsSolutions-IAM5', reason: 'Wildcard on results bucket objects required for dynamic output file names.', appliesTo: ['Resource::<ResultsBucketA95A2103.Arn>/*'] },
-      { id: 'AwsSolutions-IAM5', reason: 'ec2:TerminateInstances constrained by StringEquals on StackName tag. cloudformation:SignalResource cannot be scoped at synth time.', appliesTo: ['Resource::*'] },
+      { id: 'AwsSolutions-IAM5', reason: 'Self-termination: the instance ID is unknown at synth time; ec2:TerminateInstances is constrained by StringEquals on the StackName tag.', appliesTo: ['Resource::arn:<AWS::Partition>:ec2:<AWS::Region>:<AWS::AccountId>:instance/*'] },
       {
         id: 'AwsSolutions-IAM5',
         reason: `CloudWatch Logs wildcard limited to /${vla}/* log group prefix.`,

@@ -24,13 +24,13 @@ from pathlib import Path
 
 import yaml
 
-from targets import VLA_TARGETS
 from generate import (
     OFT_DEFAULT_SUITE,
     OFT_LIBERO_SUITES,
     normalise_libero_suite,
     oft_stack_name,
 )
+from targets import VLA_TARGETS
 
 BASE_DIR = Path(__file__).parent
 

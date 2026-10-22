@@ -40,7 +40,6 @@ boto3 is absent instead of crashing.
 """
 
 import argparse
-import os
 import re
 import shutil
 import subprocess  # nosec B404 - used only with hardcoded command lists, no shell

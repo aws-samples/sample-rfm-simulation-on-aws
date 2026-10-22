@@ -1,5 +1,6 @@
 # Checks every PR the same way the maintainers verify a change locally:
-# CDK compile + unit tests, cdk synth for every target, and userdata render + bash -n.
+# CDK compile + unit tests, cdk synth for every target, userdata render + bash -n (build),
+# pre-commit hooks incl. ruff (lint) and relative links + #anchors in the Markdown docs (links).
 name: ci
 on:
   pull_request:
@@ -29,12 +30,12 @@ jobs:
         working-directory: cdk
       - run: npx jest
         working-directory: cdk
-      - name: results.py offline check
-        run: |
-          python results.py --help > /dev/null
-          python -c "import results as r; lo, hi = r.wilson(48, 50); assert (round(lo, 2), round(hi, 2)) == (0.87, 0.99), (lo, hi); assert r.wilson(0, 0) == (None, None)"
-      - name: pytest (target-list parity across CLIs, models/ and cdk/bin/app.ts)
-        run: python -m pytest -q tests
+      - name: results.py --help (imports without AWS credentials)
+        run: python results.py --help > /dev/null
+      # tests/: target-list parity (CLIs, models/, cdk/bin/app.ts), every target renders and passes
+      # bash -n (test_render.py), results.py parsing + Wilson interval against a fake S3 (test_results.py).
+      - name: pytest
+        run: python -m pytest -q
       # targets.py is the single source of the --vla targets; the parity test above ties it to
       # deploy/destroy/generate/vlasim, models/*.yaml and the cdk/bin/app.ts maps.
       - name: render userdata + bash -n (all targets)
@@ -44,6 +45,11 @@ jobs:
             bash -n "assets/userdata/$v.sh"
             echo "ok $v"
           done
+      # Advisory for now (audit A18): all rendered scripts were clean at -S error when this was added;
+      # make it blocking (drop continue-on-error) once it has stayed green for a while.
+      - name: shellcheck -S error rendered userdata (non-blocking)
+        continue-on-error: true
+        run: shellcheck -S error assets/userdata/*.sh
       - name: cdk synth (all targets)
         working-directory: cdk
         run: |
@@ -55,3 +61,24 @@ jobs:
           done
           echo "synthesized $n targets"
           test "$n" -gt 0
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.10"
+      - run: pip install pre-commit
+      - run: pre-commit run --all-files --show-diff-on-failure
+
+  links:
+    # Relative links (files, images, videos) and #anchors only: --offline skips external URLs,
+    # so the job is deterministic and needs no network beyond the checkout.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: lycheeverse/lychee-action@e7477775783ea5526144ba13e8db5eec57747ce8  # v2.9.0 (lychee v0.24.2)
+        with:
+          args: --offline --include-fragments --no-progress './*.md' './docs/**/*.md'
+          fail: true

@@ -1,0 +1,19 @@
+# Run locally with `pre-commit install` (then on every commit) or `pre-commit run --all-files`.
+# CI runs the same command in the `lint` job.
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: 38bfb07c0c64c304f47eb52090f8288150c77730  # frozen: v0.17.1
+    hooks:
+      - id: ruff-check  # config in pyproject.toml; no ruff-format (would reformat the whole tree)
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: 3e8a8703264a2f4a69428a0aa4dcb512790b2c8c  # frozen: v6.0.0
+    hooks:
+      - id: check-yaml  # *.yaml only; templates/*.j2 are Jinja, not YAML, and are not matched
+      - id: end-of-file-fixer
+        exclude: \.(mp4|gif|png|jpe?g|webp)$
+      - id: trailing-whitespace
+        args: [--markdown-linebreak-ext=md]  # two trailing spaces are a Markdown line break
+        exclude: \.(mp4|gif|png|jpe?g|webp)$
+      - id: check-added-large-files
+        args: [--maxkb=4096]  # new files only; the existing showcase media stay as they are
+      - id: check-merge-conflict

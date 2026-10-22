@@ -27,7 +27,6 @@ Notes:
 """
 
 import argparse
-import copy
 import json
 import re
 import shlex
@@ -40,13 +39,13 @@ import boto3
 import yaml
 from botocore.exceptions import ClientError
 
-from targets import VLA_TARGETS
 from generate import (
     OFT_DEFAULT_SUITE,
     OFT_LIBERO_SUITES,
     normalise_libero_suite,
     oft_stack_name,
 )
+from targets import VLA_TARGETS
 
 BASE_DIR = Path(__file__).parent
 
@@ -219,9 +218,7 @@ def main():
 
     config = _load_config(args.vla)
     deployment = config.get("deployment", {})
-    model = config.get("model", {})
     bridge_cfg = config.get("bridge", {})
-    instance_cfg = config.get("instance", {})
 
     region = args.region or deployment["region"]
     email = args.email or deployment["notify_email"]

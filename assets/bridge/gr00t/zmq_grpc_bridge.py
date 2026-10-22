@@ -29,7 +29,6 @@ Extra dependencies (beyond the Isaac-GR00T venv defaults):
 import argparse
 import io
 import logging
-import sys
 
 import msgpack
 import numpy as np

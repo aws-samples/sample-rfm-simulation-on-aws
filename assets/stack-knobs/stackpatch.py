@@ -3,7 +3,10 @@
 # replan_head: OpenVLA-OFT upstream fills deque(maxlen=num_open_loop_steps) with the full 8-action chunk,
 # so num_open_loop_steps<8 silently executes the chunk TAIL. replan_head=true executes the first k instead.
 # Restores <eval.py>.stackorig before patching so each task starts from upstream bytes.
-import os, re, shutil, sys
+import os
+import re
+import shutil
+import sys
 p, scale, rnd = sys.argv[1], float(sys.argv[2]), sys.argv[3].lower() == 'true'
 head = len(sys.argv) > 4 and sys.argv[4].lower() == 'true'
 orig = p + '.stackorig'
@@ -12,7 +15,8 @@ if not os.path.exists(orig):
 shutil.copy2(orig, p)
 s = open(p).read()
 if scale != 1.0:
-    f = lambda m: m.group(1) + str(int(round(int(m.group(2)) * scale)))
+    def f(m):
+        return m.group(1) + str(int(round(int(m.group(2)) * scale)))
     pats = [r'((?:"libero_(?:spatial|object|goal|10|90)"|TaskSuite\.LIBERO_\w+)\s*:\s*)(\d+)',
             r'(max_steps\s*=\s*)(\d+)\b']
     for pat in pats:

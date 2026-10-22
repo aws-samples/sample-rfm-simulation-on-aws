@@ -16,3 +16,5 @@ __pycache__/
 # CDK context cache — may embed account id / AZ lookups; never commit (regenerated on synth)
 cdk.context.json
 cdk/cdk.context.json
+.pytest_cache/
+.ruff_cache/

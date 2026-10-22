@@ -331,8 +331,8 @@ def convert(hdf5_path: str, repo_id: str, root: str, task: str, fallback_fps: in
             print(f"[warn] could not read/stamp meta/info.json ({e!r})", file=sys.stderr)
 
         print(f"[done] {len(demo_keys)} episodes / {total_frames} frames → {root}")
-        print(f"[done] wrote meta/modality.json (flat groups, UNITREE_G1 keys, annotation="
-              f"human.task_description) + statistics.json. LeRobot v2.1 contract (H1-H4 resolved).")
+        print("[done] wrote meta/modality.json (flat groups, UNITREE_G1 keys, annotation="
+              "human.task_description) + statistics.json. LeRobot v2.1 contract (H1-H4 resolved).")
 
 
 def _expand_axis_names(sub_keys: list[str], ranges: dict) -> list[str]:

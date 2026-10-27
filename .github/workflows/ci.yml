@@ -61,6 +61,17 @@ jobs:
           done
           echo "synthesized $n targets"
           test "$n" -gt 0
+      # Video history gallery: the shared RFM-Gallery app, and one target with the gallery context on
+      # (GalleryPublisher Lambda + S3 notification); both under cdk-nag like the targets above.
+      - name: cdk synth (gallery)
+        working-directory: cdk
+        run: |
+          npx cdk synth -q --app "npx ts-node --prefer-ts-exts bin/gallery.ts" -c region=us-east-1 --output cdk.out-gallery > /dev/null
+          g=0123456789abcdef0123456789abcdef
+          npx cdk synth -q -c region=us-east-1 -c notify_email=ci@example.com -c vla=smolvla \
+            -c gallery_bucket=rfm-gallery-ci-us-east-1 -c gallery_hash=$g -c gallery_url=https://d111.cloudfront.net/g/$g/ \
+            --output cdk.out-smolvla-gallery > /dev/null
+          echo "synth ok gallery"
 
   lint:
     runs-on: ubuntu-latest

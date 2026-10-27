@@ -824,6 +824,7 @@ done
 # ── [7/7] SNS notification + cfn-signal ──────────────────────────
 log "[7/7] Sending SNS notification..."
 
+{% include "_gallery-sns.sh.j2" %}
 SNS_MESSAGE="[${STACK_NAME}] OpenArm-Isaac simulation complete (RUN_ID: ${RUN_ID})
 ${SUMMARY_ALL}
 
@@ -833,7 +834,7 @@ Note:  PIPE PROOF — folding policy is OOD on an empty bimanual Reach scene. Th
        π0.5 -> 16-joint OpenArm motion in sim, NOT task success.
 Instance: ${INSTANCE_TYPE}
 
-Download results:
+${GALLERY_BLOCK}Download results:
   aws s3 sync s3://${S3_BUCKET}/${RUN_ID}/ ./openarm-isaac-results/${RUN_ID}/ --region ${REGION}
 
 Teardown:

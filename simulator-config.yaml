@@ -7,3 +7,4 @@ deployment:
   notify_email: YOUR_EMAIL@example.com  # Email for SNS completion notification (confirm subscription on first deploy)
   s3_results_prefix: vla-sim-results   # S3 bucket name prefix (suffix: stackname-region-accountid)
   auto_terminate: true                  # Auto-terminate EC2 after simulation (stack remains, run destroy.py to clean up)
+  gallery: true                         # Video history page (CloudFront + password) linked from the e-mail; deploy.py --no-gallery skips it

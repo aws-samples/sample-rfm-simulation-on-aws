@@ -1057,6 +1057,7 @@ SERVER_PID=""
 # ── [8/8] SNS notification + cfn-signal ──────────────────────────
 log "[8/8] Sending SNS notification..."
 
+{% include "_gallery-sns.sh.j2" %}
 SNS_MESSAGE="[${STACK_NAME}] RLDX-1 simulation complete (RUN_ID: ${RUN_ID})
 ${SUMMARY_ALL}
 
@@ -1066,7 +1067,7 @@ License: RLWRLD Model License v1.0 (NON-COMMERCIAL — simulation benchmarking)
 Simulation: {{ sim_label if sim_label else 'LIBERO (robosuite + MuJoCo, headless EGL)' }}
 Instance: ${INSTANCE_TYPE}
 
-Download results:
+${GALLERY_BLOCK}Download results:
   aws s3 sync s3://${S3_BUCKET}/${RUN_ID}/ ./rldx-results/${RUN_ID}/ --region ${REGION}
 
 Teardown:

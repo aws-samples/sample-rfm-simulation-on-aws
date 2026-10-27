@@ -803,6 +803,7 @@ SERVER_PID=""
 # ── Notification + cfn-signal ────────────────────────────────────
 log "Sending SNS notification..."
 
+{% include "_gallery-sns.sh.j2" %}
 SNS_MESSAGE="[${STACK_NAME}] LAP-3B simulation complete (RUN_ID: ${RUN_ID})
 ${SUMMARY_ALL}
 
@@ -811,7 +812,7 @@ Checkpoint: {{ hf_repo }} (rev {{ hf_model_revision[:8] if hf_model_revision els
 Simulation: LIBERO via openpi submodule (robosuite + MuJoCo, headless EGL)
 Instance: ${INSTANCE_TYPE}
 
-Download results:
+${GALLERY_BLOCK}Download results:
   aws s3 sync s3://${S3_BUCKET}/${RUN_ID}/ ./lap-results/${RUN_ID}/ --region ${REGION}
 
 Teardown:

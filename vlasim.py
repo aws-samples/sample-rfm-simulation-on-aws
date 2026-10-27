@@ -33,6 +33,10 @@ Subcommands
            Forwards all flags to results.py (--vla, --region, --since,
            --all-runs, --csv, --json).
 
+  gallery  Print the video history gallery URL and password for the notification
+           e-mail (all runs under that e-mail, grouped by target). Read-only;
+           --reset-password issues a new password.
+
 Design note: `doctor` deliberately imports boto3/pyyaml/jinja2 lazily. Its whole
 purpose is to run on a fresh host where those are not installed yet, report what
 is missing, and tell you to run `init`. AWS-dependent checks degrade to SKIP when
@@ -201,6 +205,12 @@ def run_doctor(vla=None, region=None, email=None, quiet_header=False, bridge=Fal
     else:
         d.fail(f"Missing Python deps: {', '.join(missing_py)}",
                "run: python vlasim.py init   (or: pip install -r requirements.txt)")
+    try:
+        __import__("awscrt")
+        d.ok("AWS CRT installed (video history gallery: CloudFront KeyValueStore)")
+    except ImportError:
+        d.warn("AWS CRT (awscrt) not installed: deploy cannot register the video history gallery password",
+               "run: pip install -r requirements.txt   (or deploy with --no-gallery)")
 
     # 3. Node.js -------------------------------------------------------------
     node = shutil.which("node")
@@ -607,6 +617,42 @@ def run_results(rest):
     return _run(cmd, cwd=str(BASE_DIR)).returncode
 
 
+def run_gallery(rest):
+    p = argparse.ArgumentParser(prog="vlasim gallery", add_help=True,
+                                description="Show the video history gallery URL + password for your e-mail.")
+    p.add_argument("--email", "-e", help="Notification e-mail (else from config)")
+    p.add_argument("--region", "-r", help="Region of the gallery (else from config)")
+    p.add_argument("--reset-password", action="store_true",
+                   help="Issue a new password (the old one stops working within a few seconds)")
+    args = p.parse_args(rest)
+    cfg_region, cfg_email = _read_config()
+    region = args.region or cfg_region
+    email = args.email or cfg_email
+    if not email or email == PLACEHOLDER_EMAIL or not EMAIL_RE.match(email):
+        print("[gallery] No valid notification e-mail; pass --email or run: python vlasim.py init --email ...",
+              file=sys.stderr)
+        return 1
+    if not region or not REGION_RE.match(region):
+        print("[gallery] No valid region; pass --region.", file=sys.stderr)
+        return 1
+    import gallery  # noqa: PLC0415 - needs boto3 (doctor must run without it)
+
+    try:
+        info = gallery.reset_password(region, email) if args.reset_password else gallery.lookup(region, email)
+    except LookupError as e:
+        print(f"[gallery] {e}. Deploy a target first (python vlasim.py deploy --vla ...).", file=sys.stderr)
+        return 1
+    print(f"Video history for {email} ({region}):")
+    print(f"  URL:      {info['url']}")
+    if info["password"]:
+        print(f"  Password: {info['password']}   (any user name)")
+    else:
+        print("  Password: not set yet; the next deploy creates one (or run: python vlasim.py gallery --reset-password)")
+    if args.reset_password:
+        print("  New password issued; CloudFront picks it up within a few seconds.")
+    return 0
+
+
 # ───────────────────────────── doctor entrypoint ───────────────────────────
 
 def run_doctor_cli(rest):
@@ -630,6 +676,7 @@ Usage:
   python vlasim.py deploy  --vla TARGET [--email A] [--region R] [--skip-doctor] [deploy.py flags...]
   python vlasim.py destroy --vla TARGET [destroy.py flags...]
   python vlasim.py results [--vla PREFIX] [--region R] [--since RUN_ID] [--all-runs] [--csv F] [--json F]
+  python vlasim.py gallery [--email A] [--region R] [--reset-password]
 
 Three-step quick start:
   python vlasim.py doctor                         # see what's missing
@@ -637,7 +684,8 @@ Three-step quick start:
   python vlasim.py deploy --vla gr00t-g1          # preflight + deploy
 
 `deploy` and `destroy` forward all flags to deploy.py / destroy.py unchanged
-(e.g. --bridge, --collect, --libero-suite). Run `deploy --help` for the full list.
+(e.g. --bridge, --collect, --libero-suite, --no-gallery, --keep-data, --delete-all).
+Run `deploy --help` for the full list.
 """
 
 
@@ -654,6 +702,7 @@ def main():
         "deploy": run_deploy,
         "destroy": run_destroy,
         "results": run_results,
+        "gallery": run_gallery,
     }
     handler = dispatch.get(cmd)
     if handler is None:

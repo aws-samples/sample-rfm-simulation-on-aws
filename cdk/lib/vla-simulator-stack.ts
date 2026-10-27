@@ -4,6 +4,7 @@
  * Supports GR00T and π0.5 via a single stack parameterised by `vla` context.
  *
  * Resources: VPC + SG + S3 + SNS + IAM + AzSelector + EC2
+ *            (+ GalleryPublisher Lambda when deploy.py passes the gallery_* context, see gallery-stack.ts)
  * Deploy:    python deploy.py --vla gr00t [--bridge]
  *            python deploy.py --vla pi    [--bridge]
  * Teardown:  python destroy.py --vla {gr00t|pi}
@@ -14,7 +15,9 @@
 import * as cdk from 'aws-cdk-lib';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as iam from 'aws-cdk-lib/aws-iam';
+import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as s3 from 'aws-cdk-lib/aws-s3';
+import * as s3n from 'aws-cdk-lib/aws-s3-notifications';
 import * as s3assets from 'aws-cdk-lib/aws-s3-assets';
 import * as sns from 'aws-cdk-lib/aws-sns';
 import { Construct } from 'constructs';
@@ -128,6 +131,24 @@ export class VlaSimulatorStack extends cdk.Stack {
     const s3ResultsPrefix: string = deployment.s3_results_prefix ?? 'vla-sim-results';
     const autoTerminate: boolean = deployment.auto_terminate ?? true;
     const stackName = id;
+
+    // Video history gallery (deploy.py, see gallery-stack.ts): all three set → publish videos to
+    // the shared RFM-Gallery bucket. Absent/empty → no gallery resources (stack as before).
+    const galleryBucketName: string = ((this.node.tryGetContext('gallery_bucket') as string | undefined) ?? '').trim();
+    const galleryHash: string = ((this.node.tryGetContext('gallery_hash') as string | undefined) ?? '').trim();
+    const galleryUrl: string = ((this.node.tryGetContext('gallery_url') as string | undefined) ?? '').trim();
+    const galleryOn = !!(galleryBucketName || galleryHash || galleryUrl);
+    if (galleryOn) {
+      if (!/^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/.test(galleryBucketName) || !/^[0-9a-f]{32}$/.test(galleryHash)
+          || !/^https:\/\/[A-Za-z0-9.-]+\/g\/[0-9a-f]{32}\/$/.test(galleryUrl)) {
+        throw new Error(
+          'Gallery context needs all of gallery_bucket (S3 bucket name), gallery_hash (32 hex chars) and ' +
+          'gallery_url (https://<domain>/g/<hash>/). deploy.py sets them; pass none of them to deploy without the gallery.',
+        );
+      }
+    }
+    // Gallery folder of this stack: one per target (per LIBERO suite for OpenVLA-OFT).
+    const galleryTarget = vla === 'openvla-oft' && liberoSuite && liberoSuite !== '10' ? `${vla}-${liberoSuite}` : vla;
 
     // Bridge mode: vpc_id context set → import existing VPC
     const vpcIdCtx: string | undefined =
@@ -359,6 +380,12 @@ export class VlaSimulatorStack extends cdk.Stack {
       AutoTerminate:    autoTerminate ? 'true' : 'false',
     };
 
+    if (galleryOn) {
+      // Read by the templates' SNS message ("Video history" link); absent → no link.
+      baseBootstrapLines.push('export GalleryUrl="${GalleryUrl}"');
+      bootstrapSubVars['GalleryUrl'] = galleryUrl;
+    }
+
     if (vla === 'pi' || vla === 'lap') {
       // pi & lap both run the openpi WebSocket↔gRPC bridge in bridge mode.
       baseBootstrapLines.push(
@@ -399,6 +426,105 @@ export class VlaSimulatorStack extends cdk.Stack {
     // WaitCondition timeout starts when CFN processes it. The instance is launched by AzSelector
     // Lambda. No explicit DependsOn needed — WaitConditionHandle URL is embedded in UserData,
     // so the instance will signal back once the script completes.
+
+    // ── Video history gallery publisher (optional) ────────────────
+    if (galleryOn) {
+      const galleryPrefix = `g/${galleryHash}/`;
+      const galleryBucketArn = `arn:${cdk.Aws.PARTITION}:s3:::${galleryBucketName}`;
+      const publisherRole = new iam.Role(this, 'GalleryPublisherRole', {
+        assumedBy: new iam.ServicePrincipal('lambda.amazonaws.com'),
+        managedPolicies: [
+          iam.ManagedPolicy.fromAwsManagedPolicyName('service-role/AWSLambdaBasicExecutionRole'),
+        ],
+        inlinePolicies: {
+          GalleryPublisherPolicy: new iam.PolicyDocument({
+            statements: [
+              // Read the run videos/captions (HeadObject is covered by s3:GetObject).
+              new iam.PolicyStatement({
+                actions: ['s3:GetObject'],
+                resources: [`${bucket.bucketArn}/*`],
+              }),
+              // Write copies + index under this e-mail's gallery folder only; read back manifest/captions.
+              new iam.PolicyStatement({
+                actions: ['s3:PutObject', 's3:GetObject'],
+                resources: [`${galleryBucketArn}/${galleryPrefix}*`],
+              }),
+              new iam.PolicyStatement({
+                actions: ['s3:ListBucket'],
+                resources: [galleryBucketArn],
+                conditions: { StringLike: { 's3:prefix': [`${galleryPrefix}*`] } },
+              }),
+            ],
+          }),
+        },
+      });
+      const publisher = new lambda.Function(this, 'GalleryPublisher', {
+        runtime: lambda.Runtime.PYTHON_3_13,
+        handler: 'index.handler',
+        role: publisherRole,
+        timeout: cdk.Duration.minutes(5),
+        memorySize: 256,
+        code: lambda.Code.fromAsset(path.resolve(__dirname, '../lambda/gallery_publisher')),
+        description: `Copies ${vla} run videos into the video history gallery and rebuilds its index`,
+        environment: {
+          GALLERY_BUCKET: galleryBucketName,
+          GALLERY_PREFIX: galleryPrefix,
+          GALLERY_TARGET: galleryTarget,
+        },
+      });
+      bucket.addEventNotification(s3.EventType.OBJECT_CREATED, new s3n.LambdaDestination(publisher), { suffix: '.mp4' });
+      bucket.addEventNotification(s3.EventType.OBJECT_CREATED, new s3n.LambdaDestination(publisher), { suffix: '.txt' });
+
+      new cdk.CfnOutput(this, 'GalleryUrl', {
+        value: galleryUrl,
+        description: 'Video history gallery (password: python vlasim.py gallery)',
+      });
+      new cdk.CfnOutput(this, 'GalleryBucket', {
+        value: galleryBucketName,
+        description: 'Video history gallery bucket',
+      });
+      new cdk.CfnOutput(this, 'GalleryPrefix', {
+        value: `${galleryPrefix}${galleryTarget}/`,
+        description: 'Gallery folder of this stack (removed by destroy.py --delete-all)',
+      });
+
+      acknowledge(publisherRole, [
+        {
+          id: 'AwsSolutions-IAM4',
+          reason: 'AWSLambdaBasicExecutionRole is the minimal managed policy for Lambda CloudWatch Logs access.',
+          appliesTo: ['Policy::arn:<AWS::Partition>:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'],
+        },
+        {
+          id: 'AwsSolutions-IAM5',
+          reason: 'Video and caption keys are created per run at run time; read-only on this stack\'s results bucket objects.',
+          appliesTo: ['Resource::<ResultsBucketA95A2103.Arn>/*'],
+        },
+        {
+          id: 'AwsSolutions-IAM5',
+          reason: 'Gallery copies and the index are written under this e-mail\'s gallery folder g/<hash>/ only.',
+          appliesTo: [`Resource::arn:<AWS::Partition>:s3:::${galleryBucketName}/${galleryPrefix}*`],
+        },
+      ]);
+      acknowledge(publisher, [
+        { id: 'AwsSolutions-L1', reason: 'Python 3.13 is the latest stable production runtime for AWS Lambda.' },
+      ]);
+      // CDK's singleton handler that applies the bucket notification configuration.
+      const notificationsHandler = this.node.tryFindChild('BucketNotificationsHandler050a0587b7544547bf325f094a3db834');
+      if (notificationsHandler) {
+        acknowledge(notificationsHandler, [
+          {
+            id: 'AwsSolutions-IAM4',
+            reason: 'CDK-managed S3 bucket notification handler; AWSLambdaBasicExecutionRole is the minimal managed policy for its CloudWatch Logs access.',
+            appliesTo: ['Policy::arn:<AWS::Partition>:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'],
+          },
+          {
+            id: 'AwsSolutions-IAM5',
+            reason: 'CDK-managed S3 bucket notification handler: s3:PutBucketNotification is granted on * by aws-cdk-lib and only applied to this stack\'s results bucket.',
+            appliesTo: ['Resource::*'],
+          },
+        ]);
+      }
+    }
 
     // ── Outputs ───────────────────────────────────────────────────
     new cdk.CfnOutput(this, 'S3BucketName', {

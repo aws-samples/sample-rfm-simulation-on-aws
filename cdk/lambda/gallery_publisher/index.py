@@ -141,7 +141,9 @@ def build_index_html(manifest: dict, generated: str = "") -> str:
                        f'{len(run["videos"])} video(s)</span></h3><div class="grid">')
             for v in run["videos"]:
                 src = e(urllib.parse.quote(v["path"]))
-                cap = f"<figcaption>{e(v['name'])}" + (f"\n{e(v['caption'])}" if v["caption"] else "") + "</figcaption>"
+                cap = (f"<figcaption>{e(v['name'])}"
+                       + (f"<details><summary>details</summary>{e(v['caption'])}</details>" if v["caption"] else "")
+                       + "</figcaption>")
                 out.append(f'<figure><video controls preload="metadata" src="{src}"></video>{cap}</figure>')
             out.append("</div>")
         out.append("</section>")

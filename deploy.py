@@ -13,12 +13,14 @@ Usage:
   python deploy.py --vla gr00t --bridge     # GR00T bridge mode (bring-your-own gRPC endpoint, experimental)
   python deploy.py --vla gr00t-gr1 --bridge # GR00T-GR1 bridge mode (your endpoint must serve N1.6)
   python deploy.py --vla pi    --bridge     # π0.5  bridge mode (bring-your-own gRPC endpoint, experimental)
+  python deploy.py --vla smolvla --no-gallery  # without the video history gallery
 
 Steps:
   1. Load simulator-config.yaml + models/{vla}.yaml
   2. If bridge mode: resolve SSM-backed endpoints
   3. python generate.py → assets/userdata/{vla}.sh
-  4. cdk deploy {VLA}-Demo
+  4. Video history gallery (unless --no-gallery): deploy RFM-Gallery when missing, password + KVS entry
+  5. cdk deploy {VLA}-Demo
 
 Notes:
   - On first deploy, a SNS subscription confirmation email will arrive.
@@ -39,6 +41,7 @@ import boto3
 import yaml
 from botocore.exceptions import ClientError
 
+import gallery
 from generate import (
     OFT_DEFAULT_SUITE,
     OFT_LIBERO_SUITES,
@@ -203,6 +206,11 @@ def main():
         "--libero-suite", default=OFT_DEFAULT_SUITE, choices=list(OFT_LIBERO_SUITES),
         help="openvla-oft only: LIBERO suite (default: 10 = LIBERO-Long; `long` aliases `10`)",
     )
+    parser.add_argument("--no-gallery", action="store_true",
+                        help="Do not publish videos to the video history gallery (CloudFront page linked from the "
+                             "completion e-mail). Default: on (deployment.gallery in simulator-config.yaml).")
+    parser.add_argument("--update-gallery", action="store_true",
+                        help="Re-deploy the shared RFM-Gallery stack even if it already exists (after an upgrade).")
     parser.add_argument("--collect", action="store_true",
                         help="gr00t-g1 only: trajectory COLLECTION mode (success-only obs/action HDF5 + "
                              "LeRobotDataset for N1.7 G1 adapter FT) instead of rollout/video.")
@@ -360,11 +368,24 @@ def main():
     else:
         cdk_out_dir = f"cdk.out-{args.vla}"
 
+    # 1.2 Video history gallery (shared RFM-Gallery stack + this e-mail's password)
+    gallery_ctx: list[str] = []
+    gallery_info = None
+    if deployment.get("gallery", True) and not args.no_gallery:
+        gallery_info = gallery.ensure_gallery(region, email, update_stack=args.update_gallery)
+        gallery_ctx = [
+            "-c", f"gallery_bucket={gallery_info['bucket']}",
+            "-c", f"gallery_hash={gallery_info['id']}",
+            "-c", f"gallery_url={gallery_info['url']}",
+        ]
+        print(f"[gallery] Video history: {gallery_info['url']}")
+        print()
+
     # 1.5 Pre-deploy: re-adopt orphan S3 bucket
     _maybe_import_orphan_bucket(
         cdk_dir, stack_name, region, safe_email,
         shlex.quote(vpc_id) if vpc_id else "",
-        s3_results_prefix, extra_cdk_ctx,
+        s3_results_prefix, [*extra_cdk_ctx, *gallery_ctx],
         cdk_out_dir=cdk_out_dir,
         vla=args.vla,
         libero_suite=libero_suite if args.vla == "openvla-oft" else "",
@@ -426,12 +447,16 @@ def main():
         "--require-approval", "never",
         "--output", cdk_out_dir,
         *extra_cdk_ctx,
+        *gallery_ctx,
     ]
     subprocess.run(cdk_cmd, cwd=cdk_dir, check=True)  # nosec B603,B607 - hardcoded command list
 
     print()
     print("[deploy] Done! Simulation is running in the background.")
     print(f"  A completion notification will be sent to: {email}")
+    if gallery_info:
+        print(f"  Video history (all your runs, by model): {gallery_info['url']}")
+        print("  Password: python vlasim.py gallery")
     vla_safe = shlex.quote(args.vla)
     if args.vla == "openvla-oft" and libero_suite != OFT_DEFAULT_SUITE:
         print(f"  To clean up: python destroy.py --vla {vla_safe} --libero-suite {shlex.quote(libero_suite)}")

@@ -46,6 +46,9 @@ deploy.py --vla <target>
 - The password is random (20 URL-safe characters) and only its salted SHA-256 digest is in the
   KeyValueStore. Wrong password and unknown id both answer `401`.
 - The page is plain HTML (no external JavaScript or CSS); every name taken from S3 is escaped.
+- Earlier runs are included: after each deploy, `deploy.py` copies videos that are already in the
+  target's results bucket (kept by `destroy.py --keep-data`) into the gallery. Files already in the
+  gallery are skipped. Runs are listed by the time in their run id, newest first.
 - One gallery per region: targets deployed in another region have their own gallery URL there.
 
 ## Opting out

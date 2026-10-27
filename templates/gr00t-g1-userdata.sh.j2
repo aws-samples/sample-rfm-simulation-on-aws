@@ -893,12 +893,13 @@ _MODE_INFO="Mode: Bridge (remote gRPC → {{ remote_grpc_endpoint }})"
 _MODE_INFO="Mode: Local (GR00T N1.6 G1 checkpoint loaded on EC2)"
 {% endif %}
 
+{% include "_gallery-sns.sh.j2" %}
 SNS_MESSAGE="[${STACK_NAME}] GR00T-G1 {% if collect %}Collection{% else %}Simulation{% endif %} complete (RUN_ID: ${RUN_ID})
 ${SUMMARY_ALL}
 
 ${_MODE_INFO}
 
-Download results:
+${GALLERY_BLOCK}Download results:
   aws s3 sync s3://${S3_BUCKET}/${RUN_ID}/ ./gr00t-g1-results/${RUN_ID}/ --region ${REGION}
 
 Teardown:

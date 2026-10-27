@@ -4,8 +4,12 @@ Mirrors the CI "render userdata" step: generate.py is run as a CLI (it reads mod
 and simulator-config.yaml, writes <output-dir>/<target>.sh and runs ``bash -n`` itself). The test
 writes to a pytest tmp dir so it never touches assets/userdata/, and re-runs ``bash -n`` so a
 regression in generate.py's own check cannot hide a broken script.
+
+Every completion e-mail also carries the "Video history" link only when the bootstrap exported
+GalleryUrl (deploy.py with the gallery on); the block is run through bash with and without it.
 """
 
+import re
 import shutil
 import subprocess
 import sys
@@ -48,6 +52,28 @@ def test_render_and_bash_n(vla, extra, tmp_path):
     assert "{%" not in text, f"{script.name} has an unrendered Jinja block tag"
     check = subprocess.run([BASH, "-n", str(script)], capture_output=True, text=True)
     assert check.returncode == 0, f"bash -n {script.name}:\n{check.stderr}"
+    _check_gallery_block(text, script.name)
+
+
+GALLERY_URL = "https://d111.cloudfront.net/g/0123456789abcdef0123456789abcdef/"
+
+
+def _check_gallery_block(text, name):
+    """The SNS message gets the gallery link only when GalleryUrl is set; s3 sync lines stay."""
+    assert text.count('GALLERY_BLOCK=""') == 1, f"{name}: gallery block missing or repeated"
+    msg = text[text.index('SNS_MESSAGE="'):]
+    assert "${GALLERY_BLOCK}Download results:" in msg, f"{name}: SNS message does not use GALLERY_BLOCK"
+    assert re.search(r"aws s3 sync s3://\$\{S3_BUCKET\}/\$\{RUN_ID\}/", msg), f"{name}: s3 sync line lost"
+    start = text.index('GALLERY_BLOCK=""')
+    block = text[start:text.index("\nfi\n", start) + 4]
+    snippet = block + 'printf "%s" "${GALLERY_BLOCK}Download results:"\n'
+    for env, expect_link in (({"GalleryUrl": GALLERY_URL}, True), ({"GalleryUrl": ""}, False), ({}, False)):
+        out = subprocess.run([BASH, "-u", "-c", snippet], capture_output=True, text=True, env={"PATH": "/usr/bin:/bin", **env})
+        assert out.returncode == 0, f"{name}: gallery block failed: {out.stderr}"
+        if expect_link:
+            assert out.stdout == f"Video history (all your runs, by model; password: python vlasim.py gallery):\n  {GALLERY_URL}\n\nDownload results:"
+        else:
+            assert out.stdout == "Download results:", f"{name}: block shown without GalleryUrl"
 
 
 def test_every_target_is_covered():

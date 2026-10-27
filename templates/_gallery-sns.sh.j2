@@ -1,0 +1,9 @@
+# Video history gallery: the bootstrap exports GalleryUrl when deploy.py turned the gallery on
+# (python deploy.py without --no-gallery). Empty or unset -> no block in the SNS message.
+GALLERY_BLOCK=""
+if [ -n "${GalleryUrl:-}" ]; then
+    GALLERY_BLOCK="Video history (all your runs, by model; password: python vlasim.py gallery):
+  ${GalleryUrl}
+
+"
+fi

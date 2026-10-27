@@ -587,6 +587,7 @@ fi
 
 # ── SNS notification + cfn-signal ──────────────────────────────────
 log "Sending SNS notification..."
+{% include "_gallery-sns.sh.j2" %}
 SNS_MESSAGE="[${STACK_NAME}] OpenArm-Lift-ACT demo collection complete (RUN_ID: ${RUN_ID})
 
 Exported successful lift demos: ${DEMO_COUNT} (requested ${NUM_DEMOS})
@@ -596,7 +597,7 @@ Note:  Scripted teleop-free collection. FIRST RUN validates C1–C4 — a low de
        scripted SM is not grasping; tune _TCP_OFFSET / _DOWN_QUAT / thresholds in the overlay.
 Instance: ${INSTANCE_TYPE}
 
-Download results:
+${GALLERY_BLOCK}Download results:
   aws s3 sync s3://${S3_BUCKET}/${RUN_ID}/ ./openarm-lift-act-results/${RUN_ID}/ --region ${REGION}
 
 Next (Phase 1c, off-GPU): python hdf5_to_lerobot.py --hdf5 <downloaded>/datasets/openarm_lift_act.hdf5 ...

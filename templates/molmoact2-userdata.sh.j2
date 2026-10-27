@@ -544,6 +544,7 @@ done
 # ── [7/7] SNS notification + cfn-signal ──────────────────────────
 log "[7/7] Sending SNS notification..."
 
+{% include "_gallery-sns.sh.j2" %}
 SNS_MESSAGE="[${STACK_NAME}] MolmoAct2 simulation complete (RUN_ID: ${RUN_ID})
 ${SUMMARY_ALL}
 
@@ -554,7 +555,7 @@ License: Apache-2.0
 Simulation: LIBERO (robosuite + MuJoCo, headless EGL)
 Instance: ${INSTANCE_TYPE}
 
-Download results:
+${GALLERY_BLOCK}Download results:
   aws s3 sync s3://${S3_BUCKET}/${RUN_ID}/ ./molmoact2-results/${RUN_ID}/ --region ${REGION}
 
 Teardown:

@@ -612,6 +612,7 @@ done
 # ── [6/6] SNS notification + cfn-signal ──────────────────────────
 log "[6/6] Sending SNS notification..."
 
+{% include "_gallery-sns.sh.j2" %}
 SNS_MESSAGE="[${STACK_NAME}] OpenVLA-OFT simulation complete (RUN_ID: ${RUN_ID})
 ${SUMMARY_ALL}
 
@@ -619,7 +620,7 @@ Model: OpenVLA-OFT (OFT recipe on OpenVLA-7B base)
 Simulation: LIBERO (robosuite + MuJoCo, headless EGL)
 Instance: ${INSTANCE_TYPE}
 
-Download results:
+${GALLERY_BLOCK}Download results:
   aws s3 sync s3://${S3_BUCKET}/${RUN_ID}/ ./openvla-oft-results/${RUN_ID}/ --region ${REGION}
 
 Teardown:

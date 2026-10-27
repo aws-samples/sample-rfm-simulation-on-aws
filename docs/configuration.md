@@ -4,7 +4,7 @@ Back to the [README](../README.md) · [Documentation index](README.md)
 
 ## `vlasim.py` commands
 
-A single CLI (`vlasim.py`) wraps the whole setup: `doctor`, `init`, `deploy`, `destroy` and `results`. It runs on the standard library alone, so `doctor` works on a fresh host **before** any dependencies are installed. The command sequence is in the [README Quick Start](../README.md#quick-start).
+A single CLI (`vlasim.py`) wraps the whole setup: `doctor`, `init`, `deploy`, `destroy`, `results` and `gallery` ([video history](gallery.md)). It runs on the standard library alone, so `doctor` works on a fresh host **before** any dependencies are installed. The command sequence is in the [README Quick Start](../README.md#quick-start).
 
 `doctor` checks: Python/Node/CDK versions and installs, AWS credentials, region
 support, CDK bootstrap, GPU On-Demand vCPU quota (per target), `notify_email`, and —
@@ -69,6 +69,7 @@ On first deploy you will receive an SNS subscription confirmation email — **cl
 | `deployment.notify_email` | *(required)* | SNS notification email |
 | `deployment.s3_results_prefix` | `vla-sim-results` | S3 bucket name prefix |
 | `deployment.auto_terminate` | `true` | Auto-terminate EC2 after completion |
+| `deployment.gallery` | `true` | Publish run videos to the [video history](gallery.md) page linked from the e-mail (`--no-gallery` for one deploy) |
 
 ### `models/gr00t.yaml`
 

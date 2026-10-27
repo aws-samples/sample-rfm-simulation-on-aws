@@ -48,7 +48,7 @@ python vlasim.py deploy --vla gr00t-g1
 aws logs tail /gr00t-g1/userdata --follow --region us-east-1
 python vlasim.py results --vla gr00t-g1
 
-# 5. Tear down the stack (the S3 results bucket is retained)
+# 5. Tear down the stack (asks: keep the results + video history, or delete all)
 python vlasim.py destroy --vla gr00t-g1
 ```
 
@@ -58,6 +58,14 @@ python vlasim.py destroy --vla gr00t-g1
   `aws ssm put-parameter --region us-east-1 --name /vla-simulator/hf-token --type SecureString --value <YOUR_HF_TOKEN>`
   (details in [configuration.md](docs/configuration.md#hugging-face-token-gated-models)).
 - `deploy` and `destroy` forward every flag to `deploy.py` / `destroy.py` (`--bridge`, `--collect`, `--libero-suite`, `--region`, ...). Run `python vlasim.py deploy --help` for the full list.
+
+## Video history
+
+The completion e-mail links to a password-protected page (Amazon CloudFront) with every video of
+every run deployed under your e-mail, grouped by target, newest run first. `python vlasim.py gallery`
+prints the URL and password. The `aws s3 sync` download line is still in the e-mail. Opt out with
+`--no-gallery` or `deployment.gallery: false`. On destroy you choose to keep the data (default:
+results bucket and gallery stay) or `--delete-all`. Details: [docs/gallery.md](docs/gallery.md).
 
 ## How it works
 
@@ -125,6 +133,7 @@ Stack names, robots, per-target notes, deploy and cleanup commands: [docs/target
 | [Targets](docs/targets.md) | All targets, notes, GPU instances, deploy / monitor / cleanup |
 | [Showcase](docs/showcase.md) | Full rollout gallery |
 | [Results](docs/results.md) | Downloading results, `vlasim results`, expected results, baselines |
+| [Video history](docs/gallery.md) | Password-protected page with all your run videos, destroy data choice |
 | [Configuration](docs/configuration.md) | `doctor`, regions, Hugging Face token, config keys |
 | [Architecture](docs/architecture.md) | Deploy flow and project structure |
 | [Cost](docs/cost.md) | Instance prices and per-target estimate |

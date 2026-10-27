@@ -32,13 +32,14 @@ deploy.py
 
 ```
 sample-rfm-simulation-on-aws/
-├── vlasim.py                 # CLI front end: doctor / init / deploy / destroy / results
+├── vlasim.py                 # CLI front end: doctor / init / deploy / destroy / results / gallery
 ├── deploy.py                 # 1-click deploy entrypoint
-├── destroy.py                # Stack teardown
+├── destroy.py                # Stack teardown (--keep-data / --delete-all)
+├── gallery.py                # Video history gallery helpers (id, password, SSM, KeyValueStore)
 ├── results.py                # Read-only result collector behind `vlasim results`
 ├── generate.py               # Renders assets/userdata/{vla}.sh from templates/ + models/
 ├── simulator-config.yaml     # Shared deployment settings
-├── requirements.txt          # boto3, pyyaml, jinja2
+├── requirements.txt          # boto3[crt], pyyaml, jinja2
 ├── models/                   # One config per --vla target (20)
 │   ├── gr00t.yaml            # GR00T N1.7 on LIBERO-10
 │   ├── gr00t-gr1.yaml        # GR00T N1.6 + GR1 humanoid (RoboCasa)
@@ -74,7 +75,8 @@ sample-rfm-simulation-on-aws/
 │   ├── aspire-userdata.sh.j2            # LIBERO-Pro fork + tool services + Claude Code on Bedrock
 │   ├── rldx-userdata.sh.j2              # shared: rldx, rldx-simpler, rldx-gr1, rldx-kitchen
 │   ├── openarm-lift-act-userdata.sh.j2  # Isaac Lab container, scripted ACT collection
-│   └── openarm-isaac-userdata.sh.j2     # Isaac Lab container, bimanual π0.5 eval
+│   ├── openarm-isaac-userdata.sh.j2     # Isaac Lab container, bimanual π0.5 eval
+│   └── _gallery-sns.sh.j2               # included: "Video history" block of the SNS message
 ├── assets/
 │   ├── userdata/             # Generated scripts (gitignored)
 │   ├── bridge/
@@ -87,11 +89,15 @@ sample-rfm-simulation-on-aws/
 │   └── openarm-isaac/        # bimanual env overlay + LeRobot rollout driver
 ├── cdk/
 │   ├── bin/app.ts            # CDK app: one stack per --vla target
+│   ├── bin/gallery.ts        # CDK app: shared RFM-Gallery stack (video history)
 │   ├── lib/
 │   │   ├── vla-simulator-stack.ts   # Unified CDK stack
 │   │   ├── az-selector.ts           # GPU capacity Lambda (AZ/type fallback)
+│   │   ├── gallery-stack.ts         # S3 + CloudFront (OAC) + Function + KeyValueStore
 │   │   └── nag.ts                   # cdk-nag acknowledgement helpers
-│   └── test/cdk.test.ts      # Jest synth tests
+│   ├── functions/gallery-auth.js    # CloudFront Function: Basic auth for /g/<id>/
+│   ├── lambda/gallery_publisher/    # Lambda: copy videos to the gallery, rebuild index.html
+│   └── test/*.test.ts        # Jest synth tests
 ├── docs/
 │   ├── *.md                  # This documentation
 │   └── showcase/             # Sample rollout MP4 + GIF preview per target

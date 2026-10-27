@@ -451,6 +451,17 @@ def main():
     ]
     subprocess.run(cdk_cmd, cwd=cdk_dir, check=True)  # nosec B603,B607 - hardcoded command list
 
+    # 3. Gallery backfill: runs from before the gallery existed (results bucket kept by destroy)
+    if gallery_info:
+        outputs = gallery.stack_outputs(region, stack_name) or {}
+        if outputs.get("S3BucketName") and outputs.get("GalleryPrefix"):
+            try:
+                n = gallery.backfill(region, outputs["S3BucketName"], gallery_info["bucket"], outputs["GalleryPrefix"])
+                if n:
+                    print(f"[gallery] Added {n} files from earlier runs to the video history")
+            except Exception as e:  # noqa: BLE001 - backfill is best effort; the run itself succeeded
+                print(f"[gallery] [warn] Backfill of earlier runs failed: {e}")
+
     print()
     print("[deploy] Done! Simulation is running in the background.")
     print(f"  A completion notification will be sent to: {email}")

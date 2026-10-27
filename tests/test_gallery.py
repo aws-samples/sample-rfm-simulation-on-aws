@@ -219,3 +219,54 @@ def test_handler_copies_video_caption_and_rebuilds(monkeypatch):
     # summary.txt has no video next to it: ignored, no rebuild
     assert pub.handler(_event("res", "r1/summary.txt"), None) == {"copied": 0}
     assert not any(k.endswith("summary.txt") for (b, k) in fake.objects if b == "gal")
+
+
+def test_manifest_orders_runs_by_run_id_time_not_copy_time():
+    # A backfilled (older) run is copied after a newer one: the run id decides the order.
+    objects = [
+        _obj("smolvla/2026-10-27-0350/task-0/videos/ep0.mp4", 1),
+        _obj("smolvla/2026-10-14-0645/task-0/videos/ep0.mp4", 40),
+        _obj("smolvla/2026-10-22-1316/task-0/videos/ep0.mp4", 50),
+    ]
+    m = pub.build_manifest(objects, PREFIX)
+    assert [r["run_id"] for r in m["targets"][0]["runs"]] == [
+        "2026-10-27-0350", "2026-10-22-1316", "2026-10-14-0645"]
+
+
+class _FakeS3:
+    def __init__(self, buckets):
+        self.buckets = buckets  # {bucket: set(keys)}
+        self.copies = []
+
+    def get_paginator(self, _name):
+        fake = self
+
+        class _P:
+            def paginate(self, Bucket, Prefix=""):
+                yield {"Contents": [{"Key": k} for k in sorted(fake.buckets[Bucket]) if k.startswith(Prefix)]}
+        return _P()
+
+    def copy_object(self, CopySource, Bucket, Key, **_kw):
+        self.copies.append((CopySource["Key"], Key))
+        self.buckets[Bucket].add(Key)
+
+
+def test_backfill_copies_missing_videos_and_captions_once(monkeypatch):
+    target = PREFIX + "smolvla/"
+    s3 = _FakeS3({
+        "results": {"r1/task-0/videos/ep0.mp4", "r1/task-0/videos/ep0.txt", "r1/summary.txt",
+                    "r2/task-0/videos/ep0.mp4", "r1/task-0/eval.log"},
+        "gallery": {target + "r2/task-0/videos/ep0.mp4"},
+    })
+    rebuilt = []
+
+    class _B:
+        def client(self, *_a, **_k):
+            return s3
+    monkeypatch.setattr(gallery, "_boto3", lambda: _B())
+    monkeypatch.setattr(gallery, "rebuild_index", lambda b, p, r: rebuilt.append((b, p)))
+    assert gallery.backfill("ap-northeast-2", "results", "gallery", target) == 2
+    assert sorted(d for _, d in s3.copies) == [target + "r1/task-0/videos/ep0.mp4", target + "r1/task-0/videos/ep0.txt"]
+    assert rebuilt == [("gallery", PREFIX)]
+    assert gallery.backfill("ap-northeast-2", "results", "gallery", target) == 0  # idempotent
+    assert len(rebuilt) == 1

@@ -296,6 +296,45 @@ def rebuild_index(bucket: str, gallery_prefix: str, region: str) -> None:
     mod.rebuild_index(bucket, gallery_prefix)
 
 
+def backfill(region: str, results_bucket: str, gallery_bucket: str, target_prefix: str) -> int:
+    """Copy videos of earlier runs (already in the results bucket) into the gallery; return the count.
+
+    target_prefix = g/<id>/<target>/ (the target stack's GalleryPrefix output). Existing gallery
+    objects are skipped, so this is safe to repeat. The index is rebuilt once at the end.
+    """
+    s3 = _boto3().client("s3", region_name=region)
+    have = set()
+    for page in s3.get_paginator("list_objects_v2").paginate(Bucket=gallery_bucket, Prefix=target_prefix):
+        have.update(o["Key"] for o in page.get("Contents", []))
+    src = set()
+    for page in s3.get_paginator("list_objects_v2").paginate(Bucket=results_bucket):
+        src.update(o["Key"] for o in page.get("Contents", []))
+    copied = 0
+    for key in sorted(src):
+        if key.endswith(".mp4"):
+            pairs = [key]
+            caption = key[: -len(".mp4")] + ".txt"
+            if caption in src:
+                pairs.append(caption)
+        else:
+            continue
+        for k in pairs:
+            parts = k.split("/")
+            if len(parts) < 2 or any(p in ("", ".", "..") for p in parts):
+                continue
+            dest = f"{target_prefix}{k}"
+            if dest in have:
+                continue
+            s3.copy_object(CopySource={"Bucket": results_bucket, "Key": k}, Bucket=gallery_bucket, Key=dest,
+                           MetadataDirective="REPLACE",
+                           ContentType="video/mp4" if k.endswith(".mp4") else "text/plain; charset=utf-8",
+                           CacheControl="public, max-age=86400")
+            copied += 1
+    if copied:
+        rebuild_index(gallery_bucket, "/".join(target_prefix.split("/")[:2]) + "/", region)
+    return copied
+
+
 def delete_ssm_params(region: str) -> int:
     """Delete the salt and every gallery password in the region."""
     ssm = _boto3().client("ssm", region_name=region)

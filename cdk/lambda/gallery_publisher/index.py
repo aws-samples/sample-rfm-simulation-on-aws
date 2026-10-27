@@ -15,6 +15,7 @@ Environment: GALLERY_BUCKET, GALLERY_PREFIX (g/<id>/), GALLERY_TARGET (e.g. smol
 import html
 import json
 import os
+import re
 import urllib.parse
 from datetime import datetime, timezone
 
@@ -53,7 +54,7 @@ def build_manifest(objects, prefix: str, captions=None) -> dict:
 
     objects:  iterable of {"Key", "LastModified" (datetime or ISO str), "Size"}
     captions: {gallery caption key: text}
-    Targets are sorted by name, runs newest first (latest object time, then run id), videos by path.
+    Targets are sorted by name, runs newest first (time in the run id, else latest object time), videos by path.
     """
     captions = captions or {}
     keys = set()
@@ -83,9 +84,21 @@ def build_manifest(objects, prefix: str, captions=None) -> dict:
     targets = []
     for name in sorted({t for t, _ in runs}):
         target_runs = [r for (t, _), r in runs.items() if t == name]
-        target_runs.sort(key=lambda r: (r["updated"], r["run_id"]), reverse=True)
+        target_runs.sort(key=lambda r: (_run_time(r), r["run_id"]), reverse=True)
         targets.append({"name": name, "runs": target_runs})
     return {"targets": targets}
+
+
+_RUN_ID_TIME = re.compile(r"^(\d{4}-\d{2}-\d{2})-(\d{2})(\d{2})")
+
+
+def _run_time(run: dict) -> str:
+    """Start time of a run from its id (YYYY-MM-DD-HHMM...), else its latest upload time.
+
+    Uses the id first so runs copied later (backfill) still sort by when they ran.
+    """
+    m = _RUN_ID_TIME.match(run["run_id"])
+    return f"{m.group(1)}T{m.group(2)}:{m.group(3)}" if m else run["updated"]
 
 
 def caption_keys(objects, prefix: str):

@@ -215,6 +215,12 @@ def ensure_gallery(region: str, email: str, update_stack: bool = False) -> dict:
         print(f"[gallery] Created a password for {email} (show it with: python vlasim.py gallery)")
     if kvs_put(outputs["KvsArn"], gallery_id, password_digest(gallery_id, password)):
         print("[gallery] Password registered in the CloudFront KeyValueStore (edge propagation takes a few seconds).")
+    # Seed an empty page so the URL works before the first video arrives (no 403 from S3).
+    try:
+        _boto3().client("s3", region_name=region).head_object(
+            Bucket=outputs["GalleryBucketName"], Key=f"g/{gallery_id}/index.html")
+    except Exception:  # noqa: BLE001 - missing (404) or unreadable: (re)build it
+        rebuild_index(outputs["GalleryBucketName"], f"g/{gallery_id}/", region)
     domain = outputs["DistributionDomainName"]
     return {
         "bucket": outputs["GalleryBucketName"],

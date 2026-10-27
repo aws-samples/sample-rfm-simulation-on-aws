@@ -222,6 +222,15 @@ def _delete_data(region: str, stack_name: str, outputs: dict) -> None:
     n = gallery.delete_bucket(bucket, region)
     print(f"[destroy] Results bucket {bucket}: " + ("not found (already deleted?)" if n is None else f"deleted ({n} objects)"))
 
+    # Lambda log groups outlive the stack (AzSelector, bucket notification handler, GalleryPublisher, ...).
+    logs = boto3.client("logs", region_name=region)
+    groups = [g["logGroupName"]
+              for page in logs.get_paginator("describe_log_groups").paginate(logGroupNamePrefix=f"/aws/lambda/{stack_name}-")
+              for g in page.get("logGroups", [])]
+    for name in groups:
+        logs.delete_log_group(logGroupName=name)
+    print(f"[destroy] Lambda log groups of {stack_name}: deleted ({len(groups)})")
+
     remaining = _remaining_target_stacks(region, stack_name)
     gallery_outputs = gallery.stack_outputs(region, gallery.GALLERY_STACK_NAME)
     if remaining:

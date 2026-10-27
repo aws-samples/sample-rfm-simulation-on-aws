@@ -71,7 +71,7 @@ shared RFM-Gallery stack (otherwise it is only created when missing).
 | Choice | Flag | Compute stack | Results bucket | Gallery |
 |---|---|---|---|---|
 | 1. Keep data (default) | `--keep-data` | deleted | kept | kept, page keeps working |
-| 2. Delete all | `--delete-all` | deleted | emptied + deleted | this target's videos removed, index rebuilt |
+| 2. Delete all | `--delete-all` | deleted, plus its Lambda log groups | emptied + deleted | this target's videos removed, index rebuilt |
 
 With `--delete-all`, when **no other target stack is left in the region**, the shared gallery goes
 too: the RFM-Gallery stack (CloudFront distribution, function, KeyValueStore), its bucket (all

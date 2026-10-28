@@ -100,7 +100,7 @@ run that has videos.
   model's midpoint and counts as failure. `judge.json` also keeps the raw score, so any threshold
   can be applied afterwards.
 - **What it needs per episode.** The task instruction, from (in order) the video's `.txt` sidecar
-  (`Task:` line), the OpenVLA-OFT style file name (`--task=...`), or, for the LeRobot targets
+  (`Task:` line), the file name (OpenVLA-OFT style `--task=...`, openpi style `rollout_<task>_success.mp4`), or, for the LeRobot targets
   (`xvla`, `smolvla`, `lingbot-va`, `fastwam`), LIBERO's task map (pinned commit) indexed by the
   suite and task id in `eval_info.json`. Instructions cut to 40 characters in OpenVLA-OFT style
   file names are completed from the same task map when the prefix is unique. The simulator's success flag comes from `success=True|False`

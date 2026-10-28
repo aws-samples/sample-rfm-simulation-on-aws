@@ -77,6 +77,13 @@ def test_openvla_style_name_gives_success_and_task():
     assert info["instruction"] == "put the bowl on the stove" and info["instruction_source"] == "filename"
 
 
+def test_openpi_rollout_name():
+    info = fj.episode_info("rollout_pick_up_the_black_bowl_between_the_plate_and_the_ramekin_and_place_it_on_the_plate_failure.mp4")
+    assert info["sim_success"] is False and info["sim_success_source"] == "filename"
+    assert info["instruction"] == "pick up the black bowl between the plate and the ramekin and place it on the plate"
+    assert fj.episode_info("rollout_open_the_drawer_success.mp4")["sim_success"] is True
+
+
 def test_cut_task_name_is_completed_from_the_task_map():
     langs = fj.libero_languages(TASK_MAP)
     name = "2026_10_17-03_06_03--episode=1--success=True--task=pick_up_the_black_bowl_between_the_plate.mp4"

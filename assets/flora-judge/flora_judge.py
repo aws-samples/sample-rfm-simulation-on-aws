@@ -14,10 +14,11 @@ imported by the unit tests. It never runs the model itself: scoring is done by N
 DIR is a local copy of s3://<results-bucket>/<run_id>/ (task-N/videos/*.mp4 + *.txt sidecars,
 task-N/eval_info.json, task-N/summary.txt). Per episode it finds:
 
-  task instruction  sidecar "Task:" line > "--task=" in the file name (OpenVLA-OFT style) >
+  task instruction  sidecar "Task:" line > "--task=" in the file name (OpenVLA-OFT style) or
+                    rollout_<task>_<success|failure>.mp4 (openpi LIBERO example: pi, lap) >
                     LIBERO task map for LeRobot videos (<suite>_<id>--eval_episode_N.mp4); a
                     40-character cut name is completed from the task map when the prefix is unique
-  sim success       "success=True|False" in the file name > sidecar "result:" line >
+  sim success       "success=True|False" or "_success/_failure" in the file name > sidecar "result:" >
                     LeRobot eval_info.json per_task[].metrics.successes (matched via video_paths)
 
 An episode without an instruction is not scored (Flora needs one); an episode without a sim
@@ -39,6 +40,8 @@ SCHEMA_VERSION = 1
 
 _SUCCESS_IN_NAME = re.compile(r"success[=_-](true|false)", re.I)
 _TASK_IN_NAME = re.compile(r"--task=(.+)$")
+# openpi LIBERO example (pi, lap): rollout_<task with underscores>_<success|failure>.mp4
+_OPENPI_NAME = re.compile(r"^rollout_(?P<task>.+)_(?P<result>success|failure)$")
 _SIDECAR_TASK = re.compile(r"^Task:\s*(.+?)\s*$", re.M)
 _SIDECAR_RESULT = re.compile(r"^result:\s*(true|false)\b", re.M | re.I)
 _LEROBOT_GROUP = re.compile(r"^(?P<suite>[a-z][a-z0-9]*(?:_[a-z0-9]+)*?)_(?P<task_id>\d+)$")
@@ -139,9 +142,12 @@ def episode_info(filename: str, sidecar: str = "", eval_info: dict = None, langu
     base = filename[:-4] if filename.endswith(".mp4") else filename
     info = {"instruction": None, "instruction_source": "none", "sim_success": None, "sim_success_source": "none"}
 
+    openpi = _OPENPI_NAME.match(base)
     m = _SUCCESS_IN_NAME.search(base)
     if m:
         info.update(sim_success=m.group(1).lower() == "true", sim_success_source="filename")
+    elif openpi:
+        info.update(sim_success=openpi.group("result") == "success", sim_success_source="filename")
     else:
         r = sidecar_result(sidecar)
         if r is not None:
@@ -152,8 +158,9 @@ def episode_info(filename: str, sidecar: str = "", eval_info: dict = None, langu
         info.update(instruction=task, instruction_source="sidecar")
     else:
         m = _TASK_IN_NAME.search(base)
-        if m:
-            info.update(instruction=m.group(1).replace("_", " ").strip(), instruction_source="filename")
+        slug = m.group(1) if m else (openpi.group("task") if openpi else None)
+        if slug:
+            info.update(instruction=slug.replace("_", " ").strip(), instruction_source="filename")
 
     if info["instruction"] and languages:
         full = complete_instruction(info["instruction"], languages)

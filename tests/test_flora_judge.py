@@ -136,6 +136,9 @@ def _run_dir(tmp_path):
     v1.mkdir(parents=True)
     (v1 / "x--episode=0--success=True.mp4").write_bytes(b"")  # no instruction anywhere -> not scored
     (run / "task-1" / "summary.txt").write_text("suite: libero_goal\n")
+    # not rollouts: Cosmos Policy future-image montage, LeRobot predicted video
+    (v1 / "x--with_future_img--episode=0--success=True--task=open_the_drawer.mp4").write_bytes(b"")
+    (v0 / "libero_spatial_0--pred_episode_0.mp4").write_bytes(b"")
     return run
 
 

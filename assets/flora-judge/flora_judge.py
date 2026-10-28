@@ -44,6 +44,9 @@ _SIDECAR_RESULT = re.compile(r"^result:\s*(true|false)\b", re.M | re.I)
 _LEROBOT_GROUP = re.compile(r"^(?P<suite>[a-z][a-z0-9]*(?:_[a-z0-9]+)*?)_(?P<task_id>\d+)$")
 _SCORE_TEXT = re.compile(r"Score:\s*([1-5])\s*$")
 _TASK_DIR = re.compile(r"^task-(\d+)$")
+# Videos that are not a rollout of the real scene: Cosmos Policy's predicted-future montage and
+# LeRobot's predicted-video renders. They would be scored as extra episodes.
+_NOT_A_ROLLOUT = re.compile(r"--with_future_img--|(^|--)pred_episode_\d+\.mp4$")
 
 
 # ───────────────────────────── instructions ─────────────────────────────
@@ -196,6 +199,8 @@ def build_episodes(run_dir: Path, languages: dict = None) -> list:
     for task_idx, task_dir in tasks:
         eval_info = _read_json(task_dir / "eval_info.json")
         for video in sorted((task_dir / "videos").glob("*.mp4")):
+            if _NOT_A_ROLLOUT.search(video.name):
+                continue
             sidecar = video.with_suffix(".txt")
             text = sidecar.read_text(errors="replace") if sidecar.is_file() else ""
             ep = {

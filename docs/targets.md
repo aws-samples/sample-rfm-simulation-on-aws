@@ -102,7 +102,8 @@ run that has videos.
 - **What it needs per episode.** The task instruction, from (in order) the video's `.txt` sidecar
   (`Task:` line), the OpenVLA-OFT style file name (`--task=...`), or, for the LeRobot targets
   (`xvla`, `smolvla`, `lingbot-va`, `fastwam`), LIBERO's task map (pinned commit) indexed by the
-  suite and task id in `eval_info.json`. The simulator's success flag comes from `success=True|False`
+  suite and task id in `eval_info.json`. Instructions cut to 40 characters in OpenVLA-OFT style
+  file names are completed from the same task map when the prefix is unique. The simulator's success flag comes from `success=True|False`
   in the file name, the sidecar `result:` line or `eval_info.json`. An episode without an
   instruction is not scored; one without a sim flag is scored but left out of the agreement.
   LeRobot runs recorded before this version named videos `eval_episode_N.mp4` without the task

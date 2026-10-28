@@ -77,6 +77,17 @@ def test_openvla_style_name_gives_success_and_task():
     assert info["instruction"] == "put the bowl on the stove" and info["instruction_source"] == "filename"
 
 
+def test_cut_task_name_is_completed_from_the_task_map():
+    langs = fj.libero_languages(TASK_MAP)
+    name = "2026_10_17-03_06_03--episode=1--success=True--task=pick_up_the_black_bowl_between_the_plate.mp4"
+    info = fj.episode_info(name, "", None, langs)
+    assert info["instruction"] == "pick up the black bowl between the plate and the ramekin and place it on the plate"
+    assert info["instruction_source"] == "filename+libero_task_map"
+    # ambiguous prefix (both spatial tasks start with it) or no task map: keep the text as it is
+    assert fj.complete_instruction("pick up the black bowl", langs) == "pick up the black bowl"
+    assert fj.episode_info(name)["instruction"] == "pick up the black bowl between the plate"
+
+
 def test_sidecar_task_and_result_win_over_nothing():
     info = fj.episode_info("ep0.mp4", "Task:       open the drawer\nresult:        True\n")
     assert (info["instruction"], info["sim_success"]) == ("open the drawer", True)

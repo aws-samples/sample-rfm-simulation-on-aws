@@ -15,7 +15,8 @@ DIR is a local copy of s3://<results-bucket>/<run_id>/ (task-N/videos/*.mp4 + *.
 task-N/eval_info.json, task-N/summary.txt). Per episode it finds:
 
   task instruction  sidecar "Task:" line > "--task=" in the file name (OpenVLA-OFT style) >
-                    LIBERO task map for LeRobot videos (<suite>_<id>--eval_episode_N.mp4)
+                    LIBERO task map for LeRobot videos (<suite>_<id>--eval_episode_N.mp4); a
+                    40-character cut name is completed from the task map when the prefix is unique
   sim success       "success=True|False" in the file name > sidecar "result:" line >
                     LeRobot eval_info.json per_task[].metrics.successes (matched via video_paths)
 
@@ -151,6 +152,11 @@ def episode_info(filename: str, sidecar: str = "", eval_info: dict = None, langu
         if m:
             info.update(instruction=m.group(1).replace("_", " ").strip(), instruction_source="filename")
 
+    if info["instruction"] and languages:
+        full = complete_instruction(info["instruction"], languages)
+        if full != info["instruction"]:
+            info.update(instruction=full, instruction_source=info["instruction_source"] + "+libero_task_map")
+
     group, video = split_lerobot_name(filename)
     candidates = [e for e in lerobot_episodes(eval_info) if e[1] == video and (group is None or e[0] == group)]
     if len(candidates) == 1:  # a flat name shared by several tasks is ambiguous: leave it unknown
@@ -163,6 +169,16 @@ def episode_info(filename: str, sidecar: str = "", eval_info: dict = None, langu
             if langs and task_id is not None and 0 <= task_id < len(langs):
                 info.update(instruction=langs[task_id], instruction_source="libero_task_map")
     return info
+
+
+def complete_instruction(text: str, languages: dict, min_len: int = 15) -> str:
+    """OpenVLA-OFT style file names cut the task to 40 characters ("..._between_the_plate"); when the
+    cut text starts exactly one LIBERO instruction, return that full instruction, else ``text``."""
+    known = {lang for langs in languages.values() for lang in langs}
+    if text in known or len(text) < min_len:
+        return text
+    matches = {lang for lang in known if lang.startswith(text)}
+    return matches.pop() if len(matches) == 1 else text
 
 
 def _suite_and_id(group_dir: str, suite, task_id):

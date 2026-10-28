@@ -262,6 +262,12 @@ WEIGHTS_PID=$!
 log "[4/7] uv pip install -r batch_utils/requirements.txt (vllm, transformers, av, ...)..."
 uv pip install --python "${VPY}" -r "${SNAP}/batch_utils/requirements.txt" > /tmp/{{ judge_id }}_pip.log 2>&1 \
     || die "pip install of the Flora requirements failed (see /tmp/{{ judge_id }}_pip.log)"
+# vLLM / FlashInfer JIT-compile some kernels on first use and call `ninja` from PATH.
+uv pip install --python "${VPY}" ninja >> /tmp/{{ judge_id }}_pip.log 2>&1 || die "pip install ninja failed"
+export PATH="$(dirname "${VPY}"):${PATH}"
+# FlashInfer's top-k/top-p sampler is a JIT kernel (needs nvcc matching torch's CUDA); vLLM's
+# PyTorch sampler gives the same result for this greedy-ish scoring and needs no compiler.
+export VLLM_USE_FLASHINFER_SAMPLER=0
 "${VPY}" -c "
 import torch, vllm, transformers
 print('torch', torch.__version__, 'cuda', torch.version.cuda, 'vllm', vllm.__version__, 'transformers', transformers.__version__)

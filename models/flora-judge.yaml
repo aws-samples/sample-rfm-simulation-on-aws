@@ -1,0 +1,36 @@
+# Flora-Rewarder (NVIDIA): post-run JUDGE, not a policy. Scores the rollout videos of a finished run of
+# another target with the outcome (terminal) reward, an integer 1 (complete failure) .. 5 (complete
+# success) per episode, and compares it with the simulator's own success flag.
+#   python vlasim.py judge --vla smolvla [--run RUN_ID]      (= python deploy.py --judge --vla ...)
+# Template: flora-judge-userdata.sh.j2 (+ assets/flora-judge/flora_judge.py). CDK: cdk/bin/judge.ts.
+# ⚠️ License: NVIDIA OneWay Noncommercial License (22 Mar 2022) — NON-COMMERCIAL, research and
+#    development only (model card). Base model Qwen/Qwen3.5-27B: Apache-2.0. Not gated on Hugging Face.
+# Scoring code: NVIDIA's batch_utils/terminal_reward.py from the same pinned revision, downloaded at run
+# time (official prompt, frame sampling and parser; not vendored here). Its requirements pin
+# vllm==0.24.0, transformers==5.8.1, qwen-vl-utils==0.0.14, decord==0.6.0, av>=15.
+model:
+  id: flora-judge
+  display_name: "Flora-Rewarder"
+  hf_repo: "nvidia/Flora-Rewarder"
+  hf_model_revision: "031299e46e452fc0cedb4e0975eb9fa95fc37783"
+  license: "NVIDIA OneWay Noncommercial License (non-commercial, research only)"
+  python_version: "3.12"            # batch_utils is validated with Python 3.12
+  success_threshold: 4              # flora_success = score >= 4 (3 = midpoint, counted as failure)
+  max_num_seqs: 8                   # terminal_reward default
+  gpu_memory_utilization: 0.88      # terminal_reward default
+  annotate_captions: true           # append "Flora score: N/5" to each video's .txt (gallery caption)
+  # LIBERO task order -> instruction text for LeRobot videos (eval_info.json has suite + task id only).
+  libero_task_map_url: "https://raw.githubusercontent.com/Lifelong-Robot-Learning/LIBERO/8f1084e3132a39270c3a13ebe37270a43ece2a01/libero/libero/benchmark/libero_suite_task_map.py"
+
+instance:
+  # 27B bf16 = ~54 GB of weights. One RTX PRO 6000 (96 GB, Blackwell sm_120) first; g6e.12xlarge
+  # (4 x L40S 48 GB) runs it with tensor parallel 4; p5.4xlarge (1 x H100 80 GB, the model card's
+  # test hardware) last. AzSelector skips types a region does not offer.
+  preferred: [g7e.2xlarge, g7e.4xlarge, g6e.12xlarge, p5.4xlarge]
+  ebs_gb: 250                       # weights 54 GB (HF cache) + vLLM/torch venv + run videos
+  creationpolicy_timeout: PT180M
+  single_gpu_mib: 79000             # one GPU at least this large -> tensor parallel 1
+  min_total_gpu_mib: 150000         # else all GPUs together (2/4/8) must reach this
+  min_host_mib: 60000
+  download_timeout_s: 5400
+  score_timeout_s: 5400

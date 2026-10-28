@@ -13,9 +13,10 @@ import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-from targets import VLA_TARGETS  # noqa: E402
+from targets import JUDGE_TARGETS, VLA_TARGETS  # noqa: E402
 
 EXPECTED = set(VLA_TARGETS)
+JUDGES = set(JUDGE_TARGETS)
 APP_TS = (ROOT / "cdk" / "bin" / "app.ts").read_text()
 
 
@@ -106,7 +107,31 @@ def test_cli_vla_choices(filename):
 
 def test_models_yaml():
     stems = {p.stem for p in (ROOT / "models").glob("*.yaml")}
-    assert stems == EXPECTED, f"models/: missing {sorted(EXPECTED - stems)}, extra {sorted(stems - EXPECTED)}"
+    want = EXPECTED | JUDGES
+    assert stems == want, f"models/: missing {sorted(want - stems)}, extra {sorted(stems - want)}"
+
+
+def test_judges_are_not_vla_targets():
+    assert len(JUDGE_TARGETS) == len(JUDGES) and not JUDGES & EXPECTED
+
+
+@pytest.mark.parametrize("judge", JUDGE_TARGETS)
+def test_judge_template_and_cdk(judge):
+    assert (ROOT / "templates" / f"{judge}-userdata.sh.j2").is_file()
+    ts = (ROOT / "cdk" / "lib" / "judge-stack.ts").read_text()
+    m = re.search(r"export const JUDGE_TARGETS = \[(.*?)\] as const;", ts)
+    assert m and set(re.findall(r"'([a-z0-9-]+)'", m.group(1))) == JUDGES
+
+
+def test_judge_cli_choices():
+    """deploy.py / destroy.py --judge and generate.py --judge-target take their choices from JUDGE_TARGETS."""
+    for filename, flag in (("deploy.py", "--judge"), ("destroy.py", "--judge"), ("generate.py", "--judge-target")):
+        tree = ast.parse((ROOT / filename).read_text())
+        consts = {"JUDGE_TARGETS": list(JUDGE_TARGETS)}
+        found = [_resolve({k.arg: k.value for k in n.keywords}["choices"], consts) for n in ast.walk(tree)
+                 if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr == "add_argument"
+                 and n.args and isinstance(n.args[0], ast.Constant) and n.args[0].value == flag]
+        assert found and all(set(c) == JUDGES for c in found), filename
 
 
 def test_app_ts_allowlist():

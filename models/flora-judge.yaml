@@ -3,8 +3,8 @@
 # success) per episode, and compares it with the simulator's own success flag.
 #   python vlasim.py judge --vla smolvla [--run RUN_ID]      (= python deploy.py --judge --vla ...)
 # Template: flora-judge-userdata.sh.j2 (+ assets/flora-judge/flora_judge.py). CDK: cdk/bin/judge.ts.
-# ⚠️ License: NVIDIA OneWay Noncommercial License (22 Mar 2022) — NON-COMMERCIAL, research and
-#    development only (model card). Base model Qwen/Qwen3.5-27B: Apache-2.0. Not gated on Hugging Face.
+# LICENSE: NVIDIA OneWay Noncommercial License (22 Mar 2022) — NON-COMMERCIAL, research and
+#   development only (model card). Base model Qwen/Qwen3.5-27B: Apache-2.0. Not gated on Hugging Face.
 # Scoring code: NVIDIA's batch_utils/terminal_reward.py from the same pinned revision, downloaded at run
 # time (official prompt, frame sampling and parser; not vendored here). Its requirements pin
 # vllm==0.24.0, transformers==5.8.1, qwen-vl-utils==0.0.14, decord==0.6.0, av>=15.

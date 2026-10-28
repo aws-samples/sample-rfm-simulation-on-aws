@@ -4,6 +4,7 @@ S3 is replaced by an in-memory fake, so no AWS credentials or network are needed
 """
 
 import argparse
+import json
 import math
 import sys
 from pathlib import Path
@@ -175,3 +176,44 @@ def test_collect_latest_run_and_filters(monkeypatch):
     assert len(results.collect(args, _FakeBoto3([BUCKET]))) == 3
     args.vla = "pi"
     assert results.collect(args, _FakeBoto3([BUCKET])) == []
+
+
+# --- post-run judge (judge.json next to the run) ------------------------------------------------------
+
+JUDGE_JSON = json.dumps({
+    "judge": "flora-rewarder-outcome", "model": "nvidia/Flora-Rewarder",
+    "model_revision": "031299e46e452fc0cedb4e0975eb9fa95fc37783", "success_threshold": 4,
+    "summary": {"agreement": 0.8, "n_agree": 8, "n_compared": 10, "n_scored": 10, "n_episodes": 10,
+                "mean_score_sim_success": 4.6, "mean_score_sim_failure": 1.8,
+                "confusion": {"sim_success_flora_success": 5, "sim_success_flora_failure": 1,
+                              "sim_failure_flora_success": 1, "sim_failure_flora_failure": 3}},
+    "episodes": [],
+})
+
+
+def test_judge_summary_and_line():
+    s3 = FakeS3({BUCKET: {"R/judge.json": JUDGE_JSON, "B/judge.json": "{not json"}})
+    j = results.judge_summary(s3, "us-east-1", BUCKET, "R")
+    assert (j["agreement"], j["n_agree"], j["model_revision"]) == (0.8, 8, "031299e4")
+    line = results.judge_line(j)
+    assert "agreement 0.80 (8/10)" in line and "sim-success 4.6 / sim-failure 1.8" in line and ">= 4" in line
+    assert results.judge_summary(s3, "us-east-1", BUCKET, "none") is None
+    assert results.judge_line(results.judge_summary(s3, "us-east-1", BUCKET, "B")) == "unreadable judge.json"
+
+
+def test_collect_attaches_judge_to_judged_runs(monkeypatch, capsys):
+    objects = {BUCKET: {
+        "2026-10-19-0558/task-0/summary.txt": "success_rate: 0.9\nn_episodes: 10\nn_success: 9\n",
+        "2026-10-19-0558/judge.json": JUDGE_JSON,
+        "2026-10-18-0100/task-0/summary.txt": "success_rate: 0.1\nn_episodes: 10\nn_success: 1\n",
+    }}
+    monkeypatch.setattr(results, "S3", lambda boto3, region: FakeS3(objects))
+    args = argparse.Namespace(region=None, vla=None, since=None, all_runs=True)
+    rows = results.collect(args, _FakeBoto3([BUCKET]))
+    judged = {r["run"]: bool(r.get("judge")) for r in rows}
+    assert judged == {"2026-10-19-0558": True, "2026-10-18-0100": False}
+
+    monkeypatch.setitem(sys.modules, "boto3", _FakeBoto3([BUCKET]))
+    assert results.main(["--all-runs"]) == 0
+    out = capsys.readouterr().out
+    assert "post-run judge (judge.json):" in out and "2026-10-19-0558: agreement 0.80 (8/10)" in out

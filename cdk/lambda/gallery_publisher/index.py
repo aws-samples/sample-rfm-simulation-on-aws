@@ -24,6 +24,8 @@ CAPTION_EXT = ".txt"
 INDEX = "index.html"
 MANIFEST = "manifest.json"
 CAPTION_MAX_BYTES = 4096
+# Written into a video's caption by the post-run judge (assets/flora-judge/flora_judge.py).
+JUDGE_SCORE = re.compile(r"^Flora score: ([1-5])/5", re.M)
 REBUILD_ATTEMPTS = 3
 
 _s3 = None
@@ -73,11 +75,14 @@ def build_manifest(objects, prefix: str, captions=None) -> dict:
         run = runs.setdefault((target, run_id), {"run_id": run_id, "updated": modified, "videos": []})
         run["updated"] = max(run["updated"], modified)
         caption_key = key[: -len(VIDEO_EXT)] + CAPTION_EXT
+        caption = captions.get(caption_key, "")
+        score = JUDGE_SCORE.search(caption)
         run["videos"].append({
             "path": rel,
             "name": "/".join(parts[2:]),
             "size": int(obj.get("Size", 0)),
-            "caption": captions.get(caption_key, ""),
+            "caption": caption,
+            "score": int(score.group(1)) if score else None,
         })
     for run in runs.values():
         run["videos"].sort(key=lambda v: v["path"])
@@ -121,7 +126,8 @@ def build_index_html(manifest: dict, generated: str = "") -> str:
         "nav a{margin-right:1rem}section{margin-top:2rem}h3{font-size:1rem;margin:1.2rem 0 .4rem}"
         ".grid{display:flex;flex-wrap:wrap;gap:1rem}figure{margin:0;width:320px}"
         "video{width:320px;background:#000}figcaption{font-size:.8rem;white-space:pre-wrap;"
-        "word-break:break-word}.meta{color:#666;font-size:.85rem}</style>",
+        "word-break:break-word}.meta{color:#666;font-size:.85rem}"
+        ".score{font-weight:600;margin-left:.4rem}</style>",
         "</head><body>",
         "<h1>RFM video history</h1>",
     ]
@@ -141,7 +147,10 @@ def build_index_html(manifest: dict, generated: str = "") -> str:
                        f'{len(run["videos"])} video(s)</span></h3><div class="grid">')
             for v in run["videos"]:
                 src = e(urllib.parse.quote(v["path"]))
-                cap = (f"<figcaption>{e(v['name'])}"
+                score = v.get("score")
+                badge = (f' <span class="score" title="Flora-Rewarder outcome score (1-5)">Flora {int(score)}/5</span>'
+                         if isinstance(score, int) else "")
+                cap = (f"<figcaption>{e(v['name'])}{badge}"
                        + (f"<details><summary>details</summary>{e(v['caption'])}</details>" if v["caption"] else "")
                        + "</figcaption>")
                 out.append(f'<figure><video controls preload="metadata" src="{src}"></video>{cap}</figure>')
@@ -172,8 +181,12 @@ def list_prefix(bucket: str, prefix: str):
     return out
 
 
-def rebuild_index(bucket: str, prefix: str) -> dict:
-    """Rebuild <prefix>index.html + manifest.json; re-list and retry if new objects arrived meanwhile."""
+def rebuild_index(bucket: str, prefix: str, fresh=()) -> dict:
+    """Rebuild <prefix>index.html + manifest.json; re-list and retry if new objects arrived meanwhile.
+
+    Captions are reused from the previous manifest, except ``fresh`` keys (captions just copied,
+    e.g. re-written with a judge score), which are read again."""
+    fresh = set(fresh)
     s3 = _client()
     old_captions = _load_manifest_captions(bucket, prefix)
     manifest = {"targets": []}
@@ -181,7 +194,7 @@ def rebuild_index(bucket: str, prefix: str) -> dict:
         objects = list_prefix(bucket, prefix)
         captions = {}
         for key in caption_keys(objects, prefix):
-            if key in old_captions:
+            if key in old_captions and key not in fresh:
                 captions[key] = old_captions[key]
             else:
                 captions[key] = _read_caption(bucket, key)
@@ -236,6 +249,7 @@ def handler(event, context):
     prefix = os.environ["GALLERY_PREFIX"]
     target = os.environ["GALLERY_TARGET"]
     copied = 0
+    fresh = set()
     for record in event.get("Records", []):
         src_bucket = record["s3"]["bucket"]["name"]
         src_key = urllib.parse.unquote_plus(record["s3"]["object"]["key"])
@@ -256,7 +270,9 @@ def handler(event, context):
         for key, dest_key in pairs:
             _copy(src_bucket, key, bucket, dest_key)
             copied += 1
+            if dest_key.endswith(CAPTION_EXT):
+                fresh.add(dest_key)
     if copied:
-        manifest = rebuild_index(bucket, prefix)
+        manifest = rebuild_index(bucket, prefix, fresh)
         print(f"index rebuilt: {sum(len(t['runs']) for t in manifest['targets'])} run(s)")
     return {"copied": copied}

@@ -33,6 +33,11 @@ Subcommands
            Forwards all flags to results.py (--vla, --region, --since,
            --all-runs, --csv, --json).
 
+  judge    Score the rollout videos of a finished run with a post-run judge
+           (NVIDIA Flora-Rewarder, outcome score 1..5 per episode, NON-COMMERCIAL
+           license) and write judge.json + judge.txt next to that run. Runs the
+           doctor for the judge's GPU instance first, then deploy.py --judge.
+
   gallery  Print the video history gallery URL and password for the notification
            e-mail (all runs under that e-mail, grouped by target). Read-only;
            --reset-password issues a new password.
@@ -50,7 +55,7 @@ import subprocess  # nosec B404 - used only with hardcoded command lists, no she
 import sys
 from pathlib import Path
 
-from targets import VLA_TARGETS
+from targets import JUDGE_TARGETS, VLA_TARGETS
 
 BASE_DIR = Path(__file__).resolve().parent
 CDK_DIR = BASE_DIR / "cdk"
@@ -607,6 +612,29 @@ def run_deploy(rest):
     return _run(cmd, cwd=str(BASE_DIR)).returncode
 
 
+def run_judge(rest):
+    """vlasim judge --vla TARGET [--run RUN_ID] [...] -> doctor (judge instance quota) + deploy.py --judge."""
+    if any(tok in ("-h", "--help") for tok in rest):
+        print("usage: python vlasim.py judge --vla TARGET [--run RUN_ID] [--region R] [--email A] "
+              "[--libero-suite S] [--skip-doctor]\n\nForwards to deploy.py --judge (see deploy.py --help: "
+              "--judge, --run).")
+        return 0
+    skip_doctor = "--skip-doctor" in rest
+    forward = [t for t in rest if t != "--skip-doctor"]
+    if "--judge" not in forward:
+        forward = ["--judge"] + forward
+    _, region, email = _peek_core_args(forward)
+    if not skip_doctor:
+        print("=== Preflight (vlasim doctor, judge instance) ===")
+        failures = run_doctor(vla=JUDGE_TARGETS[0], region=region, email=email, quiet_header=True)
+        print("=================================\n")
+        if failures:
+            print("[judge] Preflight FAILED. Fix the [FAIL] items above, or re-run with --skip-doctor.",
+                  file=sys.stderr)
+            return 1
+    return _run([sys.executable, str(DEPLOY_PY)] + forward, cwd=str(BASE_DIR)).returncode
+
+
 def run_destroy(rest):
     cmd = [sys.executable, str(DESTROY_PY)] + rest
     return _run(cmd, cwd=str(BASE_DIR)).returncode
@@ -677,6 +705,7 @@ Usage:
   python vlasim.py destroy --vla TARGET [destroy.py flags...]
   python vlasim.py results [--vla PREFIX] [--region R] [--since RUN_ID] [--all-runs] [--csv F] [--json F]
   python vlasim.py gallery [--email A] [--region R] [--reset-password]
+  python vlasim.py judge   --vla TARGET [--run RUN_ID] [--region R] [--skip-doctor]
 
 Three-step quick start:
   python vlasim.py doctor                         # see what's missing
@@ -703,6 +732,7 @@ def main():
         "destroy": run_destroy,
         "results": run_results,
         "gallery": run_gallery,
+        "judge": run_judge,
     }
     handler = dispatch.get(cmd)
     if handler is None:

@@ -16,6 +16,10 @@ Episode count, in order of preference: n_episodes (+ n_success) in summary.txt;
 otherwise the per-episode videos (success=True/False) in task-N/videos/;
 otherwise the rate is shown without k/n. A task with no summary.txt is
 reported as "running/failed", never as 0.
+
+When a run was scored by the post-run judge (python vlasim.py judge --vla ...),
+<RUN_ID>/judge.json is read too and its agreement with the simulator's success
+flag is printed below the table.
 """
 import argparse
 import collections
@@ -111,6 +115,33 @@ def task_row(s3, region, bucket, run, task_prefix):
                 condition=(kv.get("condition") or "-").split()[0], k=k, n=n, rate=rate, stack=stack_fp)
 
 
+def judge_summary(s3, region, bucket, run):
+    """Compact view of <run>/judge.json (post-run judge), or None when the run was not judged."""
+    text = s3.text(region, bucket, f"{run}/judge.json")
+    if not text:
+        return None
+    try:
+        report = json.loads(text)
+        summ = report["summary"]
+    except (ValueError, KeyError, TypeError):
+        return {"error": "unreadable judge.json"}
+    return dict(judge=report.get("judge", "judge"), model=report.get("model", ""),
+                model_revision=str(report.get("model_revision", ""))[:8],
+                threshold=report.get("success_threshold"), agreement=summ.get("agreement"),
+                n_agree=summ.get("n_agree"), n_compared=summ.get("n_compared"), n_scored=summ.get("n_scored"),
+                n_episodes=summ.get("n_episodes"), mean_score_sim_success=summ.get("mean_score_sim_success"),
+                mean_score_sim_failure=summ.get("mean_score_sim_failure"), confusion=summ.get("confusion"))
+
+
+def judge_line(j):
+    if j.get("error"):
+        return j["error"]
+    agree = "n/a" if j["agreement"] is None else f"{j['agreement']:.2f} ({j['n_agree']}/{j['n_compared']})"
+    return (f"agreement {agree}, scored {j['n_scored']}/{j['n_episodes']}, mean score sim-success "
+            f"{j['mean_score_sim_success']} / sim-failure {j['mean_score_sim_failure']} "
+            f"[{j['model'] or j['judge']}@{j['model_revision']}, success = score >= {j['threshold']}]")
+
+
 def collect(args, boto3):
     s3 = S3(boto3, args.region)
     acct = boto3.client("sts").get_caller_identity()["Account"]
@@ -136,10 +167,15 @@ def collect(args, boto3):
         if not args.all_runs:
             runs = runs[-1:]
         for run in runs:
+            judge = None
             for t in s3.prefixes(region, bucket, run + "/"):
                 if re.search(r"/task-\d+/$", t):
+                    if judge is None:
+                        judge = judge_summary(s3, region, bucket, run) or {}
                     r = task_row(s3, region, bucket, run, t)
                     r.update(bucket_stack=stack, region=region)
+                    if judge:
+                        r["judge"] = judge
                     rows.append(r)
     return rows
 
@@ -212,6 +248,14 @@ def main(argv=None):
         print("\nstack fingerprints:")
         for k, v in fps.items():
             print(f"  {k}: {v}")
+    judges = collections.OrderedDict()
+    for r in sorted(rows, key=lambda x: (x["bucket_stack"], x["region"], x["run"])):
+        if r.get("judge"):
+            judges.setdefault(f"{r['bucket_stack']}@{r['region']} {r['run']}", r["judge"])
+    if judges:
+        print("\npost-run judge (judge.json):")
+        for k, j in judges.items():
+            print(f"  {k}: {judge_line(j)}")
     if a.csv:
         with open(a.csv, "w", newline="") as f:
             w = csv.DictWriter(f, fieldnames=cols + ["fingerprint"])

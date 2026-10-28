@@ -76,6 +76,76 @@ RLDX-1 weights are under the **RLWRLD Model License v1.0 (non-commercial)**; "si
 
 `openarm-isaac` is a valid `--vla` choice (stack `OpenArm-Isaac-Demo`) but is **experimental and a pipe proof, not a task benchmark**. It drives the LeRobot π0.5 port `lerobot/folding_latest` (16-DOF bimanual, pinned `@a53a7287`; Apache-2.0) on the [enactic/openarm_isaac_lab](https://github.com/enactic/openarm_isaac_lab) bimanual Reach environment (pinned `@bad82e2`) inside the NGC `nvcr.io/nvidia/isaac-lab:2.3.0` container (Isaac Sim 5.1 + Isaac Lab 2.3 + Python 3.11), through a thin LeRobot rollout driver (`assets/openarm-isaac/run_eval.py`). `folding_latest` is a real-robot cloth-folding policy, so on an empty Reach scene it is out of distribution and the success rate is about 0 **by design**; the video only shows that π0.5 drives 16-joint OpenArm bimanual motion in Isaac Lab. Local mode only (no bridge): inference runs in-process on the sim GPU. It needs the Hugging Face token in SSM because it downloads the gated tokenizer `google/paligemma-3b-pt-224` (see [Hugging Face token](configuration.md#hugging-face-token-gated-models)). Configuration and the integration contract: [`models/openarm-isaac.yaml`](../models/openarm-isaac.yaml) and the headers of `assets/openarm-isaac/*.py`.
 
+## Post-run judge (Flora-Rewarder)
+
+`flora-judge` is **not a `--vla` target**: it scores the rollout videos of a run that already
+finished. `python vlasim.py judge --vla <target> [--run RUN_ID]` (= `python deploy.py --judge --vla
+<target> ...`) launches one GPU instance that reads `s3://<results bucket of the target>/<RUN_ID>/task-N/videos/`,
+scores every episode with NVIDIA [Flora-Rewarder](https://huggingface.co/nvidia/Flora-Rewarder)
+(a Qwen3.5-27B video reward model, bf16 ~54 GB, pinned `@031299e4`), writes `judge.json` + `judge.txt`
+next to that run, e-mails a summary (SNS) and terminates itself. Without `--run` it takes the newest
+run that has videos.
+
+| Judge | Model | Output per episode | Stack | GPU instance |
+|---|---|---|---|---|
+| `flora-judge` | Flora-Rewarder (NVIDIA, **NC**) outcome reward | integer score 1 (complete failure) to 5 (complete success) + one-line rationale | `FloraJudge-<target stack>` (e.g. `FloraJudge-SmolVLA-Demo`) | `g7e.2xlarge` |
+
+- **Scoring code is NVIDIA's own.** The instance downloads the model repository at the pinned
+  revision and runs its `batch_utils.terminal_reward --with-rationale` (the official outcome prompt,
+  up to 64 uniformly sampled frames, structured-output parser) with the pinned
+  `batch_utils/requirements.txt` (`vllm==0.24.0`, `transformers==5.8.1`, ...). Nothing from that
+  repository is vendored here. The rollout mp4 is passed as one video (it is already the target's
+  camera mosaic).
+- **Flora success = score >= 4** (`model.success_threshold` in `models/flora-judge.yaml`). 3 is the
+  model's midpoint and counts as failure. `judge.json` also keeps the raw score, so any threshold
+  can be applied afterwards.
+- **What it needs per episode.** The task instruction, from (in order) the video's `.txt` sidecar
+  (`Task:` line), the file name (OpenVLA-OFT style `--task=...`, openpi style `rollout_<task>_success.mp4`), or, for the LeRobot targets
+  (`xvla`, `smolvla`, `lingbot-va`, `fastwam`), LIBERO's task map (pinned commit) indexed by the
+  suite and task id in `eval_info.json`. Instructions cut to 40 characters in OpenVLA-OFT style
+  file names are completed from the same task map when the prefix is unique. The simulator's success flag comes from `success=True|False`
+  in the file name, the sidecar `result:` line or `eval_info.json`. An episode without an
+  instruction is not scored; one without a sim flag is scored but left out of the agreement.
+  LeRobot runs recorded before this version named videos `eval_episode_N.mp4` without the task
+  prefix (and lost videos when a task entry had several task ids), so their episodes cannot be
+  matched to `eval_info.json`; re-run the target to judge them.
+- **Instance.** `g7e.2xlarge` (1 x RTX PRO 6000 Blackwell 96 GB) → `g7e.4xlarge` → `g6e.12xlarge`
+  (4 x L40S 48 GB, tensor parallel 4) → `p5.4xlarge` (1 x H100 80 GB, the model card's test GPU).
+  The judge uses the **Deep Learning Base OSS Nvidia Driver GPU AMI (Ubuntu 24.04)**, whose driver
+  supports G7e; the policy targets keep their PyTorch 2.4.1 DLAMI. All five supported regions,
+  including `ap-northeast-2`, offer `g7e`.
+- **Measured (2026-10-28, `ap-northeast-2`).** `g7e.2xlarge` and `g7e.4xlarge` had no capacity in
+  either Seoul AZ (nor in any `us-west-2` AZ, together with `g6e.12xlarge` and `p5.4xlarge`), so both
+  runs used the `g6e.12xlarge` fallback (tensor parallel 4). Instance wall time 13-15 min
+  (weights 52 GB in ~7 min, vLLM install ~1 min, scoring 263 s for 10 episodes / 365 s for 47).
+  | judged run | episodes | sim success | agreement | confusion (sim ok/flora ok, ok/fail, fail/ok, fail/fail) |
+  |---|---|---|---|---|
+  | `cosmos-policy` LIBERO-Spatial `2026-10-17-0254` | 10 | 100% | 90% (9/10) | 9 / 1 / 0 / 0 |
+  | `pi` (π0.5) four LIBERO suites `2026-10-15-0948` | 47 | 85% | 74.5% (35/47) | 32 / 8 / 4 / 3 |
+
+  Read the disagreements as episodes to look at, not as judge errors: LIBERO stops at the first
+  success frame, so Flora often gives 4 ("bowl still held by the gripper") instead of 5, and its
+  rationales flag sim successes that look partial on video (wrong compartment, one of two objects,
+  swapped mugs) as well as sim failures that look complete on video.
+- **Permissions.** The instance role can list and read only `<RUN_ID>/*` of the judged bucket and
+  write only `<RUN_ID>/judge*` and the run's video captions (`task-*/videos/*.txt`, where the score
+  is appended for the [video history](gallery.md)).
+- **License.** Flora-Rewarder is under the **NVIDIA OneWay Noncommercial License (22 Mar 2022)** —
+  research and development only, not for commercial or production use (model card). Base model
+  Qwen3.5-27B is Apache-2.0. The weights are not gated on Hugging Face (no token needed).
+
+```bash
+python vlasim.py judge --vla smolvla                        # newest smolvla run with videos
+python vlasim.py judge --vla openvla-oft --libero-suite spatial --run 2026-10-19-0558
+aws logs tail /flora-judge/userdata --follow --region ap-northeast-2
+python vlasim.py results --vla smolvla                     # prints the judge agreement below the table
+python vlasim.py destroy --judge --vla smolvla              # delete the judge stack; judge.json stays
+```
+
+The judge stack has no bucket: `judge.json` lives with the run in the target's retained results
+bucket, so `destroy.py --judge` only removes the VPC, SNS topic and Lambda. The judged target's stack
+does not have to exist any more (its bucket is retained); the gallery score badge needs it.
+
 ## GPU instances per target
 
 `instance.preferred` in `models/<target>.yaml` is tried in order; the AZ selector falls back through the list (and across AZs) when capacity is short. `ebs_gb` is the root gp3 volume. Prices per instance are in [cost.md](cost.md).
@@ -102,6 +172,7 @@ RLDX-1 weights are under the **RLWRLD Model License v1.0 (non-commercial)**; "si
 | `rldx-kitchen` | `g6.2xlarge` → `g5.2xlarge` → `g6.xlarge` → `g5.xlarge` | 220 |
 | `openarm-lift-act` | `g6.12xlarge` → `g5.12xlarge` → `g6.24xlarge` → `g5.24xlarge` → `g6e.12xlarge` → `g6e.24xlarge` | 300 |
 | `openarm-isaac` | `g6.12xlarge` → `g5.12xlarge` → `g6.2xlarge` → `g5.2xlarge` | 500 |
+| `flora-judge` ([post-run judge](#post-run-judge-flora-rewarder)) | `g7e.2xlarge` → `g7e.4xlarge` → `g6e.12xlarge` → `p5.4xlarge` | 250 |
 
 ## Deploy commands
 
@@ -169,6 +240,9 @@ python vlasim.py deploy --vla openarm-lift-act --email you@example.com
 
 # OpenArm bimanual π0.5 (folding_latest) in Isaac Lab — experimental pipe proof, success ~0 by design (note 11)
 python vlasim.py deploy --vla openarm-isaac --email you@example.com
+
+# Post-run judge: score a finished run's videos with NVIDIA Flora-Rewarder (NON-COMMERCIAL license, ~45-90 min)
+python vlasim.py judge --vla smolvla --email you@example.com
 ```
 
 On first deploy you will receive an SNS subscription confirmation email — **click the link** to enable notifications.
@@ -189,6 +263,7 @@ aws logs tail /<target>/userdata --follow --region us-east-1
 # for example
 aws logs tail /gr00t-g1/userdata --follow --region us-east-1
 aws logs tail /rldx-kitchen/userdata --follow --region us-east-1
+aws logs tail /flora-judge/userdata --follow --region us-east-1   # post-run judge
 ```
 
 ## Cleanup
@@ -217,6 +292,7 @@ python vlasim.py destroy --vla rldx-gr1
 python vlasim.py destroy --vla rldx-kitchen
 python vlasim.py destroy --vla openarm-lift-act
 python vlasim.py destroy --vla openarm-isaac
+python vlasim.py destroy --judge --vla smolvla   # post-run judge stack of smolvla (judge.json stays with the run)
 ```
 
 > `vlasim destroy` forwards to `destroy.py` unchanged — `python destroy.py --vla <target>`

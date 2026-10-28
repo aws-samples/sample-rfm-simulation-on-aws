@@ -9,12 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Post-run judge `flora-judge`: `python vlasim.py judge --vla <target> [--run RUN_ID]` (= `deploy.py --judge`) scores every rollout video of a finished run with NVIDIA Flora-Rewarder (`nvidia/Flora-Rewarder` @031299e4, Qwen3.5-27B, outcome score 1-5, success = score >= 4) on a `g7e.2xlarge` (fallbacks `g7e.4xlarge`, `g6e.12xlarge` with tensor parallel 4, `p5.4xlarge`) and writes `judge.json` / `judge.txt` next to the run, then e-mails a summary and terminates. Scoring uses NVIDIA's own `batch_utils.terminal_reward` from the pinned model revision (downloaded at run time). Own CDK app `cdk/bin/judge.ts` (stack `FloraJudge-<target stack>`, Deep Learning Base OSS Nvidia Driver AMI for Blackwell), `destroy.py --judge`. `vlasim results` prints the judge's agreement with the simulator. Flora-Rewarder is under the NVIDIA OneWay Noncommercial License (research only). See [docs/targets.md](docs/targets.md#post-run-judge-flora-rewarder).
+
 - Video history gallery: the completion e-mail links to a password-protected Amazon CloudFront page with every video of every run under the notification e-mail, grouped by target, newest run first (shared `RFM-Gallery` stack: private S3 bucket + OAC, CloudFront Function + KeyValueStore Basic auth; per-target `GalleryPublisher` Lambda). `vlasim.py gallery [--reset-password]` prints the URL and password; `deploy.py --no-gallery` / `deployment.gallery: false` opt out. Videos already in a kept results bucket are added on the next deploy (backfill). The `aws s3 sync` download line stays in the e-mail. See [docs/gallery.md](docs/gallery.md).
 
 ### Changed
 
+- Video history: a video whose caption carries a judge score shows a `Flora N/5` badge, and a re-uploaded caption is read again instead of reusing the cached text.
 - `destroy.py` asks what to do with the data: `--keep-data` (default, today's behaviour: results bucket and gallery are kept) or `--delete-all` (also deletes the results bucket, the stack's Lambda log groups and this target's gallery videos, and the whole gallery when no other target stack is left in the region). A terminal gets a numbered prompt; without one, destroy keeps the data.
 - `requirements.txt` installs `boto3[crt]` (the CloudFront KeyValueStore API needs SigV4A).
+
+### Fixed
+
+- Shared LeRobot x LIBERO template: videos are uploaded as `<suite>_<task_id>--eval_episode_N.mp4`. A task entry with several `task_ids` used to upload only the last task id's videos, because every task id restarts at `eval_episode_0.mp4`.
 
 ## [1.0.0] - 2026-10-22
 

@@ -32,7 +32,7 @@ deploy.py
 
 ```
 sample-rfm-simulation-on-aws/
-├── vlasim.py                 # CLI front end: doctor / init / deploy / destroy / results / gallery
+├── vlasim.py                 # CLI front end: doctor / init / deploy / destroy / results / gallery / judge
 ├── deploy.py                 # 1-click deploy entrypoint
 ├── destroy.py                # Stack teardown (--keep-data / --delete-all)
 ├── gallery.py                # Video history gallery helpers (id, password, SSM, KeyValueStore)
@@ -40,7 +40,7 @@ sample-rfm-simulation-on-aws/
 ├── generate.py               # Renders assets/userdata/{vla}.sh from templates/ + models/
 ├── simulator-config.yaml     # Shared deployment settings
 ├── requirements.txt          # boto3[crt], pyyaml, jinja2
-├── models/                   # One config per --vla target (20)
+├── models/                   # One config per --vla target (20) + the post-run judge (flora-judge.yaml)
 │   ├── gr00t.yaml            # GR00T N1.7 on LIBERO-10
 │   ├── gr00t-gr1.yaml        # GR00T N1.6 + GR1 humanoid (RoboCasa)
 │   ├── gr00t-g1.yaml         # GR00T N1.6 + Unitree G1 whole-body loco-manip (optional N1.7 adapter)
@@ -60,8 +60,9 @@ sample-rfm-simulation-on-aws/
 │   ├── rldx-gr1.yaml         # RLDX-1 on RoboCasa GR-1 Tabletop
 │   ├── rldx-kitchen.yaml     # RLDX-1 on RoboCasa Kitchen
 │   ├── openarm-lift-act.yaml # OpenArm Lift-Cube scripted ACT collection (Isaac Lab)
-│   └── openarm-isaac.yaml    # OpenArm bimanual π0.5 pipe proof (Isaac Lab, experimental)
-├── templates/                # Jinja2 UserData templates (14)
+│   ├── openarm-isaac.yaml    # OpenArm bimanual π0.5 pipe proof (Isaac Lab, experimental)
+│   └── flora-judge.yaml      # post-run judge: NVIDIA Flora-Rewarder outcome score (not a --vla target)
+├── templates/                # Jinja2 UserData templates (15)
 │   ├── gr00t-userdata.sh.j2
 │   ├── gr00t-gr1-userdata.sh.j2
 │   ├── gr00t-g1-userdata.sh.j2          # GR00T-WholeBodyControl loco-manip, optional 2-venv N1.7 server
@@ -76,6 +77,7 @@ sample-rfm-simulation-on-aws/
 │   ├── rldx-userdata.sh.j2              # shared: rldx, rldx-simpler, rldx-gr1, rldx-kitchen
 │   ├── openarm-lift-act-userdata.sh.j2  # Isaac Lab container, scripted ACT collection
 │   ├── openarm-isaac-userdata.sh.j2     # Isaac Lab container, bimanual π0.5 eval
+│   ├── flora-judge-userdata.sh.j2       # post-run judge: vLLM + NVIDIA batch_utils terminal reward
 │   └── _gallery-sns.sh.j2               # included: "Video history" block of the SNS message
 ├── assets/
 │   ├── userdata/             # Generated scripts (gitignored)
@@ -86,14 +88,17 @@ sample-rfm-simulation-on-aws/
 │   ├── stack-knobs/          # stackpatch.py: per-task eval-script edits for the evaluation knobs
 │   ├── gr00t-g1/             # G1 trajectory collection + HDF5 → LeRobot conversion
 │   ├── openarm-lift-act/     # Lift-Cube env overlay, scripted collector, HDF5 → LeRobot
-│   └── openarm-isaac/        # bimanual env overlay + LeRobot rollout driver
+│   ├── openarm-isaac/        # bimanual env overlay + LeRobot rollout driver
+│   └── flora-judge/          # flora_judge.py: videos -> episodes, scores -> judge.json (stdlib)
 ├── cdk/
 │   ├── bin/app.ts            # CDK app: one stack per --vla target
 │   ├── bin/gallery.ts        # CDK app: shared RFM-Gallery stack (video history)
+│   ├── bin/judge.ts          # CDK app: post-run judge stack (FloraJudge-<target stack>)
 │   ├── lib/
 │   │   ├── vla-simulator-stack.ts   # Unified CDK stack
 │   │   ├── az-selector.ts           # GPU capacity Lambda (AZ/type fallback)
 │   │   ├── gallery-stack.ts         # S3 + CloudFront (OAC) + Function + KeyValueStore
+│   │   ├── judge-stack.ts           # post-run judge: VPC + SNS + AzSelector, reads the judged bucket
 │   │   └── nag.ts                   # cdk-nag acknowledgement helpers
 │   ├── functions/gallery-auth.js    # CloudFront Function: Basic auth for /g/<id>/
 │   ├── lambda/gallery_publisher/    # Lambda: copy videos to the gallery, rebuild index.html

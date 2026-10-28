@@ -72,6 +72,19 @@ jobs:
             -c gallery_bucket=rfm-gallery-ci-us-east-1 -c gallery_hash=$g -c gallery_url=https://d111.cloudfront.net/g/$g/ \
             --output cdk.out-smolvla-gallery > /dev/null
           echo "synth ok gallery"
+      # Post-run judges (targets.py JUDGE_TARGETS, e.g. flora-judge): render + bash -n, then synth the
+      # judge app against a placeholder run of one target (no AWS call: the run is plain CDK context).
+      - name: render + cdk synth (post-run judges)
+        working-directory: cdk
+        run: |
+          for j in $(cd .. && python targets.py --judge); do
+            (cd .. && python generate.py --judge-target "$j" --output-dir assets/userdata > /dev/null && bash -n "assets/userdata/$j.sh")
+            npx cdk synth -q --app "npx ts-node --prefer-ts-exts bin/judge.ts" -c region=us-east-1 -c notify_email=ci@example.com \
+              -c judge="$j" -c judge_target=smolvla -c judge_target_stack=SmolVLA-Demo \
+              -c judge_bucket=vla-sim-results-smolvla-demo-us-east-1-123456789012 -c judge_run=2026-10-20-0130 \
+              --output "cdk.out-$j" > /dev/null
+            echo "synth ok $j"
+          done
 
   lint:
     runs-on: ubuntu-latest

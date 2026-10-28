@@ -14,6 +14,8 @@ Usage:
   python deploy.py --vla gr00t-gr1 --bridge # GR00T-GR1 bridge mode (your endpoint must serve N1.6)
   python deploy.py --vla pi    --bridge     # π0.5  bridge mode (bring-your-own gRPC endpoint, experimental)
   python deploy.py --vla smolvla --no-gallery  # without the video history gallery
+  python deploy.py --judge --vla smolvla    # score the latest smolvla run's videos with Flora-Rewarder
+  python deploy.py --judge --vla smolvla --run 2026-10-20-0130   # ... a given run
 
 Steps:
   1. Load simulator-config.yaml + models/{vla}.yaml
@@ -48,7 +50,7 @@ from generate import (
     normalise_libero_suite,
     oft_stack_name,
 )
-from targets import VLA_TARGETS
+from targets import JUDGE_TARGETS, VLA_TARGETS
 
 BASE_DIR = Path(__file__).parent
 
@@ -65,6 +67,113 @@ LEROBOT_LIBERO_STACKS = {
 LEROBOT_LIBERO_TARGETS = tuple(LEROBOT_LIBERO_STACKS)
 # Local-only targets with their own template (same CLI handling as the LeRobot family).
 OTHER_LOCAL_STACKS = {"vla-adapter": "VLA-Adapter-Demo", "cosmos-policy": "Cosmos-Policy-Demo", "aspire": "ASPIRE-Demo"}
+
+RUN_RE = re.compile(r"^\d{4}-\d{2}-\d{2}-\d{4}$")  # RUN_ID=$(date '+%Y-%m-%d-%H%M') in every template
+VIDEO_KEY_RE = re.compile(r"^[^/]+/task-\d+/videos/[^/]+\.mp4$")
+
+
+def results_bucket_name(prefix: str, stack_name: str, region: str, account: str) -> str:
+    """Results bucket of a target stack. Same rule as cdk/lib/vla-simulator-stack.ts: drop "-demo"
+    only when the full name overflows 63 chars."""
+    name = f"{prefix}-{stack_name.lower()}-{region}-{account}"
+    if len(name) > 63:
+        name = f"{prefix}-{stack_name.lower().removesuffix('-demo')}-{region}-{account}"
+    return name
+
+
+def pick_run(run_ids, video_counts: dict, wanted: str = ""):
+    """The run to judge: ``wanted`` if given (must have videos), else the newest run with videos.
+
+    run_ids: top-level prefixes of the results bucket (without "/"); video_counts: {run_id: n mp4}.
+    Returns (run_id, error message); exactly one of them is set."""
+    runs = sorted(r for r in run_ids if RUN_RE.match(r))
+    if wanted:
+        if wanted not in runs:
+            return None, f"run {wanted} not found (runs: {', '.join(runs[-5:]) or 'none'})"
+        if not video_counts.get(wanted):
+            return None, f"run {wanted} has no task-N/videos/*.mp4"
+        return wanted, None
+    with_videos = [r for r in runs if video_counts.get(r)]
+    if not with_videos:
+        return None, "no run with task-N/videos/*.mp4 in this bucket"
+    return with_videos[-1], None
+
+
+def judge_stack_name(judge: str, target_stack: str) -> str:
+    """Same as judgeStackName() in cdk/lib/judge-stack.ts."""
+    return {"flora-judge": "FloraJudge"}[judge] + "-" + target_stack
+
+
+def _deploy_judge(args, deployment: dict, region: str, email: str, safe_email: str, safe_region: str) -> None:
+    """--judge: score a finished run of --vla with the post-run judge (cdk/bin/judge.ts)."""
+    from destroy import STACK_NAMES  # noqa: PLC0415 - same stack-name map as destroy.py
+
+    judge = args.judge
+    libero_suite = normalise_libero_suite(args.libero_suite)
+    target_stack = oft_stack_name(libero_suite) if args.vla == "openvla-oft" else STACK_NAMES[args.vla]
+    account = boto3.client("sts", region_name=region).get_caller_identity()["Account"]
+    outputs = gallery.stack_outputs(region, target_stack) or {}
+    bucket = outputs.get("S3BucketName") or results_bucket_name(
+        deployment.get("s3_results_prefix", "vla-sim-results"), target_stack, region, account)
+    s3 = boto3.client("s3", region_name=region)
+    try:
+        s3.head_bucket(Bucket=bucket)
+    except ClientError:
+        print(f"[error] Results bucket {bucket} not found in {region}: run python deploy.py --vla {args.vla} first.",
+              file=sys.stderr)
+        sys.exit(1)
+    run_ids, counts = [], {}
+    for page in s3.get_paginator("list_objects_v2").paginate(Bucket=bucket, Delimiter="/"):
+        run_ids += [p["Prefix"].rstrip("/") for p in page.get("CommonPrefixes", [])]
+    for run in sorted(r for r in run_ids if RUN_RE.match(r)):
+        if args.run and run != args.run:
+            continue
+        for page in s3.get_paginator("list_objects_v2").paginate(Bucket=bucket, Prefix=run + "/"):
+            counts[run] = counts.get(run, 0) + sum(1 for o in page.get("Contents", []) if VIDEO_KEY_RE.match(o["Key"]))
+    run, err = pick_run(run_ids, counts, args.run or "")
+    if err:
+        print(f"[error] {bucket}: {err}", file=sys.stderr)
+        sys.exit(1)
+    stack_name = judge_stack_name(judge, target_stack)
+    try:
+        s3.head_object(Bucket=bucket, Key=f"{run}/judge.json")
+        print(f"[judge] s3://{bucket}/{run}/judge.json exists and will be replaced")
+    except ClientError:
+        pass
+
+    print(f"[judge] Judge:   {judge}")
+    print(f"[judge] Target:  {args.vla} ({target_stack})")
+    print(f"[judge] Run:     {run} ({counts[run]} videos) in s3://{bucket}/")
+    print(f"[judge] Region:  {region}")
+    print(f"[judge] Stack:   {stack_name}")
+    print(f"[judge] Logs:    aws logs tail /{judge}/userdata --follow --region {region}")
+    print()
+    subprocess.run(  # nosec B603 - sys.executable is the current Python interpreter, not user input
+        [sys.executable, "generate.py", "--judge-target", judge, "--output-dir", "assets/userdata"],
+        cwd=str(BASE_DIR), check=True,
+    )
+    print()
+    print("[judge] Starting CDK deploy (one GPU instance; ~45-90 min: 54 GB weights + vLLM install + scoring)...")
+    cdk_cmd = [
+        "npx", "cdk", "deploy", stack_name,
+        "--app", "npx ts-node --prefer-ts-exts bin/judge.ts",
+        "-c", f"region={safe_region}",
+        "-c", f"notify_email={safe_email}",
+        "-c", f"judge={judge}",
+        "-c", f"judge_target={args.vla}",
+        "-c", f"judge_target_stack={target_stack}",
+        "-c", f"judge_bucket={bucket}",
+        "-c", f"judge_run={run}",
+        "--require-approval", "never",
+        "--output", f"cdk.out-{judge}-{target_stack.lower()}",
+    ]
+    subprocess.run(cdk_cmd, cwd=str(BASE_DIR / "cdk"), check=True)  # nosec B603,B607 - hardcoded command list
+    print()
+    print(f"[judge] Done. judge.json: s3://{bucket}/{run}/judge.json  (judge.txt next to it)")
+    print(f"  Summary: python vlasim.py results --vla {shlex.quote(args.vla)} --region {region}")
+    suite = f" --libero-suite {shlex.quote(libero_suite)}" if args.vla == "openvla-oft" else ""
+    print(f"  To clean up: python destroy.py --judge --vla {shlex.quote(args.vla)}{suite}")
+
 
 def _resolve_ssm(value: str, region: str) -> str:
     """If value has the form 'ssm:/path', look it up in SSM Parameter Store."""
@@ -137,11 +246,7 @@ def _maybe_import_orphan_bucket(
     """If the S3 bucket is orphaned (RETAINed after its stack was deleted), re-adopt it with cdk import."""
     sts = boto3.client("sts", region_name=region)
     account_id = sts.get_caller_identity()["Account"]
-    bucket_name = f"{s3_results_prefix}-{stack_name.lower()}-{region}-{account_id}"
-    if len(bucket_name) > 63:
-        # Same rule as the CDK stack: drop "-demo" only when the full name overflows 63 chars.
-        short_stack = stack_name.lower().removesuffix("-demo")
-        bucket_name = f"{s3_results_prefix}-{short_stack}-{region}-{account_id}"
+    bucket_name = results_bucket_name(s3_results_prefix, stack_name, region, account_id)
 
     s3 = boto3.client("s3", region_name=region)
     try:
@@ -214,7 +319,23 @@ def main():
     parser.add_argument("--collect", action="store_true",
                         help="gr00t-g1 only: trajectory COLLECTION mode (success-only obs/action HDF5 + "
                              "LeRobotDataset for N1.7 G1 adapter FT) instead of rollout/video.")
+    parser.add_argument("--judge", nargs="?", const=JUDGE_TARGETS[0], choices=JUDGE_TARGETS, metavar="JUDGE",
+                        help="Post-run judge instead of a simulation: score the rollout videos of a finished --vla "
+                             f"run with {JUDGE_TARGETS[0]} (NVIDIA Flora-Rewarder, NON-COMMERCIAL license) and write "
+                             "judge.json + judge.txt next to that run.")
+    parser.add_argument("--run", metavar="RUN_ID",
+                        help="--judge only: run id to score (default: the newest run with videos)")
     args = parser.parse_args()
+
+    if args.run and not args.judge:
+        print("[error] --run is only used with --judge.", file=sys.stderr)
+        sys.exit(1)
+    if args.run and not RUN_RE.match(args.run):
+        print(f"[error] --run must look like YYYY-MM-DD-HHMM, got {args.run!r}", file=sys.stderr)
+        sys.exit(1)
+    if args.judge and (args.bridge or args.collect):
+        print("[error] --judge cannot be combined with --bridge or --collect.", file=sys.stderr)
+        sys.exit(1)
 
     if args.collect and args.vla != "gr00t-g1":
         print("[error] --collect is only supported for --vla gr00t-g1.", file=sys.stderr)
@@ -238,6 +359,10 @@ def main():
 
     safe_email = _validate_email(email)
     safe_region = _validate_region(region)
+
+    if args.judge:
+        _deploy_judge(args, deployment, region, email, safe_email, safe_region)
+        return
 
     # ── Bridge mode resolution ────────────────────────────────────
     vpc_id = ""

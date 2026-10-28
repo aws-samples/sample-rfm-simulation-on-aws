@@ -8,6 +8,7 @@ Usage: python destroy.py --vla gr00t        [--region REGION] [--keep-data | --d
        python destroy.py --vla lap          [--region REGION]
        python destroy.py --vla openarm-isaac [--region REGION]
        python destroy.py --vla openarm-lift-act [--region REGION]
+       python destroy.py --judge --vla smolvla [--region REGION]   # the Flora judge stack of smolvla
 
 Data choice:
   --keep-data   Delete the compute stack only. The S3 results bucket (RemovalPolicy.RETAIN) and the
@@ -35,7 +36,7 @@ from generate import (
     normalise_libero_suite,
     oft_stack_name,
 )
-from targets import VLA_TARGETS
+from targets import JUDGE_TARGETS, VLA_TARGETS
 
 BASE_DIR = Path(__file__).parent
 
@@ -89,7 +90,18 @@ def main():
                            "(and the whole gallery when no other target stack is left in the region)")
     parser.add_argument("--yes", "-y", action="store_true",
                         help="--delete-all: do not ask to type the stack name")
+    parser.add_argument("--judge", nargs="?", const=JUDGE_TARGETS[0], choices=JUDGE_TARGETS, metavar="JUDGE",
+                        help="Delete the post-run judge stack of --vla (deploy.py --judge) instead of the target. "
+                             "judge.json/judge.txt stay next to the run in the target's results bucket.")
     args = parser.parse_args()
+
+    if args.judge:
+        if args.delete_all:
+            print("[error] --judge has no data of its own (judge.json lives in the target's results bucket); "
+                  "use destroy.py --vla <target> --delete-all for that.", file=sys.stderr)
+            sys.exit(1)
+        _destroy_judge(args)
+        return
 
     sim_path = BASE_DIR / "simulator-config.yaml"
     config = yaml.safe_load(sim_path.read_text())
@@ -176,6 +188,29 @@ def main():
               + " --delete-all")
         return
     _delete_data(region, stack_name, outputs)
+
+
+def _destroy_judge(args) -> None:
+    """Delete the judge stack (VPC, SNS, AzSelector; no bucket). CloudFormation directly: a cdk destroy
+    would have to re-synthesize the judge app with the run it scored."""
+    import boto3  # noqa: PLC0415
+
+    from deploy import judge_stack_name  # noqa: PLC0415
+
+    config = yaml.safe_load((BASE_DIR / "simulator-config.yaml").read_text())
+    region = args.region or config["deployment"]["region"]
+    _validate_region(region)
+    suite = normalise_libero_suite(args.libero_suite)
+    target_stack = oft_stack_name(suite) if args.vla == "openvla-oft" else STACK_NAMES[args.vla]
+    stack_name = judge_stack_name(args.judge, target_stack)
+    print(f"[destroy] Judge stack: {stack_name} ({region})")
+    if not _stack_exists(region, stack_name):
+        print("[destroy] Not found (already deleted?).")
+        return
+    cfn = boto3.client("cloudformation", region_name=region)
+    cfn.delete_stack(StackName=stack_name)
+    cfn.get_waiter("stack_delete_complete").wait(StackName=stack_name, WaiterConfig={"Delay": 15, "MaxAttempts": 160})
+    print("[destroy] Judge stack deleted. judge.json / judge.txt stay next to the judged run.")
 
 
 def _stack_outputs(region: str, stack_name: str) -> dict:

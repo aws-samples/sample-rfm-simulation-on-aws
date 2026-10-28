@@ -20,11 +20,13 @@ Usage:
     python generate.py --vla openarm-isaac [--config simulator-config.yaml] [--dry-run]
     python generate.py --vla openarm-lift-act [--config simulator-config.yaml] [--dry-run]
     python generate.py --vla molmoact2   [--config simulator-config.yaml] [--dry-run]
+    python generate.py --judge-target flora-judge [--dry-run]   # post-run judge (deploy.py --judge)
 """
 
 import argparse
 import base64
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -32,7 +34,7 @@ from pathlib import Path
 import yaml
 from jinja2 import Environment, FileSystemLoader
 
-from targets import VLA_TARGETS
+from targets import JUDGE_TARGETS, VLA_TARGETS
 
 BASE_DIR = Path(__file__).parent
 TEMPLATES_DIR = BASE_DIR / "templates"
@@ -709,6 +711,58 @@ def generate_aspire(config: dict, dry_run: bool, vla: str = "aspire") -> str:
     return env.get_template("aspire-userdata.sh.j2").render(**ctx)
 
 
+def _shell_safe(value: str, what: str) -> str:
+    """Values pasted into double-quoted bash strings: no quotes, $, backticks or backslashes."""
+    if any(c in str(value) for c in "\"'$`\\\n"):
+        print(f"[error] {what}: quotes, $, backticks, backslashes and newlines are not allowed: {value!r}",
+              file=sys.stderr)
+        sys.exit(1)
+    return str(value)
+
+
+def generate_flora_judge(config: dict, dry_run: bool, judge: str = "flora-judge") -> str:
+    """Flora-Rewarder post-run judge. The run to score (bucket, run id) is not baked in: deploy.py
+    passes it as CDK context and the bootstrap exports it (cdk/lib/judge-stack.ts), so one rendered
+    script serves every target. Embeds assets/flora-judge/flora_judge.py (stdlib-only manifest +
+    judge.json builder); the model, its batch_utils scoring code and requirements are downloaded on
+    the instance at the pinned revision."""
+    model = config.get("model", {})
+    instance = config.get("instance", {})
+    for key in ("hf_repo", "hf_model_revision", "license", "libero_task_map_url"):
+        if not model.get(key):
+            print(f"[error] models/{judge}.yaml: model.{key} is required", file=sys.stderr)
+            sys.exit(1)
+    if not re.fullmatch(r"[0-9a-f]{40}", str(model["hf_model_revision"])):
+        print(f"[error] models/{judge}.yaml: model.hf_model_revision must be a 40-hex commit", file=sys.stderr)
+        sys.exit(1)
+    threshold = int(model.get("success_threshold", 4))
+    if not 2 <= threshold <= 5:
+        print(f"[error] models/{judge}.yaml: model.success_threshold must be 2..5", file=sys.stderr)
+        sys.exit(1)
+    asset = BASE_DIR / "assets" / "flora-judge" / "flora_judge.py"
+    ctx = {
+        "judge_id": judge,
+        "display_name": _shell_safe(model.get("display_name", judge), "display_name"),
+        "hf_repo": _shell_safe(model["hf_repo"], "hf_repo"),
+        "hf_model_revision": model["hf_model_revision"],
+        "license": _shell_safe(model["license"], "license"),
+        "python_version": model.get("python_version", "3.12"),
+        "success_threshold": threshold,
+        "max_num_seqs": int(model.get("max_num_seqs", 8)),
+        "gpu_memory_utilization": float(model.get("gpu_memory_utilization", 0.88)),
+        "annotate_captions": bool(model.get("annotate_captions", True)),
+        "libero_task_map_url": _shell_safe(model["libero_task_map_url"], "libero_task_map_url"),
+        "single_gpu_mib": int(instance.get("single_gpu_mib", 79000)),
+        "min_total_gpu_mib": int(instance.get("min_total_gpu_mib", 150000)),
+        "min_host_mib": int(instance.get("min_host_mib", 60000)),
+        "download_timeout_s": int(instance.get("download_timeout_s", 5400)),
+        "score_timeout_s": int(instance.get("score_timeout_s", 5400)),
+        "judge_py_b64": base64.encodebytes(asset.read_bytes()).decode(),
+    }
+    env = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)), keep_trailing_newline=True)  # nosec B701 - shell script template
+    return env.get_template(f"{judge}-userdata.sh.j2").render(**ctx)
+
+
 def generate_pi(config: dict, resolved_vpc: str, resolved_nlb: str, dry_run: bool) -> str:
     tasks = config.get("tasks", [])
     if not tasks:
@@ -739,7 +793,10 @@ def generate_pi(config: dict, resolved_vpc: str, resolved_nlb: str, dry_run: boo
 
 def main():
     parser = argparse.ArgumentParser(description="Generate the EC2 UserData script for an RFM Simulation target")
-    parser.add_argument("--vla", required=True, choices=VLA_TARGETS, help="Target (model + simulator) to render")
+    what = parser.add_mutually_exclusive_group(required=True)
+    what.add_argument("--vla", choices=VLA_TARGETS, help="Target (model + simulator) to render")
+    what.add_argument("--judge-target", choices=JUDGE_TARGETS,
+                      help="Post-run judge to render (scores the videos of a finished run; see deploy.py --judge)")
     parser.add_argument(
         "--config", default=str(BASE_DIR / "simulator-config.yaml"),
         help="Shared config file path (default: simulator-config.yaml)",
@@ -765,12 +822,15 @@ def main():
         print(f"[error] Config file not found: {config_path}", file=sys.stderr)
         sys.exit(1)
 
-    config = _load_merged_config(config_path, args.vla)
-    print(f"VLA: {args.vla}")
+    name = args.judge_target or args.vla
+    config = _load_merged_config(config_path, name)
+    print(f"VLA: {name}")
     print(f"Config: {config_path}")
-    print(f"Model:  {BASE_DIR / 'models' / (args.vla + '.yaml')}")
+    print(f"Model:  {BASE_DIR / 'models' / (name + '.yaml')}")
 
-    if args.vla == "gr00t":
+    if args.judge_target:
+        rendered = generate_flora_judge(config, args.dry_run, judge=args.judge_target)
+    elif args.vla == "gr00t":
         rendered = generate_gr00t(config, args.resolved_grpc, args.resolved_vpc, args.dry_run)
     elif args.vla == "gr00t-gr1":
         rendered = generate_gr00t_gr1(config, args.resolved_grpc, args.resolved_vpc, args.dry_run)
@@ -802,14 +862,14 @@ def main():
 
     if args.dry_run:
         print("=" * 60)
-        print(f"[DRY-RUN] {args.vla}.sh preview:")
+        print(f"[DRY-RUN] {name}.sh preview:")
         print("=" * 60)
         print(rendered)
         return
 
     out_dir = Path(args.output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    dest = out_dir / f"{args.vla}.sh"
+    dest = out_dir / f"{name}.sh"
     dest.write_text(rendered)
 
     # Syntax-validate the rendered UserData before it can reach a deploy. A bash

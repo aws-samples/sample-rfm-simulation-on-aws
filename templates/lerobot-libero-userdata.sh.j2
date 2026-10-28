@@ -437,11 +437,14 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
     fi
 
     # lerobot-eval writes ${OUT_DIR}/videos/{suite}_{task_id}/eval_episode_N.mp4 and eval_info.json.
-    # Collect every mp4 into a flat per-task video dir for upload.
+    # Collect every mp4 into a flat per-task video dir for upload, as {suite}_{task_id}--eval_episode_N.mp4:
+    # with several task_ids every task restarts at eval_episode_0, so the bare names would overwrite
+    # each other, and the prefix maps a video back to its eval_info.json entry (post-run judge).
     VIDEO_DIR="${VIDEO_BASE_DIR}/task-${TASK_IDX}"
     mkdir -p "$VIDEO_DIR"
-    find "${OUT_DIR}/videos" -name "*.mp4" -newer /tmp/{{ vla }}_task${TASK_IDX}_start.marker \
-        -exec cp {} "${VIDEO_DIR}/" \; 2>/dev/null || true
+    while IFS= read -r -d '' _mp4; do
+        cp "$_mp4" "${VIDEO_DIR}/$(basename "$(dirname "$_mp4")")--$(basename "$_mp4")" || true
+    done < <(find "${OUT_DIR}/videos" -name "*.mp4" -newer /tmp/{{ vla }}_task${TASK_IDX}_start.marker -print0 2>/dev/null)
     VIDEO_COUNT=$(find "${VIDEO_DIR}" -name "*.mp4" 2>/dev/null | wc -l)
     log "  Videos collected: ${VIDEO_COUNT}"
 

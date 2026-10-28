@@ -4,7 +4,7 @@ Back to the [README](../README.md) · [Documentation index](README.md)
 
 ## `vlasim.py` commands
 
-A single CLI (`vlasim.py`) wraps the whole setup: `doctor`, `init`, `deploy`, `destroy`, `results` and `gallery` ([video history](gallery.md)). It runs on the standard library alone, so `doctor` works on a fresh host **before** any dependencies are installed. The command sequence is in the [README Quick Start](../README.md#quick-start).
+A single CLI (`vlasim.py`) wraps the whole setup: `doctor`, `init`, `deploy`, `destroy`, `results`, `gallery` ([video history](gallery.md)) and `judge` ([post-run judge](targets.md#post-run-judge-flora-rewarder)). It runs on the standard library alone, so `doctor` works on a fresh host **before** any dependencies are installed. The command sequence is in the [README Quick Start](../README.md#quick-start).
 
 `doctor` checks: Python/Node/CDK versions and installs, AWS credentials, region
 support, CDK bootstrap, GPU On-Demand vCPU quota (per target), `notify_email`, and —

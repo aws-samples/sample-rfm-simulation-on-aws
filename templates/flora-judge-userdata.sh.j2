@@ -133,7 +133,7 @@ until timeout 600 apt-get update -qq -o DPkg::Lock::Timeout=300 2>&1 | tee /tmp/
 done
 APT_RETRY=0
 until apt-get install -y --no-install-recommends -o DPkg::Lock::Timeout=300 \
-    curl ca-certificates jq python3 unzip \
+    curl ca-certificates jq python3 python3-dev build-essential unzip \
     2>&1 | tee /tmp/{{ judge_id }}_apt.log; do
     APT_RETRY=$((APT_RETRY + 1))
     [ $APT_RETRY -ge 3 ] && die "apt-get install failed after 3 retries"
@@ -224,16 +224,20 @@ log "[4/7] Installing uv + Python {{ python_version }} venv..."
 if ! command -v uv >/dev/null 2>&1; then
     curl -LsSf https://astral.sh/uv/install.sh | sh > /tmp/{{ judge_id }}_uv_install.log 2>&1 || die "uv install failed"
 fi
+# Two venvs: a small one only for the Hub downloads (so the background weight download never imports
+# from packages the requirements install is replacing), and the scoring venv for batch_utils.
 uv venv --python {{ python_version }} "${VENV_DIR}" > /tmp/{{ judge_id }}_venv.log 2>&1 || die "uv venv failed"
+uv venv --python {{ python_version }} "${WORK_DIR}/dl-venv" >> /tmp/{{ judge_id }}_venv.log 2>&1 || die "uv venv (download) failed"
 VPY="${VENV_DIR}/bin/python"
-uv pip install --python "${VPY}" "huggingface_hub>=1.0" "hf-xet>=1.5.2" >> /tmp/{{ judge_id }}_venv.log 2>&1 \
+DPY="${WORK_DIR}/dl-venv/bin/python"
+uv pip install --python "${DPY}" "huggingface_hub>=1.0" "hf-xet>=1.5.2" >> /tmp/{{ judge_id }}_venv.log 2>&1 \
     || die "huggingface_hub install failed"
 export HF_XET_CLIENT_READ_TIMEOUT=60
 export HF_XET_CLIENT_CONNECT_TIMEOUT=30
 export HF_XET_CLIENT_RETRY_MAX_DURATION=120
 
 # Code + requirements first (small), then the ~54 GB of weights in the background while vLLM installs.
-"${VPY}" - > /tmp/{{ judge_id }}_snapshot_code.log 2>&1 << 'PYEOF' || die "Flora repository (code) download failed"
+"${DPY}" - > /tmp/{{ judge_id }}_snapshot_code.log 2>&1 << 'PYEOF' || die "Flora repository (code) download failed"
 from huggingface_hub import snapshot_download
 path = snapshot_download("{{ hf_repo }}", revision="{{ hf_model_revision }}",
                          allow_patterns=["batch_utils/*", "batch_utils/**", "*.json", "*.jinja", "*.txt", "*.md"])
@@ -244,10 +248,15 @@ SNAP=$(sed -n 's/^SNAPSHOT=//p' /tmp/{{ judge_id }}_snapshot_code.log | tail -1)
 log "  repository: ${SNAP}"
 log "  requirements: $(tr '\n' ' ' < "${SNAP}/batch_utils/requirements.txt")"
 
-( timeout --signal=TERM --kill-after=60 {{ download_timeout_s }} "${VPY}" -c "
+# Wall-clock cap per attempt (a stalled Xet download returns nothing); the second attempt resumes
+# from the partial HF cache.
+( for _attempt in 1 2; do
+      timeout --signal=TERM --kill-after=60 {{ download_timeout_s }} "${DPY}" -c "
 from huggingface_hub import snapshot_download
 print(snapshot_download('{{ hf_repo }}', revision='{{ hf_model_revision }}'))
-" > /tmp/{{ judge_id }}_snapshot_weights.log 2>&1 ) &
+" >> /tmp/{{ judge_id }}_snapshot_weights.log 2>&1 && exit 0
+      echo "[weights] attempt ${_attempt} failed" >> /tmp/{{ judge_id }}_snapshot_weights.log
+  done; exit 1 ) &
 WEIGHTS_PID=$!
 
 log "[4/7] uv pip install -r batch_utils/requirements.txt (vllm, transformers, av, ...)..."

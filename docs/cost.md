@@ -51,7 +51,7 @@ Instance = the first entry of `instance.preferred` (the AZ selector may fall bac
 | `rldx-kitchen` | `g6.2xlarge` | ~25-35 min | ~0.41-0.57 |
 | `openarm-lift-act` | `g6.12xlarge` | not recorded | 4.6016 per hour |
 | `openarm-isaac` | `g6.12xlarge` | not recorded (creation timeout 240 min) | 4.6016 per hour |
-| `flora-judge` (post-run judge, `vlasim judge`) | `g7e.2xlarge` | ~45-90 min estimated (54 GB weight download + vLLM install + scoring; not yet measured) | ~2.52-5.04 |
+| `flora-judge` (post-run judge, `vlasim judge`) | `g7e.2xlarge` (measured on the `g6e.12xlarge` fallback, US$12.90/h in `ap-northeast-2`) | 13-15 min instance time measured for 10-47 episodes (+ ~10 min stack create/delete) | ~0.85-1.10 on `g7e.2xlarge`; ~2.80-3.25 measured on `g6e.12xlarge` |
 
 ## Not included
 

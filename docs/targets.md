@@ -114,6 +114,19 @@ run that has videos.
   The judge uses the **Deep Learning Base OSS Nvidia Driver GPU AMI (Ubuntu 24.04)**, whose driver
   supports G7e; the policy targets keep their PyTorch 2.4.1 DLAMI. All five supported regions,
   including `ap-northeast-2`, offer `g7e`.
+- **Measured (2026-10-28, `ap-northeast-2`).** `g7e.2xlarge` and `g7e.4xlarge` had no capacity in
+  either Seoul AZ (nor in any `us-west-2` AZ, together with `g6e.12xlarge` and `p5.4xlarge`), so both
+  runs used the `g6e.12xlarge` fallback (tensor parallel 4). Instance wall time 13-15 min
+  (weights 52 GB in ~7 min, vLLM install ~1 min, scoring 263 s for 10 episodes / 365 s for 47).
+  | judged run | episodes | sim success | agreement | confusion (sim ok/flora ok, ok/fail, fail/ok, fail/fail) |
+  |---|---|---|---|---|
+  | `cosmos-policy` LIBERO-Spatial `2026-10-17-0254` | 10 | 100% | 90% (9/10) | 9 / 1 / 0 / 0 |
+  | `pi` (π0.5) four LIBERO suites `2026-10-15-0948` | 47 | 85% | 74.5% (35/47) | 32 / 8 / 4 / 3 |
+
+  Read the disagreements as episodes to look at, not as judge errors: LIBERO stops at the first
+  success frame, so Flora often gives 4 ("bowl still held by the gripper") instead of 5, and its
+  rationales flag sim successes that look partial on video (wrong compartment, one of two objects,
+  swapped mugs) as well as sim failures that look complete on video.
 - **Permissions.** The instance role can list and read only `<RUN_ID>/*` of the judged bucket and
   write only `<RUN_ID>/judge*` and the run's video captions (`task-*/videos/*.txt`, where the score
   is appended for the [video history](gallery.md)).

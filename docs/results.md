@@ -3,6 +3,7 @@
 Back to the [README](../README.md) · [Documentation index](README.md)
 
 - [Downloading results](#downloading-results) and comparing runs with `vlasim results`
+- [Post-run judge](#post-run-judge-judgejson): Flora-Rewarder scores next to a run
 - [Expected Results](#expected-results), including the [same-stack baseline](#same-stack-baseline-official-stack-50-episodes-per-suite) and [per-target smoke results](#per-target-smoke-results)
 
 ## Downloading results
@@ -38,6 +39,22 @@ openvla-oft-spatial  ap-northeast-2  2026-10-19-0558  libero_spatial  smoke-knob
 ```
 
 A task with no `summary.txt` (still running, or the run died) is counted under `not_done`, never as a 0.
+
+## Post-run judge (judge.json)
+
+`python vlasim.py judge --vla <target> [--run RUN_ID]` ([targets](targets.md#post-run-judge-flora-rewarder)) scores every rollout video of a finished run with NVIDIA Flora-Rewarder and writes, next to the run:
+
+- `<RUN_ID>/judge.json`: one entry per video (`id`, `task_idx`, `video_key`, `instruction` + `instruction_source`, `sim_success` + `sim_success_source`, `flora_score` 1..5, `flora_success`, `flora_expected_score`, `rationale`, `skipped_reason`), a `summary` (`agreement`, `n_agree` / `n_compared`, `confusion` with the four sim x Flora cells, `mean_score`, `mean_score_sim_success`, `mean_score_sim_failure`, `sim_success_rate`, `flora_success_rate`, `score_histogram`) and the run facts (`model`, `model_revision`, `license`, `instance_type`, `tensor_parallel`, `gpu_driver`, `stack_versions`, `scoring_time_s`, `wall_time_s`).
+- `<RUN_ID>/judge.txt`: the same as a readable table; `judge-flora-terminal.jsonl` is NVIDIA's raw `terminal_reward` output (with `P(1..5)`).
+
+`flora_success = flora_score >= 4` (`success_threshold` in `judge.json`): 1 is complete failure, 5 complete success, and the midpoint 3 counts as failure. Agreement is computed only over episodes that have both a Flora score and a simulator success flag. `vlasim results` prints it below the table:
+
+```text
+post-run judge (judge.json):
+  smolvla-demo@ap-northeast-2 2026-10-20-0130: agreement 0.80 (8/10), scored 10/10, mean score sim-success 4.6 / sim-failure 1.8 [nvidia/Flora-Rewarder@031299e4, success = score >= 4]
+```
+
+_The numbers above show the format only; no judged run is published yet._ Flora is a learned judge: the model card reports MAE 0.40 on the 1-5 scale (RoboRewardBench) and asks to validate it on held-out episodes of your own robot before using it for training or data selection. Treat disagreements as episodes to look at, not as a correction of the simulator.
 
 ---
 

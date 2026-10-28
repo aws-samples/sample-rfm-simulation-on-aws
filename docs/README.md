@@ -4,7 +4,7 @@ Back to the [README](../README.md).
 
 | Page | What it covers |
 |---|---|
-| [targets.md](targets.md) | Every `--vla` target: model, simulator, robot, stack name, per-target notes (licenses, pins, validation), GPU instances, deploy / monitor / cleanup commands |
+| [targets.md](targets.md) | Every `--vla` target: model, simulator, robot, stack name, per-target notes (licenses, pins, validation), the post-run judge (`flora-judge`), GPU instances, deploy / monitor / cleanup commands |
 | [showcase.md](showcase.md) | Full rollout gallery: GIF previews and MP4 links for every target with captured video |
 | [results.md](results.md) | Downloading results, `vlasim results`, Expected Results, same-stack baseline, per-target smoke results, evaluation knobs |
 | [gallery.md](gallery.md) | Video history page linked from the completion e-mail (CloudFront + password), `vlasim gallery`, destroy keep / delete-all |

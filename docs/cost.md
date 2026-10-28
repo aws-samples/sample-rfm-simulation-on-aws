@@ -17,6 +17,12 @@ Prices are **us-east-1 Linux On-Demand, checked 2026-10-22** with the AWS Price 
 | `g6e.xlarge` | 1 × L40S 48 GB | 4 | 32 GiB | 1.861 |
 | `g6e.2xlarge` | 1 × L40S 48 GB | 8 | 64 GiB | 2.24208 |
 | `g6e.4xlarge` | 1 × L40S 48 GB | 16 | 128 GiB | 3.00424 |
+| `g6e.12xlarge` | 4 × L40S 48 GB | 48 | 384 GiB | 10.49264 |
+| `g7e.2xlarge` | 1 × RTX PRO 6000 Blackwell 96 GB | 8 | 64 GiB | 3.36312 |
+| `g7e.4xlarge` | 1 × RTX PRO 6000 Blackwell 96 GB | 16 | 128 GiB | 3.99816 |
+| `p5.4xlarge` | 1 × H100 80 GB | 16 | 256 GiB | 6.88 |
+
+The `g6e.12xlarge`, `g7e` and `p5.4xlarge` rows were checked on 2026-10-28 (same API); they are used by the post-run judge only. In `ap-northeast-2`, `g7e.2xlarge` is US$4.13478 per hour.
 
 ## Per-target estimate
 
@@ -45,6 +51,7 @@ Instance = the first entry of `instance.preferred` (the AZ selector may fall bac
 | `rldx-kitchen` | `g6.2xlarge` | ~25-35 min | ~0.41-0.57 |
 | `openarm-lift-act` | `g6.12xlarge` | not recorded | 4.6016 per hour |
 | `openarm-isaac` | `g6.12xlarge` | not recorded (creation timeout 240 min) | 4.6016 per hour |
+| `flora-judge` (post-run judge, `vlasim judge`) | `g7e.2xlarge` | ~45-90 min estimated (54 GB weight download + vLLM install + scoring; not yet measured) | ~2.52-5.04 |
 
 ## Not included
 

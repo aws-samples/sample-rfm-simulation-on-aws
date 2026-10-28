@@ -25,7 +25,10 @@ python vlasim.py gallery --reset-password   # issue a new password (old one stop
 
 Open the URL; the browser asks for a user name and password. The user name is ignored, the
 password is the one printed above. Videos play inline (`<video>`), with the episode caption
-(task instruction) when the target writes one.
+(task instruction) when the target writes one. After a [post-run judge](targets.md#post-run-judge-flora-rewarder)
+run, each scored video also shows its Flora score (`Flora 4/5`); the judge appends it to the video's
+caption and the target's `GalleryPublisher` republishes it (the target stack must still exist, and
+must have been deployed with this version so the rewritten caption is read again).
 
 ## How it works
 

@@ -270,3 +270,34 @@ def test_backfill_copies_missing_videos_and_captions_once(monkeypatch):
     assert rebuilt == [("gallery", PREFIX)]
     assert gallery.backfill("ap-northeast-2", "results", "gallery", target) == 0  # idempotent
     assert len(rebuilt) == 1
+
+
+# ───────────────────────────── post-run judge score in captions ─────────────────────────────
+
+
+def test_judge_score_badge_from_caption():
+    objects = [{"Key": f"{PREFIX}smolvla/r1/task-0/videos/a.mp4", "LastModified": "2026-01-01T00:00:00Z", "Size": 1},
+               {"Key": f"{PREFIX}smolvla/r1/task-0/videos/b.mp4", "LastModified": "2026-01-01T00:00:00Z", "Size": 1}]
+    captions = {f"{PREFIX}smolvla/r1/task-0/videos/a.txt": "ctx\n\n--- Flora judge ---\nFlora score: 4/5 (success at >= 4)\n"}
+    manifest = pub.build_manifest(objects, PREFIX, captions)
+    a, b = manifest["targets"][0]["runs"][0]["videos"]
+    assert (a["score"], b["score"]) == (4, None)
+    page = pub.build_index_html(manifest)
+    assert page.count('class="score"') == 1 and "Flora 4/5" in page
+
+
+def test_rewritten_caption_is_read_again(monkeypatch):
+    """The judge re-uploads a video's .txt with its score; the index must not keep the cached caption."""
+    fake = FakeS3({
+        ("res", "r1/task-0/videos/ep0.mp4"): b"mp4",
+        ("res", "r1/task-0/videos/ep0.txt"): b"ctx",
+    })
+    monkeypatch.setattr(pub, "_s3", fake)
+    monkeypatch.setenv("GALLERY_BUCKET", "gal")
+    monkeypatch.setenv("GALLERY_PREFIX", PREFIX)
+    monkeypatch.setenv("GALLERY_TARGET", "smolvla")
+    pub.handler(_event("res", "r1/task-0/videos/ep0.mp4"), None)
+    assert "Flora" not in fake.objects[("gal", PREFIX + "index.html")].decode()
+    fake.objects[("res", "r1/task-0/videos/ep0.txt")] = b"ctx\n\n--- Flora judge ---\nFlora score: 2/5 (failure)\n"
+    assert pub.handler(_event("res", "r1/task-0/videos/ep0.txt"), None) == {"copied": 1}
+    assert "Flora 2/5" in fake.objects[("gal", PREFIX + "index.html")].decode()

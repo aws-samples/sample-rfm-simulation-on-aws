@@ -20,6 +20,7 @@ Usage:
     python generate.py --vla openarm-isaac [--config simulator-config.yaml] [--dry-run]
     python generate.py --vla openarm-lift-act [--config simulator-config.yaml] [--dry-run]
     python generate.py --vla molmoact2   [--config simulator-config.yaml] [--dry-run]
+    python generate.py --vla real2sim    [--config simulator-config.yaml] [--dry-run]
     python generate.py --judge-target flora-judge [--dry-run]   # post-run judge (deploy.py --judge)
 """
 
@@ -711,6 +712,81 @@ def generate_aspire(config: dict, dry_run: bool, vla: str = "aspire") -> str:
     return env.get_template("aspire-userdata.sh.j2").render(**ctx)
 
 
+# Stage scripts embedded into the real2sim UserData (written to /opt/r2s/assets on the instance).
+REAL2SIM_ASSETS = ("hope_fetch.py", "prep_capture.py", "ns_to_world.py", "r2s_segment.py", "r2s_grasp_mj.py",
+                   "r2s_grasp_ur5e.py", "r2s_report.py")
+_PIN_RE = re.compile(r"^[A-Za-z0-9_.\-]+(\[[A-Za-z0-9_,\-]+\])?==[A-Za-z0-9_.+\-]+$")
+_ARG_RE = re.compile(r"^[A-Za-z0-9_.=\-]+$")
+_S3_ZIP_RE = re.compile(r"^s3://[a-z0-9][a-z0-9.\-]{1,61}[a-z0-9]/[A-Za-z0-9_./=+\-]+\.zip$")
+
+
+def generate_real2sim(config: dict, dry_run: bool, vla: str = "real2sim") -> str:
+    """Real2Sim (stage 1): capture -> nerfstudio splatfacto 3DGS -> table + per-object collision meshes (USD)
+    -> scripted MuJoCo grasp in the reconstructed / scene-hull / ground-truth worlds. Own template
+    (real2sim-userdata.sh.j2); the stage scripts in assets/real2sim/ are embedded as base64. The input is
+    a HOPE-Video scene (downloaded at run time, CC BY-NC-SA 4.0) or your own capture zip on S3."""
+    model = config.get("model", {})
+    inp = config.get("input", {}) or {}
+    instance = config.get("instance", {})
+
+    def fail(msg):
+        print(f"[error] models/{vla}.yaml: {msg}", file=sys.stderr)
+        sys.exit(1)
+
+    for key in ("splat_python", "torch_version", "torchvision_version", "torch_index", "gsplat_version",
+                "gsplat_index", "nerfstudio_version", "sim_python", "sim_pins", "menagerie_repo", "menagerie_commit"):
+        if not model.get(key):
+            fail(f"model.{key} is required")
+    if not re.fullmatch(r"[0-9a-f]{40}", str(model["menagerie_commit"])):
+        fail("model.menagerie_commit must be a 40-hex commit")
+    pins = str(model["sim_pins"]).split()
+    bad = [p for p in pins if not _PIN_RE.match(p)]
+    if bad:
+        fail(f"model.sim_pins entries must be name==version: {bad}")
+    seg_args = str(model.get("segment_args", "")).split()
+    bad = [a for a in seg_args if not _ARG_RE.match(a)]
+    if bad:
+        fail(f"model.segment_args has unsafe tokens: {bad}")
+    source = inp.get("source", "hope")
+    if source not in ("hope", "capture"):
+        fail("input.source must be hope or capture")
+    hope_scene = int(inp.get("hope_scene", 0))
+    if not 0 <= hope_scene <= 9:
+        fail("input.hope_scene must be 0..9 (HOPE-Video has 10 scenes)")
+    capture = str(inp.get("capture_s3_uri", "") or "").strip()
+    if source == "capture" and not _S3_ZIP_RE.match(capture):
+        fail(f"input.capture_s3_uri must be s3://<bucket>/<key>.zip for input.source: capture, got {capture!r}")
+    asset_dir = BASE_DIR / "assets" / "real2sim"
+    missing = [f for f in REAL2SIM_ASSETS if not (asset_dir / f).is_file()]
+    if missing:
+        print(f"[error] real2sim asset files missing: {missing} (check assets/real2sim/)", file=sys.stderr)
+        sys.exit(1)
+    ctx = {
+        "vla": vla,
+        "display_name": _shell_safe(model.get("display_name", vla), "display_name"),
+        "policy_desc": _shell_safe(model.get("policy_desc", vla), "policy_desc"),
+        "license": _shell_safe(model.get("license", "see models/real2sim.yaml"), "license"),
+        **{k: _shell_safe(model[k], k) for k in ("splat_python", "torch_version", "torchvision_version", "torch_index",
+                                                 "gsplat_version", "gsplat_index", "nerfstudio_version",
+                                                 "sim_python", "menagerie_repo", "menagerie_commit")},
+        "sim_pins": " ".join(pins),
+        "segment_args": " ".join(seg_args),
+        "max_iterations": int(model.get("max_iterations", 15000)),
+        "train_timeout_s": int(model.get("train_timeout_s", 4200)),
+        "splat_min_opacity": float(model.get("splat_min_opacity", 0.5)),
+        "grasp_ur5e": bool(model.get("grasp_ur5e", True)),
+        "max_video_targets": int(model.get("max_video_targets", 4)),
+        "input_source": source,
+        "hope_scene": hope_scene,
+        "capture_s3_uri": capture,
+        "min_gpu_mib": int(instance.get("min_gpu_mib", 20000)),
+        "min_host_mib": int(instance.get("min_host_mib", 28000)),
+        "assets": [(f, base64.encodebytes((asset_dir / f).read_bytes()).decode()) for f in REAL2SIM_ASSETS],
+    }
+    env = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)), keep_trailing_newline=True)  # nosec B701 - shell script template
+    return env.get_template("real2sim-userdata.sh.j2").render(**ctx)
+
+
 def _shell_safe(value: str, what: str) -> str:
     """Values pasted into double-quoted bash strings: no quotes, $, backticks or backslashes."""
     if any(c in str(value) for c in "\"'$`\\\n"):
@@ -857,6 +933,8 @@ def main():
         rendered = generate_vla_adapter(config, args.dry_run)
     elif args.vla == "aspire":
         rendered = generate_aspire(config, args.dry_run)
+    elif args.vla == "real2sim":
+        rendered = generate_real2sim(config, args.dry_run)
     else:
         rendered = generate_pi(config, args.resolved_vpc, args.resolved_nlb, args.dry_run)
 

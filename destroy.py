@@ -61,6 +61,7 @@ STACK_NAMES = {
     "fastwam": "FastWAM-Demo",
     "cosmos-policy": "Cosmos-Policy-Demo",
     "aspire": "ASPIRE-Demo",
+    "real2sim": "Real2Sim-Demo",
 }
 
 

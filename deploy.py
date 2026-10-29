@@ -10,6 +10,7 @@ Usage:
   python deploy.py --vla openarm-isaac      # π0.5 (folding_latest) + Isaac Lab bimanual OpenArm local mode
   python deploy.py --vla openarm-lift-act   # OpenArm unimanual Lift-Cube × ACT — scripted demo COLLECTION (HDF5)
   python deploy.py --vla molmoact2          # MolmoAct2 (Ai2 5B) + LIBERO-Goal — fp32 in-process eval (allenai/lerobot fork)
+  python deploy.py --vla real2sim           # Real2Sim: capture -> 3DGS -> collision meshes -> MuJoCo grasp (HOPE-Video, non-commercial)
   python deploy.py --vla gr00t --bridge     # GR00T bridge mode (bring-your-own gRPC endpoint, experimental)
   python deploy.py --vla gr00t-gr1 --bridge # GR00T-GR1 bridge mode (your endpoint must serve N1.6)
   python deploy.py --vla pi    --bridge     # π0.5  bridge mode (bring-your-own gRPC endpoint, experimental)
@@ -66,7 +67,8 @@ LEROBOT_LIBERO_STACKS = {
 }
 LEROBOT_LIBERO_TARGETS = tuple(LEROBOT_LIBERO_STACKS)
 # Local-only targets with their own template (same CLI handling as the LeRobot family).
-OTHER_LOCAL_STACKS = {"vla-adapter": "VLA-Adapter-Demo", "cosmos-policy": "Cosmos-Policy-Demo", "aspire": "ASPIRE-Demo"}
+OTHER_LOCAL_STACKS = {"vla-adapter": "VLA-Adapter-Demo", "cosmos-policy": "Cosmos-Policy-Demo", "aspire": "ASPIRE-Demo",
+                      "real2sim": "Real2Sim-Demo"}
 
 RUN_RE = re.compile(r"^\d{4}-\d{2}-\d{2}-\d{4}$")  # RUN_ID=$(date '+%Y-%m-%d-%H%M') in every template
 VIDEO_KEY_RE = re.compile(r"^[^/]+/task-\d+/videos/[^/]+\.mp4$")
@@ -551,6 +553,8 @@ def main():
             print("  Estimated time: ~60-90 min (docker pull Isaac Lab image ~20-30min + openarm install + sim boot ~10min + scripted collection; first run small num_demos)")
         elif args.vla == "molmoact2":
             print("  Estimated time: ~60-90 min for the pipe-proof cap (uv sync fork source ~20-30min + MolmoAct2-LIBERO ckpt ~22GB DL ~10min + fp32 LIBERO eval 2 tasks x 5 ep). Full suite (all 10 tasks x 50 ep) is MANY hours in fp32 — scale via models/molmoact2.yaml tasks.")
+        elif args.vla == "real2sim":
+            print("  Estimated time: ~12 min measured on g5.2xlarge (packages + two uv venvs + HOPE-Video download ~5min + splatfacto ~5min + segment + MuJoCo grasp replay ~2min), plus stack create/delete")
         elif args.vla == "cosmos-policy":
             print("  Estimated time: ~60-120 min (docker build ~10-15min + uv sync ~10-20min + ckpt DL + LIBERO eval, 1 ep x 10 tasks)")
         elif args.vla in LEROBOT_LIBERO_TARGETS:

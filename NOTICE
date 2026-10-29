@@ -95,3 +95,24 @@ Simulators and benchmarks
   bundles NVIDIA Isaac Sim under the NVIDIA Isaac Sim / NGC software license terms.
 - OpenArm Isaac Lab (openarm-isaac, openarm-lift-act) — Apache-2.0.
   github.com/enactic/openarm_isaac_lab
+- MuJoCo Menagerie (real2sim) — github.com/google-deepmind/mujoco_menagerie, fetched at a
+  pinned commit: universal_robots_ur5e BSD-3-Clause; robotiq_2f85 BSD-2-Clause.
+
+------------------------------------------------------------------------------
+Real2Sim (real2sim): reconstruction tools and dataset
+------------------------------------------------------------------------------
+- nerfstudio (splatfacto) — Apache-2.0. github.com/nerfstudio-project/nerfstudio
+- gsplat — Apache-2.0. github.com/nerfstudio-project/gsplat
+- Open3D — MIT. github.com/isl-org/Open3D
+- trimesh — MIT. github.com/mikedh/trimesh
+- CoACD (optional --decomp coacd) — MIT. github.com/SarahWeiii/CoACD
+- OpenUSD (usd-core) — Tomorrow Open Source Technology License 1.0 (Apache-2.0 based).
+  github.com/PixarAnimationStudios/OpenUSD
+- HOPE-Video, NVIDIA (default input) — github.com/swtyree/hope-dataset
+    * CC BY-NC-SA 4.0 — NON-COMMERCIAL. Downloaded at run time from Google Drive (gdown)
+      and MD5-checked; nothing from the dataset is included in this repository. Videos,
+      meshes and USD files derived from it inherit CC BY-NC-SA 4.0.
+    * Cite (HOPE-Video): Y. Lin, J. Tremblay, S. Tyree, P. A. Vela, S. Birchfield,
+      "Multi-view Fusion for Multi-level Robotic Scene Understanding", IROS 2021.
+      HOPE objects: S. Tyree et al., "6-DoF Pose Estimation of Household Objects for
+      Robotic Manipulation: An Accessible Dataset and Benchmark", IROS 2022.

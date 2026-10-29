@@ -1,0 +1,58 @@
+# Real2Sim (stage 1): a multi-view capture of a tabletop -> 3D Gaussian Splatting reconstruction (nerfstudio
+# splatfacto) -> table plane + per-object collision meshes (RANSAC + DBSCAN + convex hull) -> USD (UsdPhysics)
+# -> the same scripted top-down grasp replayed in MuJoCo against the reconstructed collision world, a single
+# scene-hull baseline and (HOPE-Video only) the ground-truth meshes. Not a VLA: there is no learned policy.
+# Template: templates/real2sim-userdata.sh.j2; stage scripts: assets/real2sim/.
+#
+# ⚠️ Data license: the default input, HOPE-Video (NVIDIA; Lin et al., IROS 2021), is CC BY-NC-SA 4.0 —
+# research / NON-COMMERCIAL use only. It is downloaded on the instance at run time (Google Drive via gdown,
+# MD5-checked); nothing from it is stored in this repository. Run your own capture with input.source: capture.
+model:
+  id: real2sim
+  display_name: "Real2Sim"
+  policy_desc: "Real2Sim: 3DGS (nerfstudio splatfacto) -> per-object collision meshes -> scripted MuJoCo grasp (UR5e + Robotiq 2F-85)"
+  license: "code: nerfstudio Apache-2.0, gsplat Apache-2.0, MuJoCo Menagerie UR5e BSD-3-Clause / Robotiq 2F-85 BSD-2-Clause; default data HOPE-Video CC BY-NC-SA 4.0 (non-commercial)"
+  # 3DGS venv (GPU). Same pins as the validated run: torch 2.4.1 cu124 + the gsplat 1.4.0 prebuilt wheel
+  # (no CUDA build on the instance) + nerfstudio 1.1.5; numpy<2 (nerfstudio 1.1.5 is not numpy-2 clean).
+  splat_python: "3.10"
+  torch_version: "2.4.1"
+  torchvision_version: "0.19.1"
+  torch_index: "https://download.pytorch.org/whl/cu124"
+  gsplat_version: "1.4.0"
+  gsplat_index: "https://docs.gsplat.studio/whl/pt24cu124"
+  nerfstudio_version: "1.1.5"
+  max_iterations: 15000           # splatfacto default 30000; 15000 measured PSNR 24.0 on HOPE-Video scene 0 in ~6 min (A10G)
+  train_timeout_s: 4200
+  # Geometry + simulation venv (CPU; the videos render with EGL on the GPU).
+  sim_python: "3.11"
+  sim_pins: "numpy==1.26.4 scipy==1.17.1 open3d==0.18.0 trimesh==5.2.0 rtree==1.4.1 mujoco==3.16.0 usd-core==26.11 coacd==1.0.14 imageio==2.38.1 imageio-ffmpeg==0.7.0 pillow==13.0.0 gdown==6.4.2"
+  menagerie_repo: "https://github.com/google-deepmind/mujoco_menagerie.git"
+  menagerie_commit: "f3b6013629c7b94f8ee93fd977b161fa8350f9bc"   # main 2026-10-23
+  segment_args: "--voxel 0.003 --eps 0.008 --above 0.006 --min-points 200 --decomp hull --seed 0"
+  splat_min_opacity: 0.5
+  grasp_ur5e: true                # also replay through the UR5e arm (adds ~2 min + 3 videos per object)
+  max_video_targets: 4            # record videos for at most this many objects (all objects are scored)
+
+input:
+  # hope: HOPE-Video scene <hope_scene> (0-9) + its GT meshes (adds the `gt` world and fidelity numbers).
+  # capture: your own zip at capture_s3_uri with images/ + a nerfstudio transforms.json (camera->world,
+  #   OpenGL axes, METRIC poses, optional ply_file_path init cloud). The instance role gets s3:GetObject on
+  #   exactly that object. No ground truth, so only the recon and scenehull worlds are scored.
+  source: hope
+  hope_scene: 0
+  capture_s3_uri: ""
+
+instance:
+  # GPU only for splatfacto (~6 GB VRAM at 640x480 x 365 frames). g5.2xlarge = the validated A10G run;
+  # L4 (g6) next; .4xlarge as capacity fallback (more host RAM for the 400 MB HOPE scene cloud).
+  preferred: [g5.2xlarge, g6.2xlarge, g5.4xlarge, g6.4xlarge]
+  ebs_gb: 150
+  creationpolicy_timeout: PT150M
+  min_gpu_mib: 20000
+  min_host_mib: 28000
+
+tasks:
+  - description: "Real2Sim pipe-proof (HOPE-Video scene 0: 3DGS -> collision meshes -> MuJoCo grasp)"
+
+bridge:
+  enabled: false

@@ -18,3 +18,4 @@ cdk.context.json
 cdk/cdk.context.json
 .pytest_cache/
 .ruff_cache/
+MUJOCO_LOG.TXT

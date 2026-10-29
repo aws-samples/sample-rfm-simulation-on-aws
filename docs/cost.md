@@ -45,6 +45,7 @@ Instance = the first entry of `instance.preferred` (the AZ selector may fall bac
 | `fastwam` | `g6e.2xlarge` | ~30-40 min | ~1.12-1.49 |
 | `cosmos-policy` | `g6e.xlarge` | ~60-90 min | ~1.86-2.79 |
 | `aspire` | `g6e.2xlarge` | ~45 min | ~1.68, plus ~3 Amazon Bedrock (agent, 2 tasks) |
+| `real2sim` | `g5.2xlarge` | ~12 min measured (2026-10-29, `ap-northeast-2`, HOPE-Video scene 0: instance boot to done 11 min 53 s, of which packages, both venvs and the HOPE-Video download ~5 min, splatfacto training 272 s; stack create / delete not included) | ~0.24; ~0.30 in `ap-northeast-2` (US$1.4903 per hour there, Price List API 2026-10-29) |
 | `rldx` | `g6.xlarge` | ~80-120 min | ~1.07-1.61 |
 | `rldx-simpler` | `g6.2xlarge` | ~35-45 min | ~0.57-0.73 |
 | `rldx-gr1` | `g6.2xlarge` | ~25-35 min | ~0.41-0.57 |

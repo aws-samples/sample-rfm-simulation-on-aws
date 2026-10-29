@@ -2,14 +2,14 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as cdk from 'aws-cdk-lib';
 import { Template } from 'aws-cdk-lib/assertions';
-import { VlaSimulatorStack } from '../lib/vla-simulator-stack';
+import { captureObjectPath, VlaSimulatorStack } from '../lib/vla-simulator-stack';
 
 // The stack reads the rendered UserData from assets/userdata/<vla>.sh (gitignored, written by
 // generate.py / deploy.py). Seed a placeholder for any target that has not been rendered yet so
 // the tests run on a fresh checkout, and remove only the placeholders we created.
 const USERDATA_DIR = path.resolve(__dirname, '../../assets/userdata');
 const VLAS = ['gr00t', 'pi'];
-const SEED_VLAS = [...VLAS, 'openarm-lift-act', 'xvla'];
+const SEED_VLAS = [...VLAS, 'openarm-lift-act', 'xvla', 'real2sim'];
 const seeded: string[] = [];
 
 beforeAll(() => {
@@ -103,6 +103,32 @@ function statements(template: Template): Stmt[] {
 }
 const actionsOf = (s: Stmt) => (Array.isArray(s.Action) ? s.Action : [s.Action]);
 const resourcesOf = (s: Stmt) => (Array.isArray(s.Resource) ? s.Resource : [s.Resource]);
+
+// Real2Sim: instance list from models/real2sim.yaml; the HOPE-Video default needs no extra S3 read grant,
+// a user capture gets s3:GetObject on exactly that object.
+test('real2sim launches its yaml instance list and grants no capture read by default', () => {
+  const app = new cdk.App({ context: { region: 'ap-northeast-2', vla: 'real2sim', notify_email: 'test@example.com' } });
+  const stack = new VlaSimulatorStack(app, 'Real2Sim-Demo', {
+    vla: 'real2sim',
+    env: { account: '123456789012', region: 'ap-northeast-2' },
+  });
+  const template = Template.fromStack(stack);
+  template.hasResourceProperties('AWS::CloudFormation::CustomResource', {
+    InstanceTypes: 'g5.2xlarge,g6.2xlarge,g5.4xlarge,g6.4xlarge',
+  });
+  const reads = statements(template).filter((s) => actionsOf(s).includes('s3:GetObject'));
+  for (const s of reads) expect(JSON.stringify(s.Resource)).not.toContain('.zip');
+});
+
+test('captureObjectPath only accepts s3://bucket/key.zip for input.source capture', () => {
+  expect(captureObjectPath('real2sim', { source: 'hope', capture_s3_uri: 's3://b-1/x.zip' })).toBeUndefined();
+  expect(captureObjectPath('real2sim', undefined)).toBeUndefined();
+  expect(captureObjectPath('real2sim', { source: 'capture', capture_s3_uri: 's3://my-bucket/caps/desk.zip' }))
+    .toBe('my-bucket/caps/desk.zip');
+  expect(() => captureObjectPath('real2sim', { source: 'capture', capture_s3_uri: 's3://my-bucket/*' })).toThrow();
+  expect(() => captureObjectPath('real2sim', { source: 'capture', capture_s3_uri: '' })).toThrow();
+});
+
 
 test.each(VLAS)('%s: iam:PassRole is never on Resource "*" and is limited to EC2', (vla) => {
   const stmts = statements(Template.fromStack(makeApp(vla)));

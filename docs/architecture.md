@@ -40,7 +40,7 @@ sample-rfm-simulation-on-aws/
 ├── generate.py               # Renders assets/userdata/{vla}.sh from templates/ + models/
 ├── simulator-config.yaml     # Shared deployment settings
 ├── requirements.txt          # boto3[crt], pyyaml, jinja2
-├── models/                   # One config per --vla target (20) + the post-run judge (flora-judge.yaml)
+├── models/                   # One config per --vla target (21) + the post-run judge (flora-judge.yaml)
 │   ├── gr00t.yaml            # GR00T N1.7 on LIBERO-10
 │   ├── gr00t-gr1.yaml        # GR00T N1.6 + GR1 humanoid (RoboCasa)
 │   ├── gr00t-g1.yaml         # GR00T N1.6 + Unitree G1 whole-body loco-manip (optional N1.7 adapter)
@@ -55,6 +55,7 @@ sample-rfm-simulation-on-aws/
 │   ├── vla-adapter.yaml      # VLA-Adapter-Pro
 │   ├── cosmos-policy.yaml    # NVIDIA Cosmos Policy
 │   ├── aspire.yaml           # NVlabs ASPIRE (Claude on Amazon Bedrock)
+│   ├── real2sim.yaml         # Real2Sim: capture -> 3DGS -> collision meshes -> MuJoCo grasp
 │   ├── rldx.yaml             # RLDX-1 on LIBERO-10
 │   ├── rldx-simpler.yaml     # RLDX-1 on SimplerEnv Google Fractal
 │   ├── rldx-gr1.yaml         # RLDX-1 on RoboCasa GR-1 Tabletop
@@ -62,7 +63,7 @@ sample-rfm-simulation-on-aws/
 │   ├── openarm-lift-act.yaml # OpenArm Lift-Cube scripted ACT collection (Isaac Lab)
 │   ├── openarm-isaac.yaml    # OpenArm bimanual π0.5 pipe proof (Isaac Lab, experimental)
 │   └── flora-judge.yaml      # post-run judge: NVIDIA Flora-Rewarder outcome score (not a --vla target)
-├── templates/                # Jinja2 UserData templates (15)
+├── templates/                # Jinja2 UserData templates (16)
 │   ├── gr00t-userdata.sh.j2
 │   ├── gr00t-gr1-userdata.sh.j2
 │   ├── gr00t-g1-userdata.sh.j2          # GR00T-WholeBodyControl loco-manip, optional 2-venv N1.7 server
@@ -74,6 +75,7 @@ sample-rfm-simulation-on-aws/
 │   ├── lerobot-libero-userdata.sh.j2    # shared: xvla, smolvla, lingbot-va, fastwam
 │   ├── cosmos-policy-userdata.sh.j2     # project's own CUDA 12.8 Docker image
 │   ├── aspire-userdata.sh.j2            # LIBERO-Pro fork + tool services + Claude Code on Bedrock
+│   ├── real2sim-userdata.sh.j2          # 3DGS venv + geometry/MuJoCo venv, stage scripts embedded
 │   ├── rldx-userdata.sh.j2              # shared: rldx, rldx-simpler, rldx-gr1, rldx-kitchen
 │   ├── openarm-lift-act-userdata.sh.j2  # Isaac Lab container, scripted ACT collection
 │   ├── openarm-isaac-userdata.sh.j2     # Isaac Lab container, bimanual π0.5 eval
@@ -89,6 +91,7 @@ sample-rfm-simulation-on-aws/
 │   ├── gr00t-g1/             # G1 trajectory collection + HDF5 → LeRobot conversion
 │   ├── openarm-lift-act/     # Lift-Cube env overlay, scripted collector, HDF5 → LeRobot
 │   ├── openarm-isaac/        # bimanual env overlay + LeRobot rollout driver
+│   ├── real2sim/             # capture prep, splat -> metres, segmentation, grasp replay, report
 │   └── flora-judge/          # flora_judge.py: videos -> episodes, scores -> judge.json (stdlib)
 ├── cdk/
 │   ├── bin/app.ts            # CDK app: one stack per --vla target

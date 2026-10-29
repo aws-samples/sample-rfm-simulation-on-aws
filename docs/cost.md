@@ -45,6 +45,7 @@ Instance = the first entry of `instance.preferred` (the AZ selector may fall bac
 | `fastwam` | `g6e.2xlarge` | ~30-40 min | ~1.12-1.49 |
 | `cosmos-policy` | `g6e.xlarge` | ~60-90 min | ~1.86-2.79 |
 | `aspire` | `g6e.2xlarge` | ~45 min | ~1.68, plus ~3 Amazon Bedrock (agent, 2 tasks) |
+| `real2sim` | `g5.2xlarge` | ~45-75 min (estimate: two venvs ~15 min + HOPE-Video download + splatfacto ~10 min + segment / grasp ~5 min; not yet measured end to end) | ~0.91-1.52 |
 | `rldx` | `g6.xlarge` | ~80-120 min | ~1.07-1.61 |
 | `rldx-simpler` | `g6.2xlarge` | ~35-45 min | ~0.57-0.73 |
 | `rldx-gr1` | `g6.2xlarge` | ~25-35 min | ~0.41-0.57 |

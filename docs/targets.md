@@ -25,6 +25,7 @@ Each target is one `--vla <target>` value for `python vlasim.py deploy` / `destr
 | `fastwam` | — | FastWAM (world action model: Wan2.2 video DiT + Mixture-of-Transformers action expert)[⁸](#note-8-fastwam) | LIBERO-Spatial | Franka Panda (7-DOF) | `FastWAM-Demo` |
 | `cosmos-policy` | — | Cosmos Policy (NVIDIA world action model: Cosmos-Predict2-2B video model fine-tuned to predict actions, future frames and value)[⁹](#note-9-cosmos-policy) | LIBERO-Spatial | Franka Panda (7-DOF) | `Cosmos-Policy-Demo` |
 | `aspire` | — | ASPIRE (NVlabs agentic skill discovery: Claude on Amazon Bedrock writes a per-task robot program against SAM3 / Contact-GraspNet / PyRoki tools — no trained policy)[¹⁰](#note-10-aspire) | LIBERO-Spatial (LIBERO-Pro fork) | Franka Panda (7-DOF) | `ASPIRE-Demo` |
+| `real2sim` | — | Real2Sim — not a policy: capture → 3D Gaussian Splatting (nerfstudio splatfacto) → per-object collision meshes → scripted grasp replay[¹²](#note-12-real2sim) | MuJoCo, 3 collision worlds (reconstructed / scene hull / ground truth) of a real tabletop (HOPE-Video, **NC** data) or your capture | UR5e + Robotiq 2F-85 (and a floating 2F-85) | `Real2Sim-Demo` |
 | `rldx` | — | RLDX-1 (RLWRLD MSAT / Qwen3-VL-8B, eager)[¹](#note-1-rldx-1-weights-license) | LIBERO-10 long-horizon | Franka Panda (7-DOF) | `RLDX-Demo` |
 | `rldx-simpler` | — | RLDX-1 (RLWRLD MSAT / Qwen3-VL-8B, eager)[¹](#note-1-rldx-1-weights-license) [²](#note-2-rldx-simpler) | SimplerEnv Google-VM (Fractal) | Google Robot (OXE_FRACTAL real-robot embodiment) | `RLDX-Simpler-Demo` |
 | `rldx-gr1` | — | RLDX-1 (RLWRLD MSAT / Qwen3-VL-8B, eager)[¹](#note-1-rldx-1-weights-license) [³](#note-3-rldx-gr1) | RoboCasa GR-1 Tabletop (24-task) | GR-1 humanoid (bimanual + waist) | `RLDX-GR1-Demo` |
@@ -75,6 +76,18 @@ RLDX-1 weights are under the **RLWRLD Model License v1.0 (non-commercial)**; "si
 ### Note 11: openarm-isaac (experimental)
 
 `openarm-isaac` is a valid `--vla` choice (stack `OpenArm-Isaac-Demo`) but is **experimental and a pipe proof, not a task benchmark**. It drives the LeRobot π0.5 port `lerobot/folding_latest` (16-DOF bimanual, pinned `@a53a7287`; Apache-2.0) on the [enactic/openarm_isaac_lab](https://github.com/enactic/openarm_isaac_lab) bimanual Reach environment (pinned `@bad82e2`) inside the NGC `nvcr.io/nvidia/isaac-lab:2.3.0` container (Isaac Sim 5.1 + Isaac Lab 2.3 + Python 3.11), through a thin LeRobot rollout driver (`assets/openarm-isaac/run_eval.py`). `folding_latest` is a real-robot cloth-folding policy, so on an empty Reach scene it is out of distribution and the success rate is about 0 **by design**; the video only shows that π0.5 drives 16-joint OpenArm bimanual motion in Isaac Lab. Local mode only (no bridge): inference runs in-process on the sim GPU. It needs the Hugging Face token in SSM because it downloads the gated tokenizer `google/paligemma-3b-pt-224` (see [Hugging Face token](configuration.md#hugging-face-token-gated-models)). Configuration and the integration contract: [`models/openarm-isaac.yaml`](../models/openarm-isaac.yaml) and the headers of `assets/openarm-isaac/*.py`.
+
+### Note 12: real2sim
+
+`real2sim` is **not a VLA evaluation**: it measures whether a scene reconstructed from a multi-view capture is good enough to plan a grasp in simulation. `templates/real2sim-userdata.sh.j2` runs the stage scripts in `assets/real2sim/` on one GPU instance:
+
+1. **Input** — default: one [HOPE-Video](https://github.com/swtyree/hope-dataset) scene (NVIDIA; 10 tabletop sequences from a robot-arm-mounted RealSense D415 with camera poses, a CascadeStereo point cloud and ground-truth object meshes + poses), downloaded at run time from Google Drive with `gdown` and checked against the MD5 sums of the dataset's `setup.json` (@`621d855f`). **HOPE-Video is CC BY-NC-SA 4.0 — research / non-commercial only**; nothing from it is stored in this repository and the derived videos / meshes in your results bucket inherit that license. Your own capture: set `input.source: capture` and `input.capture_s3_uri: s3://<bucket>/<key>.zip` in [`models/real2sim.yaml`](../models/real2sim.yaml) (a zip with `images/` and a nerfstudio `transforms.json`, camera→world in OpenGL axes, **metric** poses, optional `ply_file_path` init cloud; images up to ~1600 px). The stack then grants `s3:GetObject` on exactly that object. Video input (frames + COLMAP via `ns-process-data`) is not wired: COLMAP poses have no metric scale and every segmentation threshold is in metres.
+2. **3DGS** — nerfstudio 1.1.5 `splatfacto` (gsplat 1.4.0 prebuilt wheel, torch 2.4.1 cu124, Python 3.10), 15,000 iterations, initialised from the scene cloud; `ns-eval` (PSNR / SSIM / LPIPS on the held-out views), `ns-export gaussian-splat` and an orbit video `splat_orbit.mp4`.
+3. **Back to metres** — `ns_to_world.py` inverts nerfstudio's `dataparser_transforms.json` (orientation + centring + scale) and keeps the opaque gaussians; its `nn_to_reference_median_m` (distance to the input cloud) shows whether the frames agree.
+4. **Segment** — `r2s_segment.py`: RANSAC table plane (normal towards the cameras), DBSCAN clusters above it, each cluster completed with its footprint on the table and turned into a convex hull (`--decomp coacd` for a convex decomposition); writes `obj_XX.obj`, `scene_collision.usda` (UsdPhysics rigid bodies + collision) and `segment.json` (with HOPE-Video: matched / merged objects, Chamfer, F-score@5 mm and collision-volume ratio against the ground truth). Touching objects merge into one cluster (v1 limitation).
+5. **Grasp** — `r2s_grasp_mj.py` (floating Robotiq 2F-85) and `r2s_grasp_ur5e.py` (UR5e on a pedestal, damped-least-squares IK, gravity compensation): the same top-down pick per object, scored as reached (< 1 cm) + lifted (≥ 5 cm) + undisturbed (< 2 cm push), in three worlds — `recon` (per-object meshes, this pipeline), `scenehull` (one static hull around everything, the single-mesh baseline; nothing can be lifted there by construction) and `gt` (HOPE-Video ground-truth meshes). Robot models: [MuJoCo Menagerie](https://github.com/google-deepmind/mujoco_menagerie) @`f3b60136` (UR5e BSD-3-Clause, Robotiq 2F-85 BSD-2-Clause), MuJoCo 3.16.0.
+
+`summary.txt`: `success_rate` = floating-hand grasps that succeeded in the `recon` world / graspable objects (objects wider than the 85 mm gripper on both axes are skipped), plus `hand_*` / `ur5e_*` per world, PSNR / SSIM / LPIPS and the segmentation numbers. Videos (`task-0/videos/`: the splat orbit + one clip per object and world for the first `max_video_targets` objects) go to the gallery like every other target; the full outputs (`results.json`, `segment/`, `grasp/*.json`, the splat, logs) to `<run>/real2sim/`. Reference (the same stage scripts on the HOPE-Video scene-0 CascadeStereo cloud, 2026-10-29, CPU): 6 clusters, 6 of 10 objects matched (7 involved in merges), collision volume 2.65 × ground truth; floating-hand grasps recon 4/4, scene hull 0/4, ground truth 4/4. The end-to-end run on the instance (3DGS input) is **not validated yet**; an earlier splatfacto run with the same pins measured PSNR 24.0 / SSIM 0.855 / LPIPS 0.193 on that scene (10 min wall, A10G).
 
 ## Post-run judge (Flora-Rewarder)
 
@@ -166,6 +179,7 @@ does not have to exist any more (its bucket is retained); the gallery score badg
 | `fastwam` | `g6e.2xlarge` → `g6e.4xlarge` | 250 |
 | `cosmos-policy` | `g6e.xlarge` → `g6e.2xlarge` → `g6.2xlarge` → `g5.2xlarge` | 300 |
 | `aspire` | `g6e.2xlarge` → `g6e.4xlarge` | 250 |
+| `real2sim` | `g5.2xlarge` → `g6.2xlarge` → `g5.4xlarge` → `g6.4xlarge` | 150 |
 | `rldx` | `g6.xlarge` → `g6.2xlarge` → `g5.xlarge` → `g5.2xlarge` | 150 |
 | `rldx-simpler` | `g6.2xlarge` → `g5.2xlarge` → `g6.xlarge` → `g5.xlarge` | 200 |
 | `rldx-gr1` | `g6.2xlarge` → `g5.2xlarge` → `g6.xlarge` → `g5.xlarge` | 200 |
@@ -218,6 +232,10 @@ python vlasim.py deploy --vla vla-adapter --email you@example.com  # VLA-Adapter
 python vlasim.py deploy --vla fastwam --email you@example.com      # FastWAM world action model (research-only weights), LIBERO-Spatial (~30-40 min)
 python vlasim.py deploy --vla cosmos-policy --email you@example.com  # Cosmos Policy (NVIDIA WAM, research-only weights; HF token must accept the Cosmos-Predict2 license), LIBERO-Spatial (~60-90 min)
 python vlasim.py deploy --vla aspire --email you@example.com         # ASPIRE agentic skill discovery (Claude Code on Amazon Bedrock; HF token must have SAM3 access), LIBERO-Spatial 2 tasks (~45 min, ~US$3 Bedrock)
+
+# Real2Sim — capture -> 3DGS -> collision meshes -> MuJoCo grasp replay (~45-75 min, not a policy)
+# Default input HOPE-Video is CC BY-NC-SA 4.0 (non-commercial); your own capture: input.* in models/real2sim.yaml
+python vlasim.py deploy --vla real2sim --email you@example.com --region ap-northeast-2
 
 # RLDX-1 (RLWRLD) — LIBERO (open VLA, MSAT/Qwen3-VL-8B, ZeroMQ server + sim client, ~80-120 min)
 # NON-COMMERCIAL weights (RLWRLD Model License v1.0) — research / simulation benchmarking only.
@@ -286,6 +304,7 @@ python vlasim.py destroy --vla vla-adapter
 python vlasim.py destroy --vla fastwam
 python vlasim.py destroy --vla cosmos-policy
 python vlasim.py destroy --vla aspire
+python vlasim.py destroy --vla real2sim
 python vlasim.py destroy --vla rldx
 python vlasim.py destroy --vla rldx-simpler
 python vlasim.py destroy --vla rldx-gr1

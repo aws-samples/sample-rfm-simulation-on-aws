@@ -115,6 +115,7 @@ Instance = first choice in `models/<target>.yaml`; the deploy falls back to othe
 | `fastwam` | FastWAM (world action model, **NC**) | LIBERO-Spatial | `g6e.2xlarge` |
 | `cosmos-policy` | NVIDIA Cosmos Policy (world action model, **NC**) | LIBERO-Spatial | `g6e.xlarge` |
 | `aspire` | ASPIRE: Claude on Amazon Bedrock writes the robot program (**NC** tools) | LIBERO-Spatial (LIBERO-Pro fork) | `g6e.2xlarge` |
+| `real2sim` | Real2Sim (not a policy): capture → 3DGS → collision meshes → scripted grasp | MuJoCo UR5e + Robotiq 2F-85 on a real tabletop scene (HOPE-Video, **NC** data) | `g5.2xlarge` |
 | `rldx` | RLDX-1 (RLWRLD, **NC**) | LIBERO-10 | `g6.xlarge` |
 | `rldx-simpler` | RLDX-1 (RLWRLD, **NC**) | SimplerEnv Google-VM (Fractal) | `g6.2xlarge` |
 | `rldx-gr1` | RLDX-1 (RLWRLD, **NC**) | RoboCasa GR-1 Tabletop | `g6.2xlarge` |
@@ -123,6 +124,8 @@ Instance = first choice in `models/<target>.yaml`; the deploy falls back to othe
 | `openarm-isaac` | π0.5 `folding_latest`, experimental pipe proof | Isaac Lab bimanual Reach (OpenArm) | `g6.12xlarge` |
 
 Stack names, robots, per-target notes, deploy and cleanup commands: [docs/targets.md](docs/targets.md). Measured success rates: [docs/results.md](docs/results.md).
+
+**Real2Sim (`real2sim`).** Instead of a policy, this target checks a reconstruction: a multi-view capture of a tabletop is turned into a 3D Gaussian Splatting model (nerfstudio splatfacto), the table and each object are cut out of it as collision meshes (also written as a UsdPhysics `.usda`), and one scripted top-down grasp per object is replayed in MuJoCo with a UR5e + Robotiq 2F-85, against the reconstructed objects, a single scene hull (baseline) and, for the default HOPE-Video scene, the ground-truth meshes. Input: a [HOPE-Video](https://github.com/swtyree/hope-dataset) scene downloaded at run time (**CC BY-NC-SA 4.0, research / non-commercial**) or your own capture zip on S3 (`images/` + a metric nerfstudio `transforms.json`). Output: PSNR / SSIM / LPIPS, per-object fidelity, grasp success per world, videos in the gallery. About US$1-1.5 per run on a `g5.2xlarge` (~45-75 min). Details: [targets note 12](docs/targets.md#note-12-real2sim).
 
 **Post-run judge (optional).** `python vlasim.py judge --vla <target> [--run RUN_ID]` scores every rollout video of a finished run with NVIDIA Flora-Rewarder (outcome score 1 to 5, success = score >= 4) on a `g7e.2xlarge` and writes `judge.json` / `judge.txt` next to the run; `vlasim results` then shows its agreement with the simulator's success flag. Flora-Rewarder is **non-commercial** (research only). Details: [docs/targets.md](docs/targets.md#post-run-judge-flora-rewarder).
 
@@ -162,6 +165,7 @@ It orchestrates third-party models, datasets and simulators that are downloaded 
 - **Cosmos Policy** checkpoint (`cosmos-policy`): NVIDIA One-Way Noncommercial License (NSCLv1), **non-commercial**.
 - **ASPIRE** tools (`aspire`): SAM3 (Meta SAM License, gated) and Contact-GraspNet (NVIDIA, **non-commercial**).
 - **FastWAM** checkpoint (`fastwam`): no license stated; research / evaluation only.
+- **HOPE-Video** dataset (`real2sim` default input): CC BY-NC-SA 4.0, **non-commercial**; downloaded at run time, and the videos / meshes derived from it inherit that license.
 - **Flora-Rewarder** (`flora-judge`, the optional post-run judge): NVIDIA OneWay Noncommercial License, **non-commercial**; research and development only.
 
 You are responsible for reviewing and complying with each component's license and terms of use. **This is sample code, not production-ready software.** Full table: [docs/licenses.md](docs/licenses.md); attributions: [NOTICE](NOTICE).

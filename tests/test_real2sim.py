@@ -131,6 +131,49 @@ def test_segment_cli_writes_meshes_usd_and_json(tmp_path):
         assert rep["usd"] is None
 
 
+def test_gt_volume_ratio_is_set_for_seam_split_gt_meshes(tmp_path):
+    """HOPE GT OBJs duplicate vertices along texture seams (trimesh: not watertight). hope_gt must weld
+    them so that the per-object volume_ratio is a number, consistent with the scene-level ratio.
+    trimesh needs Pillow to load a textured OBJ (the instance installs it with the sim pins)."""
+    _need("numpy", "trimesh", "open3d", "PIL")
+    import numpy as np
+    import r2s_segment as seg
+    import trimesh
+
+    box = trimesh.creation.box(extents=(4.0, 6.0, 8.0))           # cm, like the HOPE meshes
+    mesh_dir, scene_dir = tmp_path / "m", tmp_path / "s"
+    mesh_dir.mkdir()
+    scene_dir.mkdir()
+    # every face corner its own vertex + its own UV, as along the texture seams of the HOPE OBJs
+    corners = box.vertices[box.faces.reshape(-1)]
+    obj = ["v %.6f %.6f %.6f" % tuple(v) for v in corners]
+    obj += ["vt %.4f %.4f" % ((k % 7) / 7, (k % 5) / 5) for k in range(len(corners))]
+    obj += ["f %d/%d %d/%d %d/%d" % (3 * f + 1, 3 * f + 1, 3 * f + 2, 3 * f + 2, 3 * f + 3, 3 * f + 3)
+            for f in range(len(box.faces))]
+    (mesh_dir / "Box.obj").write_text("\n".join(obj) + "\n")
+    assert not trimesh.load(mesh_dir / "Box.obj", force="mesh").is_volume    # what trimesh sees unwelded
+    pose = np.eye(4)
+    pose[:3, 3] = [10.0, 0.0, 4.0]                                 # cm
+    (scene_dir / "0000.json").write_text(json.dumps({"camera": {"extrinsics": np.eye(4).tolist()},
+                                                     "objects": [{"class": "Box", "pose": pose.tolist()}]}))
+    gt = seg.hope_gt(str(scene_dir), str(mesh_dir))
+    assert gt[0][1].is_volume and gt[0][1].volume == pytest.approx(4 * 6 * 8 * 1e-6, rel=1e-6)
+
+    # two clusters (over-split): halves of a 1.25x larger box
+    halves = [trimesh.creation.box(extents=(0.05, 0.06, 0.08)) for _ in range(2)]
+    for k, h in enumerate(halves):
+        h.apply_scale((0.5, 1.0, 1.0))
+        h.apply_translation((0.1 + (k - 0.5) * 0.025, 0.0, 0.04))
+    objs = [{"parts": [h], "volume_m3": float(h.volume), "centroid": h.centroid} for h in halves]
+    rep = seg.gt_report(objs, gt, scene_hull_volume=None)
+    r = rep["per_object"][0]
+    assert r["matched"] == [0, 1]
+    assert r["gt_volume_m3"] == pytest.approx(192e-6, rel=1e-3)
+    assert r["collision_volume_m3"] == pytest.approx(240e-6, rel=1e-3)
+    assert r["volume_ratio"] == pytest.approx(1.25, abs=1e-3)
+    assert rep["collision_volume_ratio_per_object"] == pytest.approx(r["volume_ratio"], abs=1e-3)
+
+
 # ───────────────────────────── capture prep / frames ─────────────────────────────
 
 def _look_at_w2c(eye, target=(0, 0, 0)):

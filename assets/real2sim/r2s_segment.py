@@ -124,6 +124,10 @@ def hope_gt(scene_dir, mesh_dir):
         P = np.array(o["pose"], dtype=float)
         P[:3, 3] /= 100
         m = trimesh.load(os.path.join(mesh_dir, o["class"] + ".obj"), force="mesh")
+        # the textured OBJs duplicate vertices along UV / normal seams, so trimesh sees them as open
+        # (is_volume False) although the surface is closed; welding the seams restores a closed mesh
+        # with the same geometry (volume, centroid and surface samples are unchanged)
+        m.merge_vertices(merge_tex=True, merge_norm=True)
         m.apply_scale(0.01)
         m.apply_transform(c2w @ P)
         out.append((o["class"], m))
@@ -144,13 +148,19 @@ def gt_report(objs, gt, scene_hull_volume):
             continue
         pred = trimesh.util.concatenate([p for i in ids for p in objs[i]["parts"]])
         cd, f5 = chamfer_f(surface_samples(pred), surface_samples(m))
+        coll = sum(objs[i]["volume_m3"] for i in ids)      # same definition as the scene-level ratio below
         per.append({"gt": name, "matched": ids, "chamfer_m": round(cd, 4), "fscore_5mm": round(f5, 3),
                     "centroid_err_m": round(float(np.linalg.norm(pred.centroid - m.centroid)), 4),
-                    "volume_ratio": round(float(pred.volume / m.volume), 3) if m.is_volume else None})
+                    "collision_volume_m3": round(float(coll), 7),
+                    "gt_volume_m3": round(float(m.volume), 7) if m.is_volume else None,
+                    # collision volume of the matched cluster(s) / GT mesh volume; None only when the
+                    # GT mesh is not closed (its volume is then undefined)
+                    "volume_ratio": round(float(coll / m.volume), 3) if m.is_volume else None})
     # a GT object is `merged` when its nearest cluster is also the nearest cluster of another GT object
     near = {j: int(np.argmin([np.linalg.norm(o["centroid"] - gc[j]) for o in objs])) for j in range(len(gt))} if objs else {}
     for j, r in enumerate(per):
         r["merged"] = sum(1 for k in near if near[k] == near.get(j)) > 1
+    # scene level: collision volume of every cluster (matched or not) / volume of all GT meshes
     gt_vol = sum(m.volume for _, m in gt)
     return {"n_gt": len(gt), "per_object": per,
             "matched": sum(1 for r in per if r["matched"]), "merged": sum(1 for r in per if r["merged"]),

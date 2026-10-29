@@ -112,6 +112,18 @@ function preferredFromYaml(vla: string, instanceCfg: any): string[] {
   return pref;
 }
 
+// Real2Sim user capture: models/<vla>.yaml input = {source: capture, capture_s3_uri: s3://bucket/key.zip}
+// -> "bucket/key.zip" (the one object the instance may read); undefined for any other input.
+export function captureObjectPath(vla: string, input: any): string | undefined {
+  if (input?.source !== 'capture') return undefined;
+  const uri = String(input?.capture_s3_uri ?? '').trim();
+  const m = /^s3:\/\/([a-z0-9][a-z0-9.-]{1,61}[a-z0-9])\/([A-Za-z0-9_./=+-]+\.zip)$/.exec(uri);
+  if (!m) {
+    throw new Error(`models/${vla}.yaml: input.capture_s3_uri must be s3://<bucket>/<key>.zip, got "${uri}"`);
+  }
+  return `${m[1]}/${m[2]}`;
+}
+
 export class VlaSimulatorStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: VlaSimulatorStackProps) {
     super(scope, id, props);
@@ -327,6 +339,16 @@ export class VlaSimulatorStack extends cdk.Stack {
       role.addToPolicy(new iam.PolicyStatement({
         actions: ['s3:ListBucket'],
         resources: [`arn:${cdk.Aws.PARTITION}:s3:::${serverCkptBucket}`],
+      }));
+    }
+
+    // Real2Sim with your own capture (models/real2sim.yaml input.source: capture): read exactly that
+    // object. The HOPE-Video default downloads from the public internet and needs no grant.
+    const captureObject = captureObjectPath(vla, modelConfig.input);
+    if (captureObject) {
+      role.addToPolicy(new iam.PolicyStatement({
+        actions: ['s3:GetObject'],
+        resources: [`arn:${cdk.Aws.PARTITION}:s3:::${captureObject}`],
       }));
     }
 

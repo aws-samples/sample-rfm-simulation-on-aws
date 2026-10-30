@@ -348,6 +348,17 @@ init_states: ${LIBERO_PKG_DIR}/init_files
 LIBEROCFG
 log "  LIBERO config: /root/.libero/config.yaml"
 
+{%- if libero_plus %}
+# LIBERO-Plus: the fork's `libero` package imports Wand (ImageMagick) at import time, so its system package and
+# pip pins must be in place before the import check below (the full fork setup runs in [5.5/6]; repeating the
+# apt/pip install there is a no-op). First GPU run without this died here with "No module named 'wand'".
+log "[4/6] LIBERO-Plus: ImageMagick + {{ libero_plus.pip_pins }} before the import check..."
+apt-get install -y --no-install-recommends -o DPkg::Lock::Timeout=300 libmagickwand-dev \
+    2>&1 | tee /tmp/oft_lp_apt_early.log || die "LIBERO-Plus: apt-get install libmagickwand-dev failed"
+pip install --no-cache-dir {{ libero_plus.pip_pins }} 2>&1 | tee /tmp/oft_lp_pip_early.log \
+    || die "LIBERO-Plus: early pip pins failed (see /tmp/oft_lp_pip_early.log)"
+{%- endif %}
+
 # Final import verification — all required modules must load before we proceed to eval.
 log "[4/6] Verifying imports (libero, prismatic, tensorflow, torch, numpy)..."
 python -c "

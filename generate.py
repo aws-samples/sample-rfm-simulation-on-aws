@@ -24,6 +24,7 @@ Usage:
     python generate.py --vla molmoact2   [--config simulator-config.yaml] [--dry-run]
     python generate.py --vla real2sim    [--config simulator-config.yaml] [--dry-run]
     python generate.py --vla robolab-cosmos3 [--dry-run]   # model.variant in the yaml: edge | nano | edge-full
+    python generate.py --vla smolvla-robotwin [--robotwin-protocol subset|clean|randomized|full] [--robotwin-shard K/N]
     python generate.py --judge-target flora-judge [--dry-run]   # post-run judge (deploy.py --judge)
 """
 
@@ -39,6 +40,7 @@ import yaml
 from jinja2 import Environment, FileSystemLoader
 
 import libero_plus
+import robotwin_plan
 from targets import JUDGE_TARGETS, VLA_TARGETS
 
 BASE_DIR = Path(__file__).parent
@@ -725,6 +727,99 @@ def generate_lerobot_libero(config: dict, dry_run: bool, vla: str, plus: tuple =
     return env.get_template("lerobot-libero-userdata.sh.j2").render(**ctx)
 
 
+# Targets that run an upstream-LeRobot policy through `lerobot-eval --env.type=robotwin` (RoboTwin 2.0,
+# SAPIEN + CuRobo) with the shared lerobot-robotwin template. Adding one = models/<id>.yaml + the name maps.
+LEROBOT_ROBOTWIN_TARGETS = ("smolvla-robotwin", "lingbot-vla2")
+
+
+def generate_lerobot_robotwin(config: dict, dry_run: bool, vla: str, protocol: str = "subset",
+                              shard: str = "") -> str:
+    """Upstream LeRobot policy x RoboTwin 2.0 eval, in-process (shared lerobot-robotwin-userdata.sh.j2).
+
+    The run plan (robotwin_plan.plan) is flattened to one entry per (setting, task): the userdata runs one
+    lerobot-eval call per entry with the official per-task step limit and writes task-N/ with
+    `suite: RoboTwin2/<setting>`. `protocol` / `shard` replace the yaml `tasks:` subset with the official
+    49-task x 100-episode protocol (or a slice of it).
+    """
+    model = config.get("model", {})
+    instance = config.get("instance", {})
+    for key in ("hf_repo", "hf_model_revision", "lerobot_commit", "uv_extras", "policy_module", "rename_map"):
+        if not model.get(key):
+            print(f"[error] models/{vla}.yaml: model.{key} is required", file=sys.stderr)
+            sys.exit(1)
+    pins = {**robotwin_plan.PINS, **(config.get("robotwin") or {})}
+    try:
+        units = robotwin_plan.plan(config.get("tasks") or [], protocol=protocol, shard=shard)
+    except ValueError as e:
+        print(f"[error] models/{vla}.yaml: {e}", file=sys.stderr)
+        sys.exit(1)
+    tasks = [dict(u, task_config=robotwin_plan.SETTINGS[u["setting"]]) for u in units]
+    plan_tasks = sorted({u["task"] for u in units})
+    zips = ["embodiments.zip", "objects.zip"]
+    if any(u["setting"] == "randomized" for u in units):
+        zips.append("background_texture.zip")
+
+    extra_repos = []
+    for r in model.get("extra_hf_repos") or []:
+        if not (r.get("repo") and re.fullmatch(r"[0-9a-f]{40}", str(r.get("revision", "")))):
+            print(f"[error] models/{vla}.yaml: extra_hf_repos entries need repo + a 40-hex revision", file=sys.stderr)
+            sys.exit(1)
+        extra_repos.append(dict(repo=r["repo"], revision=r["revision"], why=r.get("why", ""),
+                                patterns_json=json.dumps(r.get("patterns") or None)))
+
+    ctx = {
+        "vla": vla,
+        "tasks_json": _tasks_json_for_bash(tasks),
+        "plan_tasks_json": json.dumps(plan_tasks),
+        "first_seed": int(units[0]["seed"]),
+        "n_units": len(units),
+        "n_episodes": robotwin_plan.episodes(units),
+        "protocol": protocol,
+        "shard": shard,
+        "display_name": model.get("display_name", vla),
+        "policy_desc": model.get("policy_desc", vla),
+        "license": model.get("license", "see model card"),
+        "hf_repo": model["hf_repo"],
+        "hf_model_revision": model["hf_model_revision"],
+        "lerobot_repo": model.get("lerobot_repo", "https://github.com/huggingface/lerobot.git"),
+        "lerobot_commit": model["lerobot_commit"],
+        "python_version": model.get("python_version", "3.12"),
+        "uv_extras": list(model["uv_extras"]),
+        "policy_module": model["policy_module"],
+        "policy_args": list(model.get("policy_args") or []),
+        "env_args": list(model.get("env_args") or []),
+        "rename_map_json": json.dumps(model["rename_map"], separators=(", ", ": ")),
+        "extra_hf_repos": extra_repos,
+        "min_gpu_mib": int(instance.get("min_gpu_mib", 20000)),
+        "min_host_mib": int(instance.get("min_host_mib", 15000)),
+        "robotwin_repo": pins["repo"],
+        "robotwin_commit": pins["commit"],
+        "assets_repo": pins["assets_repo"],
+        "assets_revision": pins["assets_revision"],
+        "asset_zips": zips,
+        "curobo_repo": pins["curobo_repo"],
+        "curobo_ref": pins["curobo_ref"],
+        "curobo_commit": pins["curobo_commit"],
+        "sapien_version": pins["sapien_version"],
+        "mplib_version": pins["mplib_version"],
+        "robotwin_pip": list(pins["pip"]),
+        "sec_per_step": float(pins["sec_per_step"]),
+        "hf_offline": bool(pins["hf_offline"]),
+        "episode_length": int(pins.get("episode_length") or 0),
+    }
+    for a in ctx["policy_args"] + ctx["env_args"] + [ctx["rename_map_json"]] + [r["patterns_json"] for r in extra_repos]:
+        if "'" in a:
+            print(f"[error] models/{vla}.yaml: single quote not allowed in eval args: {a}", file=sys.stderr)
+            sys.exit(1)
+    for a in ctx["env_args"]:
+        if a.split("=", 1)[0] in ("--env.task", "--env.episode_length", "--env.type"):
+            print(f"[error] models/{vla}.yaml: {a.split('=', 1)[0]} is set by the template", file=sys.stderr)
+            sys.exit(1)
+
+    env = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)), keep_trailing_newline=True)  # nosec B701 - shell script template
+    return env.get_template("lerobot-robotwin-userdata.sh.j2").render(**ctx)
+
+
 def generate_vla_adapter(config: dict, dry_run: bool, vla: str = "vla-adapter") -> str:
     """VLA-Adapter (OpenHelix) × LIBERO. An OpenVLA-OFT fork: vla-adapter-userdata.sh.j2 is a copy of the
     openvla-oft template (not shared, so the validated openvla-oft target cannot regress) with the repo,
@@ -1165,6 +1260,11 @@ def main():
     parser.add_argument("--perturb-n", type=int, default=None, metavar="N",
                         help="--libero-variant plus: variants per dimension, 1 episode each; 0 = every variant "
                              "(default: libero_plus.variants_per_category)")
+    parser.add_argument("--robotwin-protocol", default="subset", choices=list(robotwin_plan.PROTOCOLS),
+                        help="RoboTwin targets: subset = the tasks of models/<vla>.yaml (default); clean / "
+                             "randomized / full = the official 49 tasks x 100 episodes (full = both settings)")
+    parser.add_argument("--robotwin-shard", default="", metavar="K/N",
+                        help="RoboTwin targets: keep every N-th (setting, task) unit starting at K (1-based)")
     parser.add_argument("--collect", action="store_true",
                         help="gr00t-g1: trajectory COLLECTION mode (success-only obs/action HDF5 for "
                              "N1.7 G1 adapter FT) instead of the default rollout/video mode.")
@@ -1174,6 +1274,9 @@ def main():
     if not config_path.exists():
         print(f"[error] Config file not found: {config_path}", file=sys.stderr)
         sys.exit(1)
+
+    if (args.robotwin_protocol != "subset" or args.robotwin_shard) and args.vla not in LEROBOT_ROBOTWIN_TARGETS:
+        parser.error(f"--robotwin-protocol / --robotwin-shard apply to {', '.join(LEROBOT_ROBOTWIN_TARGETS)} only")
 
     name = args.judge_target or args.vla
     config = _load_merged_config(config_path, name)
@@ -1214,6 +1317,9 @@ def main():
         rendered = generate_molmoact2(config, args.dry_run)
     elif args.vla in LEROBOT_LIBERO_TARGETS:
         rendered = generate_lerobot_libero(config, args.dry_run, vla=args.vla, plus=plus)
+    elif args.vla in LEROBOT_ROBOTWIN_TARGETS:
+        rendered = generate_lerobot_robotwin(config, args.dry_run, vla=args.vla,
+                                             protocol=args.robotwin_protocol, shard=args.robotwin_shard)
     elif args.vla == "cosmos-policy":
         rendered = generate_cosmos_policy(config, args.dry_run)
     elif args.vla == "vla-adapter":

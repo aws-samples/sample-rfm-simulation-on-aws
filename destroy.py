@@ -66,6 +66,8 @@ STACK_NAMES = {
     "real2sim": "Real2Sim-Demo",
     "robolab-cosmos3": "RoboLab-Cosmos3-Demo",
     "robolab-pi05": "RoboLab-Pi05-Demo",
+    "smolvla-robotwin": "SmolVLA-RoboTwin-Demo",
+    "lingbot-vla2": "LingBot-VLA2-Demo",
 }
 
 

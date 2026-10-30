@@ -1,0 +1,58 @@
+# SmolVLA-450M on RoboTwin 2.0 (50 bimanual tasks, SAPIEN, Aloha-AgileX dual arm).
+# Shared template: lerobot-robotwin-userdata.sh.j2 (upstream LeRobot `lerobot-eval --env.type=robotwin`).
+# License: Apache-2.0 (code and weights), public. The RoboTwin eval also builds NVIDIA CuRobo, whose
+#   license is non-commercial (research / evaluation only) — see docs/licenses.md.
+# Eval recipe: LeRobot's own RoboTwin CI job (.github/workflows/benchmark_tests.yml @552777b7): this
+#   checkpoint, --rename_map head/left/right_camera -> camera1/2/3, batch_size 1, sync envs.
+# Reported: the model card publishes no RoboTwin success rate (checked 2026-10-30).
+# Protocol: the tasks below = default subset. `--robotwin-protocol clean|randomized|full` replaces them
+#   with the official 49 tasks x 100 episodes (see robotwin_plan.py); `--robotwin-shard K/N` splits that.
+model:
+  id: smolvla-robotwin
+  display_name: "SmolVLA-450M RoboTwin"
+  policy_desc: "SmolVLA-450M (Hugging Face, SmolVLM2 backbone + flow-matching action expert), RoboTwin 2.0 fine-tune"
+  license: "Apache-2.0 (code and weights)"
+  hf_repo: "lerobot/smolvla_robotwin"
+  hf_model_revision: "eb55d3a74f6cd26c6388aecd116b37b63fac144d"   # 2026-10-12
+  lerobot_repo: "https://github.com/huggingface/lerobot.git"
+  lerobot_commit: "552777b7c384e8e71a02303da39583f9a2653760"     # main 2026-10-30 (RoboTwin env since 0f1c9b08)
+  python_version: "3.12"
+  uv_extras: [smolvla, dataset, evaluation]   # dataset: pyarrow/datasets (lerobot-eval imports them); evaluation: av
+  policy_module: smolvla
+  policy_args: []
+  env_args: []
+  # The checkpoint was trained on camera1/2/3 (= cam_high / cam_left_wrist / cam_right_wrist).
+  rename_map:
+    observation.images.head_camera: observation.images.camera1
+    observation.images.left_camera: observation.images.camera2
+    observation.images.right_camera: observation.images.camera3
+  # Loaded by the SmolVLA policy / tokenizer step at build time (config.vlm_model_name, load_vlm_weights).
+  extra_hf_repos:
+    - repo: "HuggingFaceTB/SmolVLM2-500M-Video-Instruct"
+      revision: "7b375e1b73b11138ff12fe22c8f2822d8fe03467"
+      patterns: ["*.json", "*.jinja", "*.txt", "*.safetensors"]
+      why: "SmolVLM2 backbone config, weights and tokenizer (SmolVLA vlm_model_name); Apache-2.0"
+
+instance:
+  # Policy needs < 4 GB VRAM; SAPIEN (3 cameras) + two CuRobo planners add a few GB. 2xlarge for host RAM
+  # (CuRobo nvcc build + open3d + assets) and 8 vCPU for the CuRobo build.
+  preferred: [g6.2xlarge, g5.2xlarge, g6.4xlarge, g5.4xlarge]
+  ebs_gb: 200
+  # Keyed by --robotwin-protocol (deploy.py passes -c robotwin_protocol=...). PT720M = WaitCondition max.
+  creationpolicy_timeout:
+    subset: PT300M
+    clean: PT720M
+    randomized: PT720M
+    full: PT720M
+  min_gpu_mib: 20000
+  min_host_mib: 28000
+
+tasks:
+  - setting: clean
+    robotwin_tasks: [beat_block_hammer, click_bell, handover_block, lift_pot, stamp_seal]
+    n_episodes: 5
+    seed: 100000
+    description: "RoboTwin 2.0 clean pipe-proof (SmolVLA-450M, 5 tasks x 5 ep)"
+
+bridge:
+  enabled: false

@@ -47,6 +47,7 @@ from botocore.exceptions import ClientError
 
 import gallery
 import libero_plus
+import robotwin_plan
 from generate import (
     OFT_DEFAULT_SUITE,
     OFT_LIBERO_SUITES,
@@ -73,6 +74,18 @@ LEROBOT_LIBERO_TARGETS = tuple(LEROBOT_LIBERO_STACKS)
 OTHER_LOCAL_STACKS = {"vla-adapter": "VLA-Adapter-Demo", "cosmos-policy": "Cosmos-Policy-Demo", "aspire": "ASPIRE-Demo",
                       "real2sim": "Real2Sim-Demo", "robolab-cosmos3": "RoboLab-Cosmos3-Demo",
                       "robolab-pi05": "RoboLab-Pi05-Demo"}
+
+# Upstream-LeRobot × RoboTwin 2.0 targets (shared lerobot-robotwin template) → CDK stack names.
+# Keep in sync with generate.LEROBOT_ROBOTWIN_TARGETS and cdk/bin/app.ts (tests/test_targets_parity.py checks).
+LEROBOT_ROBOTWIN_STACKS = {
+    "smolvla-robotwin": "SmolVLA-RoboTwin-Demo",
+    "lingbot-vla2": "LingBot-VLA2-Demo",
+}
+LEROBOT_ROBOTWIN_TARGETS = tuple(LEROBOT_ROBOTWIN_STACKS)
+# One deploy must finish inside the 12 h CloudFormation WaitCondition (PT720M) including ~1.5 h of setup.
+ROBOTWIN_MAX_LOOP_HOURS = 10.0
+# Planning figure for the runtime estimate (s per simulated step incl. policy inference), not measured yet.
+ROBOTWIN_EST_SEC_PER_STEP = 0.15
 
 RUN_RE = re.compile(r"^\d{4}-\d{2}-\d{2}-\d{4}$")  # RUN_ID=$(date '+%Y-%m-%d-%H%M') in every template
 VIDEO_KEY_RE = re.compile(r"^[^/]+/task-\d+/videos/[^/]+\.mp4$")
@@ -325,6 +338,36 @@ def _maybe_import_orphan_bucket(
     print()
 
 
+def _robotwin_units(args, config: dict) -> list:
+    """RoboTwin run plan for --vla <RoboTwin target> (exits on a bad flag); [] for every other target."""
+    if args.vla not in LEROBOT_ROBOTWIN_STACKS:
+        if args.robotwin_protocol != "subset" or args.robotwin_shard:
+            print(f"[error] --robotwin-protocol / --robotwin-shard apply to {', '.join(LEROBOT_ROBOTWIN_TARGETS)} only.",
+                  file=sys.stderr)
+            sys.exit(1)
+        return []
+    if args.bridge or args.collect:
+        return []  # rejected below with the target-specific message
+    try:
+        units = robotwin_plan.plan(config.get("tasks") or [], protocol=args.robotwin_protocol,
+                                   shard=args.robotwin_shard)
+    except ValueError as e:
+        print(f"[error] {e}", file=sys.stderr)
+        sys.exit(1)
+    hours = robotwin_plan.worst_case_hours(units, ROBOTWIN_EST_SEC_PER_STEP)
+    if hours > ROBOTWIN_MAX_LOOP_HOURS:
+        need = 1  # smallest N whose round-robin shards all fit
+        while any(robotwin_plan.worst_case_hours(
+                robotwin_plan.plan(config.get("tasks") or [], protocol=args.robotwin_protocol, shard=f"{k}/{need}"),
+                ROBOTWIN_EST_SEC_PER_STEP) > ROBOTWIN_MAX_LOOP_HOURS for k in range(1, need + 1)):
+            need += 1
+        print(f"[error] RoboTwin plan = {robotwin_plan.episodes(units)} episodes, up to ~{hours:.0f} h of episode loop "
+              f"at {ROBOTWIN_EST_SEC_PER_STEP} s/step: one deploy is limited to 12 h (CloudFormation WaitCondition). "
+              f"Split it: --robotwin-shard K/{int(need)} for K = 1..{int(need)}.", file=sys.stderr)
+        sys.exit(1)
+    return units
+
+
 def main():
     parser = argparse.ArgumentParser(description="RFM Simulation on AWS 1-Click Deploy")
     parser.add_argument("--vla", required=True,
@@ -351,6 +394,14 @@ def main():
     parser.add_argument("--perturb-n", type=int, metavar="N",
                         help="--libero-variant plus: variants per dimension (default: libero_plus.variants_per_category; "
                              "0 = every variant, ~350 per dimension)")
+    parser.add_argument("--robotwin-protocol", default="subset", choices=list(robotwin_plan.PROTOCOLS),
+                        help="RoboTwin targets (smolvla-robotwin, lingbot-vla2): subset = the tasks in "
+                             "models/<vla>.yaml (default, 5 tasks x 5 episodes, clean); clean / randomized = the "
+                             "official 49 tasks x 100 episodes of that setting; full = both settings. Anything "
+                             "but subset needs --robotwin-shard (one deploy has a 12 h limit)")
+    parser.add_argument("--robotwin-shard", default="", metavar="K/N",
+                        help="RoboTwin targets: run every N-th (setting, task) unit starting at K (1-based); "
+                             "deploy K = 1..N one after the other (same stack, one RUN_ID each)")
     parser.add_argument("--no-gallery", action="store_true",
                         help="Do not publish videos to the video history gallery (CloudFront page linked from the "
                              "completion e-mail). Default: on (deployment.gallery in simulator-config.yaml).")
@@ -411,6 +462,7 @@ def main():
         except ValueError as e:
             print(f"[error] {e}", file=sys.stderr)
             sys.exit(1)
+    robotwin_units = _robotwin_units(args, config)
 
     region = args.region or deployment["region"]
     email = args.email or deployment["notify_email"]
@@ -445,7 +497,7 @@ def main():
             print("[error] Bridge mode not supported for molmoact2 (local only — MolmoAct2Policy runs in-process via lerobot-eval on the sim GPU).",
                   file=sys.stderr)
             sys.exit(1)
-        if args.vla in LEROBOT_LIBERO_TARGETS or args.vla in OTHER_LOCAL_STACKS:
+        if args.vla in LEROBOT_LIBERO_TARGETS or args.vla in OTHER_LOCAL_STACKS or args.vla in LEROBOT_ROBOTWIN_STACKS:
             print(f"[error] Bridge mode not supported for {args.vla} (local only — the policy runs in-process on the sim GPU).",
                   file=sys.stderr)
             sys.exit(1)
@@ -521,6 +573,13 @@ def main():
         stack_name = LEROBOT_LIBERO_STACKS[args.vla]
     elif args.vla in OTHER_LOCAL_STACKS:
         stack_name = OTHER_LOCAL_STACKS[args.vla]
+    elif args.vla in LEROBOT_ROBOTWIN_STACKS:
+        stack_name = LEROBOT_ROBOTWIN_STACKS[args.vla]
+        generate_extra += ["--robotwin-protocol", args.robotwin_protocol]
+        if args.robotwin_shard:
+            generate_extra += ["--robotwin-shard", args.robotwin_shard]
+        # Selects the protocol's entry of instance.creationpolicy_timeout (same stack + results bucket).
+        extra_cdk_ctx += ["-c", f"robotwin_protocol={args.robotwin_protocol}"]
     else:
         stack_name = "Pi-Demo"
     mode = "collect" if args.collect else ("bridge" if args.bridge else "local")
@@ -538,6 +597,10 @@ def main():
         n_ep = libero_plus.episodes(plus_plan)
         print(f"[deploy] LIBERO-Plus: {plus_plan['suite']}, {','.join(plus_plan['perturb'])} x "
               f"{plus_plan['variants_per_category'] or 'all'} variants = {n_ep or 'all'} episodes")
+    if robotwin_units:
+        shard = f" shard {args.robotwin_shard}" if args.robotwin_shard else ""
+        print(f"[deploy] RoboTwin: {args.robotwin_protocol}{shard}, {len(robotwin_units)} task run(s), "
+              f"{robotwin_plan.episodes(robotwin_units)} episodes")
     if vpc_id:
         print(f"[deploy] VPC:    {vpc_id}")
     print()
@@ -654,6 +717,12 @@ def main():
                   "model.variant in models/<vla>.yaml selects nano / the full RoboLab-120 protocol (see docs/targets.md)")
         elif args.vla == "cosmos-policy":
             print("  Estimated time: ~60-120 min (docker build ~10-15min + uv sync ~10-20min + ckpt DL + LIBERO eval, 1 ep x 10 tasks)")
+        elif args.vla in LEROBOT_ROBOTWIN_TARGETS:
+            hours = robotwin_plan.worst_case_hours(robotwin_units, ROBOTWIN_EST_SEC_PER_STEP)
+            print("  Estimated time: ~60-90 min setup (uv sync + RoboTwin stack + CuRobo build + ~4 GB assets"
+                  f"{' + ~11 GB textures' if any(u['setting'] == 'randomized' for u in robotwin_units) else ''}) + "
+                  f"episode loop up to ~{hours:.1f} h (every episode at its step limit, "
+                  f"{ROBOTWIN_EST_SEC_PER_STEP} s/step; not measured yet)")
         elif args.vla in LEROBOT_LIBERO_TARGETS:
             print("  Estimated time: ~40-80 min for the pipe-proof cap (uv sync LeRobot source ~15-30min + ckpt DL + LIBERO eval; scale via models/<vla>.yaml tasks)")
         else:

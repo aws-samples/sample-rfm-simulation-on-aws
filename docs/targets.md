@@ -32,8 +32,10 @@ Each target is one `--vla <target>` value for `python vlasim.py deploy` / `destr
 | `rldx-bridge` | — | RLDX-1 (RLWRLD MSAT / Qwen3-VL-8B, eager)[¹](#note-1-rldx-1-weights-license) [¹³](#note-13-simplerenv-bridge-gr00t-bridge-rldx-bridge) | SimplerEnv Bridge (visual matching), same 4 tasks | WidowX 250 (`OXE_BRIDGE_ORIG`) | `RLDX-Bridge-Demo` |
 | `rldx-gr1` | — | RLDX-1 (RLWRLD MSAT / Qwen3-VL-8B, eager)[¹](#note-1-rldx-1-weights-license) [³](#note-3-rldx-gr1) | RoboCasa GR-1 Tabletop (24-task) | GR-1 humanoid (bimanual + waist) | `RLDX-GR1-Demo` |
 | `openarm-isaac` | — | π0.5 (LeRobot pi05 `folding_latest`, 16-DOF bimanual), pipe-proof only[¹¹](#note-11-openarm-isaac-experimental) | Isaac Lab bimanual Reach (empty scene) | OpenArm (bimanual, 2 × 7-DOF + grippers) | `OpenArm-Isaac-Demo` |
-| `robolab-cosmos3` | — | NVIDIA Cosmos3-Edge-Policy-DROID (4B world action model; Cosmos3-Nano-Policy-DROID 16B via `model.variant: nano`), cosmos-framework policy server[¹³](#note-13-robolab) | NVIDIA RoboLab (Isaac Lab 2.2 / Isaac Sim 5.0): 12-task subset of RoboLab-120 (default) or the full 120 tasks | DROID Franka Panda + Robotiq 2F-85 | `RoboLab-Cosmos3-Demo` |
-| `robolab-pi05` | — | π0.5-DROID (`pi05_droid_jointpos`, openpi policy server)[¹³](#note-13-robolab) | NVIDIA RoboLab, same protocol as `robolab-cosmos3` | DROID Franka Panda + Robotiq 2F-85 | `RoboLab-Pi05-Demo` |
+| `robolab-cosmos3` | — | NVIDIA Cosmos3-Edge-Policy-DROID (4B world action model; Cosmos3-Nano-Policy-DROID 16B via `model.variant: nano`), cosmos-framework policy server[¹⁴](#note-14-robolab) | NVIDIA RoboLab (Isaac Lab 2.2 / Isaac Sim 5.0): 12-task subset of RoboLab-120 (default) or the full 120 tasks | DROID Franka Panda + Robotiq 2F-85 | `RoboLab-Cosmos3-Demo` |
+| `robolab-pi05` | — | π0.5-DROID (`pi05_droid_jointpos`, openpi policy server)[¹⁴](#note-14-robolab) | NVIDIA RoboLab, same protocol as `robolab-cosmos3` | DROID Franka Panda + Robotiq 2F-85 | `RoboLab-Pi05-Demo` |
+| `smolvla-robotwin` | — | SmolVLA-450M (`lerobot/smolvla_robotwin`)[¹⁵](#note-15-robotwin-20-smolvla-robotwin-lingbot-vla2) | RoboTwin 2.0: 5-task clean subset (default) or the official 49 tasks × 100 episodes, clean / randomized | Aloha-AgileX dual arm (2 × 6-DOF + grippers, 14-D joint actions) | `SmolVLA-RoboTwin-Demo` |
+| `lingbot-vla2` | — | LingBot-VLA 2.0 (Robbyant, Qwen3-VL-4B + sparse-MoE action expert, 6B, fp32)[¹⁵](#note-15-robotwin-20-smolvla-robotwin-lingbot-vla2) | RoboTwin 2.0, same protocol as `smolvla-robotwin` | Aloha-AgileX dual arm | `LingBot-VLA2-Demo` |
 
 ## Notes
 
@@ -151,7 +153,7 @@ How it works:
 - **Comparability.** A dimension row and the LIBERO baseline differ only in the scene when the checkpoint, eval seed and step cap are the same, which is what the switch keeps. `LIBERO-Plus/all` pools the dimensions with equal weight; the paper's "Total" weights by the number of variants per dimension. The LeRobot card of `lerobot/smolvla_libero_plus` reports 69.0% on task ids 0-9 of four suites; those ids are all Background Textures variants, so it is not a seven-dimension number.
 - **License.** The fork's code repository has no LICENSE file and GitHub reports no license: treat it as research / evaluation use. The asset pack is MIT on its Hugging Face dataset card. Both are downloaded at run time; nothing from LIBERO-Plus is vendored in this repository.
 
-### Note 13: RoboLab
+### Note 14: RoboLab
 
 `robolab-cosmos3` and `robolab-pi05` run [NVIDIA RoboLab](https://github.com/NVlabs/RoboLab) (pinned `@9cce00ca`, 2026-10-27) the way its README describes it: a **policy server** and a **headless Isaac Sim client** talking the OpenPI msgpack WebSocket protocol, here both on one instance. One shared template, `templates/robolab-userdata.sh.j2`, does, in order: disable GPU ECC and reboot once (Isaac Sim on L40S, same as `openarm-isaac`); `git lfs pull` RoboLab's ~6.2 GB of assets; build RoboLab's own image with `docker/build_docker.sh` on `nvcr.io/nvidia/isaac-lab:2.2.0` pinned by digest (Isaac Lab 2.2.0 / Isaac Sim 5.0.0, the stack every leaderboard row except one was measured on); build the policy server image; download the checkpoint once; start one server per shard (port 8000+i) and run `policies/<backend>/run.py --headless --instruction-type default` per shard over a round-robin slice of the task list. Shards run in parallel, one per GPU (`gpus_per_shard: 2` gives the server its own GPU). `assets/robolab/robolab_report.py` merges the shards' `episode_results.jsonl` into `task-0/summary.txt` (suite `RoboLab/subset12` or `RoboLab/RoboLab-120` in `vlasim results`), `task-0/robolab_results.json` (per task, per difficulty, Wilson intervals, subtask score) and the gallery videos (`<task>_run<r>_env<e>_success=<bool>[_viewport].mp4`, at most `max_videos_per_task` per task and camera).
 
@@ -159,7 +161,19 @@ How it works:
 - **Variants** (`model.variant` in the model yaml; the CDK stack reads the instance list, EBS and timeout of the selected variant): `robolab-cosmos3` = `edge` (default; 1 × L40S, 12 tasks × 5 episodes), `nano` (`g6e.12xlarge`, 2 shards of sim GPU + server GPU), `edge-full` (`g6e.48xlarge`, 8 shards, RoboLab-120 × 10 = the leaderboard protocol); `robolab-pi05` = `subset` (default) and `full` (`g6e.48xlarge`, 8 shards).
 - **Subset.** 12 of the 120 tasks, 6 simple / 4 moderate / 2 complex, covering the visual, relational and procedural axes, × 5 episodes (`--num-envs 5`), default instructions: `BananaInBowlTask`, `RubiksCubeAndBananaTask` (the README's sanity pair), `PickUpGreenObjectTask`, `SmallerObjectButterInBinTask`, `MustardInLeftBinTask`, `BowlStackingLeftOnRightTask`, `BananasInBinThreeTotalTask`, `PickUpBluePitcherTask`, `RubiksCubeBehindBowlTask`, `Stack3RubiksCubeTask`, `BlockStackingSpecifiedOrderTask`, `ReorientAllMugsTask`. A subset rate is **not** a RoboLab-120 number; compare it only with another run of the same subset.
 - **Licenses.** RoboLab code Apache-2.0, but most bundled scenes, objects and robot models are **CC BY-NC-SA 4.0 (non-commercial)** (RoboLab `THIRD_PARTY_NOTICES.md`); Isaac Sim runs under NVIDIA's license (the container EULA is accepted with `ACCEPT_EULA=Y`); Cosmos3 weights and cosmos-framework are OpenMDW-1.1 (commercial use allowed); openpi is Apache-2.0. See [licenses.md](licenses.md).
-- **Status.** Rendered, linted and synthesized; **not run on AWS yet**. Leaderboard references are in [results.md](results.md#expected-results).
+- **Status.** Default variants measured on 2026-10-30 (`g6e.2xlarge`, ap-northeast-2, subset12 × 5 episodes): `robolab-cosmos3` (`edge`) 31.7%, `robolab-pi05` 40.0%; `nano` and the full RoboLab-120 protocol are not run yet. Numbers and leaderboard references: [results.md](results.md#expected-results).
+### Note 15: RoboTwin 2.0 (smolvla-robotwin, lingbot-vla2)
+
+[RoboTwin 2.0](https://github.com/RoboTwin-Platform/RoboTwin) (MIT; Chen et al., [arXiv 2506.18088](https://arxiv.org/abs/2506.18088)) is a 50-task dual-arm benchmark on SAPIEN with the Aloha-AgileX robot, evaluated in a **clean** (Easy, `demo_clean`) and a **randomized** (Hard, `demo_randomized`: clutter, backgrounds, lighting, table height) setting; the [leaderboard](https://robotwin-platform.github.io/leaderboard) protocol is 100 episodes per task in both. Both targets share `templates/lerobot-robotwin-userdata.sh.j2` and run upstream LeRobot's `lerobot-eval --env.type=robotwin` in-process, one call per task. Choosing new targets over a `--benchmark` switch on `smolvla`: the RoboTwin run needs a different checkpoint, a different simulator stack (SAPIEN + Vulkan + a CuRobo build) and other instance sizes and timeouts, and a separate stack keeps its results bucket apart from the LIBERO runs.
+
+- **Pins.** LeRobot `@552777b7` (`uv sync --locked`, Python 3.12); RoboTwin `@0aeea2d6` (the commit LeRobot's own RoboTwin benchmark image uses; RoboTwin `main` has since moved its configs and no longer matches the LeRobot wrapper); assets `TianxingChen/RoboTwin2.0 @981c92aa` (embodiments 220 MB + objects 3.7 GB; the 11 GB background textures only when the plan has the randomized setting); NVIDIA CuRobo `v0.7.8` (`@d64c4b00`), compiled on the instance for its GPU with an nvcc matching torch's CUDA; SAPIEN `3.0.0b1`, mplib `0.2.1`. Checkpoints `lerobot/smolvla_robotwin @eb55d3a7` and `lerobot/lingbot_vla_v2_robotwin @54f79a4b`; the repos their processors load (`HuggingFaceTB/SmolVLM2-500M-Video-Instruct`, `Qwen/Qwen3-VL-4B-Instruct`) are downloaded at pinned revisions and the eval runs with `HF_HUB_OFFLINE=1` against them.
+- **Protocol.** Default: `beat_block_hammer`, `click_bell`, `handover_block`, `lift_pot`, `stamp_seal` × 5 episodes, clean, seeds from 100000 (RoboTwin's own start seed), each task capped at RoboTwin's official step limit (`task_config/_eval_step_limit.yml`). `--robotwin-protocol clean|randomized|full` runs the official 49 tasks × 100 episodes (`open_laptop` is left out: its success check is broken for policy evaluation, per the LeRobot docs). One deploy has to finish inside the 12-hour CloudFormation WaitCondition, so `deploy.py` refuses a plan that cannot and prints the shard count: `--robotwin-shard K/N` runs every N-th (setting, task) unit; deploy K = 1..N one after the other (each shard is its own `RUN_ID`, read them together with `vlasim results --all-runs`).
+- **Results.** Each task is one `task-N/` with `suite: RoboTwin2/<setting>`, `robotwin_task`, `condition: <protocol>` and a stack fingerprint (LeRobot, RoboTwin, assets, SAPIEN, CuRobo), so `vlasim results` prints one `RoboTwin2/clean` / `RoboTwin2/randomized` row per run. Up to 10 videos per task (head camera) go to the results bucket and the gallery as `<task>_0--eval_episode_N.mp4`.
+- **Not the leaderboard protocol in two ways.** RoboTwin's own `script/eval_policy.py` first replays the scripted expert on every seed and keeps only seeds the expert solves; LeRobot's wrapper does not (episodes use consecutive seeds), so rates here can be lower than the leaderboard's. And seeds that RoboTwin rejects as unstable (a falling object at setup) are retried with seed + 100003 instead of being skipped (counted as `unstable_seeds_skipped` in `summary.txt`).
+- **Two patches** of `lerobot/envs/robotwin.py` at the pin, each asserted to apply exactly once: the task config comes from `LEROBOT_ROBOTWIN_TASK_CONFIG` (default `demo_clean`, so the randomized setting can run), and the unstable-seed retry above. mplib and SAPIEN get the two source fixes RoboTwin's installer applies.
+- **Install order.** mplib `0.2.1` declares `numpy<2` and SAPIEN `3.0.0b1` declares `opencv-python`; both are installed `--no-deps` and the rest of the RoboTwin stack against the frozen LeRobot lock, so no locked package moves (their binaries support numpy 2). Installed with its metadata, mplib downgrades numpy to 1.26 and `lerobot-eval` then dies at `import pyarrow`; that is how LeRobot's RoboTwin CI job ends on 2026-10-30 although the job is green. Before the checkpoint download the run imports the whole eval chain (including lazily imported modules) and resets one RoboTwin env on the GPU, then runs a 1-episode smoke eval with the exact command line.
+- **Licenses.** Both checkpoints and LeRobot are Apache-2.0, RoboTwin and its assets MIT, SAPIEN and mplib MIT; **CuRobo is under the NVIDIA License (non-commercial: research / evaluation only)**, and RoboTwin builds a CuRobo planner per arm on every reset, so these targets are research / evaluation only.
+- **Not done here.** X-VLA's RoboTwin checkpoint (`2toINF/X-VLA-RoboTwin2`) is not in LeRobot format and predicts end-effector poses; `lerobot/lingbot_va_robotwin` and `lerobot/fastwam_robotwin_uncond_3cam_384` are world action models that need `--env.action_mode=ee` and a larger GPU; `lerobot/hy_vla_robotwin` has no policy class in LeRobot at the pin; G0.5 and InternVLA RoboTwin checkpoints are non-commercial. Not run on AWS yet; expected numbers are in [results.md](results.md#robotwin-20-smolvla-robotwin-lingbot-vla2).
 
 ## Post-run judge (Flora-Rewarder)
 
@@ -262,6 +276,8 @@ does not have to exist any more (its bucket is retained); the gallery score badg
 | `openarm-isaac` | `g6.12xlarge` → `g5.12xlarge` → `g6.2xlarge` → `g5.2xlarge` | 500 |
 | `robolab-cosmos3` | `edge` (default): `g6e.2xlarge` → `g6e.4xlarge`; `nano`: `g6e.12xlarge` → `g6e.24xlarge`; `edge-full`: `g6e.48xlarge` | 600 / 700 / 1000 |
 | `robolab-pi05` | `subset` (default): `g6e.2xlarge` → `g6e.4xlarge`; `full`: `g6e.48xlarge` | 500 / 900 |
+| `smolvla-robotwin` | `g6.2xlarge` → `g5.2xlarge` → `g6.4xlarge` → `g5.4xlarge` | 200 |
+| `lingbot-vla2` | `g6e.2xlarge` → `g6e.4xlarge` | 250 |
 | `flora-judge` ([post-run judge](#post-run-judge-flora-rewarder)) | `g7e.2xlarge` → `g7e.4xlarge` → `g6e.12xlarge` → `p5.4xlarge` | 250 |
 
 ## Deploy commands
@@ -342,10 +358,15 @@ python vlasim.py deploy --vla openarm-lift-act --email you@example.com
 # OpenArm bimanual π0.5 (folding_latest) in Isaac Lab — experimental pipe proof, success ~0 by design (note 11)
 python vlasim.py deploy --vla openarm-isaac --email you@example.com
 
-# NVIDIA RoboLab (Isaac Lab, DROID Franka; assets CC BY-NC-SA 4.0) — 12-task subset x 5 episodes (~4-6 h, note 13)
+# NVIDIA RoboLab (Isaac Lab, DROID Franka; assets CC BY-NC-SA 4.0) — 12-task subset x 5 episodes (~4-6 h, note 14)
 # model.variant in models/robolab-*.yaml: nano (g6e.12xlarge) or the full RoboLab-120 protocol (g6e.48xlarge, up to 12 h)
 python vlasim.py deploy --vla robolab-cosmos3 --email you@example.com   # Cosmos3-Edge-Policy-DROID
 python vlasim.py deploy --vla robolab-pi05 --email you@example.com      # pi0.5-DROID
+# RoboTwin 2.0 bimanual (LeRobot lerobot-eval; CuRobo planner is NON-COMMERCIAL, note 15)
+python vlasim.py deploy --vla smolvla-robotwin --email you@example.com   # 5 tasks x 5 ep, clean (measured ~55 min, 48%)
+python vlasim.py deploy --vla lingbot-vla2 --email you@example.com       # LingBot-VLA 2.0, same subset, g6e (measured ~49 min, 80%)
+# Official protocol (49 tasks x 100 ep) in 12-hour shards; deploy.py prints N if the plan does not fit
+python vlasim.py deploy --vla smolvla-robotwin --robotwin-protocol clean --robotwin-shard 1/19 --email you@example.com
 
 # Post-run judge: score a finished run's videos with NVIDIA Flora-Rewarder (NON-COMMERCIAL license, ~45-90 min)
 python vlasim.py judge --vla smolvla --email you@example.com
@@ -403,6 +424,8 @@ python vlasim.py destroy --vla openarm-lift-act
 python vlasim.py destroy --vla openarm-isaac
 python vlasim.py destroy --vla robolab-cosmos3
 python vlasim.py destroy --vla robolab-pi05
+python vlasim.py destroy --vla smolvla-robotwin
+python vlasim.py destroy --vla lingbot-vla2
 python vlasim.py destroy --judge --vla smolvla   # post-run judge stack of smolvla (judge.json stays with the run)
 ```
 

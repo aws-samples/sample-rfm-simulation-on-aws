@@ -9,7 +9,7 @@ import { captureObjectPath, VlaSimulatorStack } from '../lib/vla-simulator-stack
 // the tests run on a fresh checkout, and remove only the placeholders we created.
 const USERDATA_DIR = path.resolve(__dirname, '../../assets/userdata');
 const VLAS = ['gr00t', 'pi'];
-const SEED_VLAS = [...VLAS, 'openarm-lift-act', 'xvla', 'real2sim'];
+const SEED_VLAS = [...VLAS, 'openarm-lift-act', 'xvla', 'real2sim', 'smolvla-robotwin'];
 const seeded: string[] = [];
 
 beforeAll(() => {
@@ -86,6 +86,36 @@ test('yaml-driven targets launch their own preferred instance list', () => {
   });
   Template.fromStack(stack).hasResourceProperties('AWS::CloudFormation::CustomResource', {
     InstanceTypes: 'g6.2xlarge,g5.2xlarge,g6.xlarge,g5.xlarge',
+  });
+});
+
+// RoboTwin targets: instance list from the yaml; the WaitCondition timeout is keyed by robotwin_protocol.
+describe('smolvla-robotwin', () => {
+  const waitTimeout = (ctx: Record<string, string>) => {
+    const app = new cdk.App({ context: { region: 'ap-northeast-2', vla: 'smolvla-robotwin', notify_email: 'test@example.com', ...ctx } });
+    const stack = new VlaSimulatorStack(app, 'SmolVLA-RoboTwin-Demo', {
+      vla: 'smolvla-robotwin',
+      env: { account: '123456789012', region: 'ap-northeast-2' },
+    });
+    const t = Template.fromStack(stack);
+    const wcs = Object.values(t.findResources('AWS::CloudFormation::WaitCondition'));
+    expect(wcs).toHaveLength(1);
+    return { t, timeout: wcs[0].Properties.Timeout };
+  };
+  test('launches its yaml instance list with the subset timeout by default', () => {
+    const { t, timeout } = waitTimeout({});
+    t.hasResourceProperties('AWS::CloudFormation::CustomResource', {
+      InstanceTypes: 'g6.2xlarge,g5.2xlarge,g6.4xlarge,g5.4xlarge',
+    });
+    expect(timeout).toBe(String(300 * 60));
+    // 63-char bucket rule: SmolVLA-RoboTwin-Demo drops "-demo" in ap-northeast-2
+    t.hasResourceProperties('AWS::S3::Bucket', {
+      BucketName: 'vla-sim-results-smolvla-robotwin-ap-northeast-2-123456789012',
+    });
+  });
+  test('a shard of the official protocol gets the 12 h WaitCondition maximum', () => {
+    expect(waitTimeout({ robotwin_protocol: 'full' }).timeout).toBe(String(720 * 60));
+    expect(() => waitTimeout({ robotwin_protocol: 'leaderboard' })).toThrow(/no "leaderboard" entry/);
   });
 });
 

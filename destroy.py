@@ -62,6 +62,8 @@ STACK_NAMES = {
     "cosmos-policy": "Cosmos-Policy-Demo",
     "aspire": "ASPIRE-Demo",
     "real2sim": "Real2Sim-Demo",
+    "smolvla-robotwin": "SmolVLA-RoboTwin-Demo",
+    "lingbot-vla2": "LingBot-VLA2-Demo",
 }
 
 

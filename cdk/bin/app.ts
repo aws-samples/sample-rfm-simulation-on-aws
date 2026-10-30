@@ -18,6 +18,8 @@
  *   npx cdk deploy MolmoAct2-Demo              -c region=us-west-2 -c vla=molmoact2
  *   npx cdk deploy XVLA-Demo                   -c region=us-east-1 -c vla=xvla
  *   npx cdk deploy Real2Sim-Demo               -c region=ap-northeast-2 -c vla=real2sim
+ *   npx cdk deploy SmolVLA-RoboTwin-Demo       -c region=us-east-1 -c vla=smolvla-robotwin [-c robotwin_protocol=clean]
+ *   npx cdk deploy LingBot-VLA2-Demo           -c region=us-east-1 -c vla=lingbot-vla2
  */
 
 import * as cdk from 'aws-cdk-lib';
@@ -30,9 +32,9 @@ const app = new cdk.App();
 const region = app.node.tryGetContext('region') ?? 'ap-northeast-2';
 const vla: string = app.node.tryGetContext('vla');
 
-if (!vla || !['gr00t', 'gr00t-gr1', 'gr00t-g1', 'pi', 'openvla-oft', 'lap', 'rldx', 'rldx-simpler', 'rldx-gr1', 'rldx-kitchen', 'openarm-isaac', 'openarm-lift-act', 'molmoact2', 'xvla', 'smolvla', 'lingbot-va', 'vla-adapter', 'fastwam', 'cosmos-policy', 'aspire', 'real2sim'].includes(vla)) {
+if (!vla || !['gr00t', 'gr00t-gr1', 'gr00t-g1', 'pi', 'openvla-oft', 'lap', 'rldx', 'rldx-simpler', 'rldx-gr1', 'rldx-kitchen', 'openarm-isaac', 'openarm-lift-act', 'molmoact2', 'xvla', 'smolvla', 'lingbot-va', 'vla-adapter', 'fastwam', 'cosmos-policy', 'aspire', 'real2sim', 'smolvla-robotwin', 'lingbot-vla2'].includes(vla)) {
   throw new Error(
-    'CDK context "vla" is required. Pass -c vla=gr00t, -c vla=gr00t-gr1, -c vla=gr00t-g1, -c vla=pi, -c vla=openvla-oft, -c vla=lap, -c vla=rldx, -c vla=rldx-simpler, -c vla=rldx-gr1, -c vla=rldx-kitchen, -c vla=openarm-isaac, -c vla=openarm-lift-act, -c vla=molmoact2, -c vla=xvla, -c vla=smolvla, -c vla=lingbot-va, -c vla=vla-adapter, -c vla=fastwam, -c vla=cosmos-policy, -c vla=aspire, or -c vla=real2sim.\n' +
+    'CDK context "vla" is required. Pass -c vla=gr00t, -c vla=gr00t-gr1, -c vla=gr00t-g1, -c vla=pi, -c vla=openvla-oft, -c vla=lap, -c vla=rldx, -c vla=rldx-simpler, -c vla=rldx-gr1, -c vla=rldx-kitchen, -c vla=openarm-isaac, -c vla=openarm-lift-act, -c vla=molmoact2, -c vla=xvla, -c vla=smolvla, -c vla=lingbot-va, -c vla=vla-adapter, -c vla=fastwam, -c vla=cosmos-policy, -c vla=aspire, -c vla=real2sim, -c vla=smolvla-robotwin, or -c vla=lingbot-vla2.\n' +
     'Use deploy.py which sets this automatically.',
   );
 }
@@ -74,6 +76,8 @@ const stackNameMap: Record<string, string> = {
   'cosmos-policy': 'Cosmos-Policy-Demo',
   'aspire':      'ASPIRE-Demo',
   'real2sim':    'Real2Sim-Demo',
+  'smolvla-robotwin': 'SmolVLA-RoboTwin-Demo',
+  'lingbot-vla2': 'LingBot-VLA2-Demo',
 };
 const stackName = stackNameMap[vla];
 
@@ -104,6 +108,8 @@ const descriptionMap: Record<string, string> = {
   'fastwam': 'FastWAM world action model (Wan2.2 video DiT + action expert) + LIBERO (Franka Panda, upstream LeRobot lerobot-eval, in-process)',
   'cosmos-policy': 'Cosmos Policy (NVIDIA world action model, research-only weights) + LIBERO (Franka Panda, in its own Docker image)',
   'real2sim': 'Real2Sim: capture to 3D Gaussian Splatting (nerfstudio splatfacto) to per-object collision meshes to scripted MuJoCo grasp (UR5e + Robotiq 2F-85)',
+  'smolvla-robotwin': 'SmolVLA-450M (Hugging Face) + RoboTwin 2.0 bimanual (Aloha-AgileX, SAPIEN + CuRobo, upstream LeRobot lerobot-eval, in-process)',
+  'lingbot-vla2': 'LingBot-VLA 2.0 (Robbyant) + RoboTwin 2.0 bimanual (Aloha-AgileX, SAPIEN + CuRobo, upstream LeRobot lerobot-eval, in-process)',
 };
 
 const stack = new VlaSimulatorStack(app, stackName, {

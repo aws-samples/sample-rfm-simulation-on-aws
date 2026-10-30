@@ -155,7 +155,7 @@ def test_stack_names_match_cdk():
     assert set(ts) == EXPECTED
 
     assert _literal_assign("destroy.py", "STACK_NAMES") == ts
-    for const in ("LEROBOT_LIBERO_STACKS", "OTHER_LOCAL_STACKS"):
+    for const in ("LEROBOT_LIBERO_STACKS", "OTHER_LOCAL_STACKS", "LEROBOT_ROBOTWIN_STACKS"):
         mapping = _literal_assign("deploy.py", const)
         assert {k: ts[k] for k in mapping} == mapping, f"deploy.{const} disagrees with app.ts"
 
@@ -164,3 +164,10 @@ def test_generate_lerobot_family_matches_deploy():
     gen = _module_constants(ast.parse((ROOT / "generate.py").read_text()))
     dep = _module_constants(ast.parse((ROOT / "deploy.py").read_text()))
     assert set(gen["LEROBOT_LIBERO_TARGETS"]) == set(dep["LEROBOT_LIBERO_TARGETS"]) <= EXPECTED
+
+
+def test_generate_robotwin_family_matches_deploy():
+    gen = _module_constants(ast.parse((ROOT / "generate.py").read_text()))
+    dep = _module_constants(ast.parse((ROOT / "deploy.py").read_text()))
+    assert set(gen["LEROBOT_ROBOTWIN_TARGETS"]) == set(dep["LEROBOT_ROBOTWIN_TARGETS"]) <= EXPECTED
+    assert not set(gen["LEROBOT_ROBOTWIN_TARGETS"]) & set(gen["LEROBOT_LIBERO_TARGETS"])

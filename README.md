@@ -95,6 +95,8 @@ openvla-oft-spatial  ap-northeast-2  2026-10-19-0558  libero_spatial  smoke-knob
 
 A task with no `summary.txt` (still running, or the run died) is counted under `not_done`, never as a 0. Download commands, expected success rates per target and the 50-episode same-stack baseline: [docs/results.md](docs/results.md).
 
+`vlasim results --matrix` prints a cross-model leaderboard instead: one row per target, one column per benchmark (LIBERO suites, LIBERO-Plus dimensions, SimplerEnv, RoboCasa, RoboLab, RoboTwin, ...), the latest comparable run per cell with k/n and its Wilson interval, cells marked when their stack fingerprints differ, and an estimated EC2 cost per run and per episode from the run's wall time and a pinned On-Demand price table. `--csv` / `--json` export it and `--write-docs` refreshes the block in [docs/results.md](docs/results.md#cross-model-matrix-leaderboard).
+
 ## Supported targets
 
 Instance = first choice in `models/<target>.yaml`; the deploy falls back to other types and AZs when capacity is short. **NC** = non-commercial or research-only weights or tools (see [License](#license)).

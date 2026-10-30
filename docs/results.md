@@ -3,6 +3,7 @@
 Back to the [README](../README.md) · [Documentation index](README.md)
 
 - [Downloading results](#downloading-results) and comparing runs with `vlasim results`
+- [Cross-model matrix](#cross-model-matrix-leaderboard): target x benchmark with cost and latency (`vlasim results --matrix`)
 - [Post-run judge](#post-run-judge-judgejson): Flora-Rewarder scores next to a run
 - [Expected Results](#expected-results), including the [same-stack baseline](#same-stack-baseline-official-stack-50-episodes-per-suite) and [per-target smoke results](#per-target-smoke-results)
 
@@ -39,6 +40,121 @@ openvla-oft-spatial  ap-northeast-2  2026-10-19-0558  libero_spatial  smoke-knob
 ```
 
 A task with no `summary.txt` (still running, or the run died) is counted under `not_done`, never as a 0.
+
+## Cross-model matrix (leaderboard)
+
+`vlasim results --matrix` turns the same buckets into one table: rows are model targets, columns are benchmarks, and each cell is the latest run of that target on that benchmark under a baseline condition, with k/n and a 95% Wilson interval. A second table estimates cost and time per cell. Every region that has a `vla-sim-results-*` bucket is read (the bucket name carries the region; `--region` restricts it). Read-only.
+
+```bash
+python vlasim.py results --matrix                          # all regions, baseline conditions
+python vlasim.py results --matrix --all-conditions         # plus one row per stack condition (S2a, P0, ...)
+python vlasim.py results --matrix --condition S0 --csv m.csv --json m.json
+python vlasim.py results --write-docs                      # refresh the block below from your buckets
+```
+
+**Columns.** `suite` (or the part of `env_name` before `/`) is normalised; a `condition` of the form `<Benchmark>/<setting>` names a benchmark variant and becomes the column itself:
+
+| `summary.txt` | Column |
+|---|---|
+| `suite: libero_spatial` / `libero_object` / `libero_goal` / `libero_10` | `LIBERO-Spatial` / `LIBERO-Object` / `LIBERO-Goal` / `LIBERO-10` |
+| `suite: libero_spatial` + `condition: LIBERO-Plus/camera` | `LIBERO-Plus/camera (Spatial)` |
+| `condition: RoboLab/subset12` | `RoboLab/subset12` |
+| `condition: RoboTwin2/demo_clean` | `RoboTwin2/demo_clean` |
+| `suite: simpler_bridge`, `env_name: simpler_env_widowx/...` | `SimplerEnv-Bridge` |
+| `env_name: libero_sim/<scene>` (GR00T) | `LIBERO scenes (GR00T)` |
+| `env_name: robocasa_panda_omron/...`, `gr1_unified/...`, `gr00tlocomanip_g1_sim/...` | `RoboCasa-Kitchen`, `GR1-Tabletop`, `G1-LocoManip` |
+| anything else | the suite as written |
+
+**Rows and comparability.** The row is the summary's `model:` when it is a `--vla` target, otherwise the target the stack name starts with. Baseline conditions are `S0`, `-` (not recorded) and the `<Benchmark>/<setting>` labels; other conditions are left out unless `--all-conditions` or `--condition` is given. Shards of one evaluation run as separate stacks (same condition, checkpoint and stack fingerprint, disjoint `task_ids`, started within `--pool-hours`, default 6) are pooled into one cell; reruns of the same tasks are not. A cell is marked † when a fingerprint key (`stack_*`, `step_scale`, `random_init`, `replan_head`, `max_episode_steps`) differs from another cell in the same column (listed under the table), and ‡ when the summary records no fingerprint or no condition, so its stack is unknown.
+
+**Cost and time (estimates).** Wall time per run = RUN_ID (`date '+%Y-%m-%d-%H%M'` at the top of the user data, UTC = instance boot) to the last object the run uploaded, ignoring `judge*` outputs and video captions (the judge re-uploads captions later). A `run_wall_s` field in `summary.txt` takes precedence. Instance type comes from `instance_type:` / `instance:` in `summary.txt`, else the `Instance: <id> (<type>)` line of a video caption, else `userdata.log`. USD per hour is a pinned On-Demand Linux table per region in `leaderboard.py` (AWS Price List API, `aws pricing get-products --service-code AmazonEC2`, checked 2026-10-30); USD/episode divides by every episode of the run. Stack create/delete, NAT gateway, EBS and data transfer are not included ([cost](cost.md)).
+
+**Latency.** s/episode is read from `episode_wall_s` in `summary.txt`, else LeRobot's `eval_info.json` (`overall.eval_ep_s`), else the GR00T rollout log (`Collecting N episodes took X seconds`). No template records per-step policy latency today, so ms/step stays empty until a template writes it. Optional `summary.txt` fields any template can add (one `key: value` line each; all are read if present and ignored otherwise):
+
+| Field | Meaning |
+|---|---|
+| `instance_type` | EC2 instance type, e.g. `g6.xlarge` |
+| `run_wall_s` | seconds from instance boot to the moment this summary was written (the largest value of a run is used as its wall time) |
+| `episode_wall_s` | mean wall seconds per episode (reset + rollout + video write) |
+| `policy_ms_per_step` | mean policy inference time per control step, in milliseconds |
+
+For example, in a user-data template: `BOOT_TS=$(date +%s)` next to `RUN_ID=...`, then `echo "run_wall_s: $(( $(date +%s) - BOOT_TS ))"` and `echo "instance_type: ${INSTANCE_TYPE}"` inside the `summary.txt` block.
+
+<!-- leaderboard:begin -->
+_Generated 2026-10-30 by `python vlasim.py results --write-docs` from the results buckets in this account; estimates are labelled as such._
+
+| Target | LIBERO-Spatial | LIBERO-Object | LIBERO-Goal | LIBERO-10 | LIBERO-Plus/background (Spatial) | LIBERO-Plus/camera (Spatial) | LIBERO-Plus/language (Spatial) | LIBERO-Plus/light (Spatial) | LIBERO-Plus/robot (Spatial) | LIBERO scenes (GR00T) | SimplerEnv-Bridge | RoboCasa-Kitchen | GR1-Tabletop | G1-LocoManip | gr1_tabletop | hope-video-scene-0000 | simpler_google_vm |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| `cosmos-policy` | 1.00 (20/20) [0.84-1.00]‡ | 1.00 (50/50) [0.93-1.00] | 1.00 (50/50) [0.93-1.00] | 0.96 (48/50) [0.87-0.99] |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| `fastwam` | 0.88 (44/50) [0.76-0.94]‡ | 0.98 (49/50) [0.90-1.00]‡ | 0.98 (49/50) [0.90-1.00]‡ | 0.96 (48/50) [0.87-0.99]‡ |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| `gr00t` |  |  |  |  |  |  |  |  |  | 1.00 (50/50) [0.93-1.00]‡ | 0.50 (20/40) [0.35-0.65] |  |  |  |  |  |  |
+| `gr00t-g1` |  |  |  |  |  |  |  |  |  |  |  |  |  | 0.40 (4/10) [0.17-0.69]‡ |  |  |  |
+| `gr00t-gr1` |  |  |  |  |  |  |  |  |  |  |  |  | 0.25 (2/8) [0.07-0.59]‡ |  |  |  |  |
+| `lap` | 0.92 (rate only)‡ |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| `lingbot-va` |  |  |  | 0.98 (49/50) [0.90-1.00]‡ |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| `molmoact2` |  |  | 1.00 (rate only)‡ |  |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| `openvla-oft` | 0.96 (96/100) [0.90-0.98]‡ | 0.98 (49/50) [0.90-1.00]‡ | 0.98 (49/50) [0.90-1.00]‡ | 0.96 (48/50) [0.87-0.99]‡ |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| `pi` | 0.99 (rate only)‡ | 0.98 (rate only)‡ | 0.96 (rate only)‡ | 0.94 (rate only)‡ |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| `real2sim` |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | 0.89 (8/9) [0.56-0.98]‡ |  |
+| `rldx` | 0.98 (rate only)‡ | 1.00 (rate only)‡ | 0.97 (rate only)‡ | 1.00 (rate only)‡ |  |  |  |  |  |  | 0.65 (rate only)‡ |  |  |  |  |  |  |
+| `rldx-gr1` |  |  |  |  |  |  |  |  |  |  |  |  |  |  | 0.50 (rate only)‡ |  |  |
+| `rldx-kitchen` |  |  |  |  |  |  |  |  |  |  |  | 0.70 (rate only)‡ |  |  |  |  |  |
+| `rldx-simpler` |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | 1.00 (rate only)‡ |
+| `smolvla` | 0.80 (8/10) [0.49-0.94] |  |  |  | 0.50 (5/10) [0.24-0.76] | 0.20 (2/10) [0.06-0.51] | 0.10 (1/10) [0.02-0.40] | 0.70 (7/10) [0.40-0.89] | 0.00 (0/10) [0.00-0.28] |  |  |  |  |  |  |  |  |
+| `vla-adapter` | 1.00 (10/10) [0.72-1.00]‡ |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| `xvla` | 0.90 (rate only)‡ |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |
+
+Cell = latest run under a baseline condition: rate (k/n) [95% Wilson interval]. † = a stack fingerprint key differs from another cell in the same column (see below); ‡ = no stack fingerprint or no condition recorded (older summary; comparability unknown). Compare cells only when episode count, init states, step cap and chunk execution match.
+
+Cost and time per cell (**estimates**: EC2 On-Demand only, prices pinned 2026-10-30 from the AWS Price List API):
+
+| Target | Benchmark | Runs | Instance | Instance-min (est.) | USD/run (est.) | USD/episode (est.) | s/episode | ms/step |
+|---|---|---:|---|---:|---:|---:|---:|---:|
+| `cosmos-policy` | LIBERO-Spatial | 1 | g6e.xlarge | 20 | 0.76 | 0.038 | - | - |
+| `cosmos-policy` | LIBERO-Object | 1 | g6e.xlarge | 129 | 4.93 | 0.020 | - | - |
+| `cosmos-policy` | LIBERO-Goal | 1 | g6e.xlarge | 122 | 4.66 | 0.019 | - | - |
+| `cosmos-policy` | LIBERO-10 | 1 | g6e.xlarge | 263 | 10.04 | 0.040 | - | - |
+| `fastwam` | LIBERO-Spatial | 1 | g6e.2xlarge | 155 | 8.42 | 0.034 | 13.4 | - |
+| `fastwam` | LIBERO-Object | 1 | g6e.2xlarge | 360 | 19.53 | 0.078 | 13.4 | - |
+| `fastwam` | LIBERO-Goal | 1 | g6e.2xlarge | 146 | 6.72 | 0.027 | 11.3 | - |
+| `fastwam` | LIBERO-10 | 1 | g6e.2xlarge | 331 | 17.93 | 0.072 | 23.4 | - |
+| `gr00t` | LIBERO scenes (GR00T) | 1 | g6.2xlarge | 73 | 1.19 | 0.005 | 7.9 | - |
+| `gr00t` | SimplerEnv-Bridge | 1 | g6.2xlarge | 25 | 0.51 | 0.013 | 13.4 | - |
+| `gr00t-g1` | G1-LocoManip | 1 | g6.12xlarge | 32 | 3.02 | 0.302 | 46.3 | - |
+| `gr00t-gr1` | GR1-Tabletop | 1 | g6.12xlarge | 25 | 2.36 | 0.295 | 21.9 | - |
+| `lap` | LIBERO-Spatial | 1 | g5.xlarge | 32 | - | - | - | - |
+| `lingbot-va` | LIBERO-10 | 10 | g6e.2xlarge | 2985 | 13.71 | 0.914 | 1213.5 | - |
+| `molmoact2` | LIBERO-Goal | 1 | g6e.2xlarge | 10 | 0.47 | 0.047 | 13.5 | - |
+| `openvla-oft` | LIBERO-Spatial | 1 | g6.xlarge | 60 | 0.80 | 0.008 | - | - |
+| `openvla-oft` | LIBERO-Object | 1 | g6.xlarge | 28 | 0.37 | 0.007 | - | - |
+| `openvla-oft` | LIBERO-Goal | 1 | g5.xlarge | 29 | 0.49 | 0.010 | - | - |
+| `openvla-oft` | LIBERO-10 | 1 | g6.xlarge | 33 | 0.65 | 0.013 | - | - |
+| `pi` | LIBERO-Spatial | 1 | g5.2xlarge | 37 | 0.76 | 0.008 | - | - |
+| `pi` | LIBERO-Object | 1 | g5.xlarge | 86 | 1.77 | 0.009 | - | - |
+| `pi` | LIBERO-Goal | 1 | g5.xlarge | 86 | 1.77 | 0.009 | - | - |
+| `pi` | LIBERO-10 | 1 | g5.xlarge | 86 | 1.77 | 0.009 | - | - |
+| `real2sim` | hope-video-scene-0000 | 1 | g5.2xlarge | 12 | 0.30 | 0.034 | - | - |
+| `rldx` | LIBERO-Spatial | 1 | g6.xlarge | 56 | 0.92 | 0.004 | - | - |
+| `rldx` | LIBERO-Object | 1 | g6.xlarge | 56 | 1.08 | 0.004 | - | - |
+| `rldx` | LIBERO-Goal | 1 | g5.xlarge | 97 | 1.62 | 0.006 | - | - |
+| `rldx` | LIBERO-10 | 1 | g6.xlarge | 18 | 0.30 | 0.030 | - | - |
+| `rldx` | SimplerEnv-Bridge | 1 | g6.2xlarge | 38 | 0.77 | 0.019 | - | - |
+| `rldx-gr1` | gr1_tabletop | 1 | g5.xlarge | 30 | 0.51 | 0.051 | - | - |
+| `rldx-kitchen` | RoboCasa-Kitchen | 1 | g6.2xlarge | 26 | 0.52 | 0.052 | - | - |
+| `rldx-simpler` | simpler_google_vm | 1 | g5.2xlarge | 27 | 0.54 | 0.054 | - | - |
+| `smolvla` | LIBERO-Spatial | 1 | g6.xlarge | 9 | 0.15 | 0.015 | 14.6 | - |
+| `smolvla` | LIBERO-Plus/background (Spatial) | 1 | g6.xlarge | 37 | 0.61 | 0.012 | 8.8 | - |
+| `smolvla` | LIBERO-Plus/camera (Spatial) | 1 | g6.xlarge | 37 | 0.61 | 0.012 | 16.8 | - |
+| `smolvla` | LIBERO-Plus/language (Spatial) | 1 | g6.xlarge | 37 | 0.61 | 0.012 | 10.9 | - |
+| `smolvla` | LIBERO-Plus/light (Spatial) | 1 | g6.xlarge | 37 | 0.61 | 0.012 | 7.6 | - |
+| `smolvla` | LIBERO-Plus/robot (Spatial) | 1 | g6.xlarge | 37 | 0.61 | 0.012 | 11.5 | - |
+| `vla-adapter` | LIBERO-Spatial | 1 | g6.xlarge | 10 | 0.17 | 0.017 | - | - |
+| `xvla` | LIBERO-Spatial | 1 | g6.2xlarge | 8 | 0.17 | 0.017 | 12.8 | - |
+
+Instance-min = sum over the pooled runs of RUN_ID (instance boot) to the last object the run uploaded, or `run_wall_s` from `summary.txt`; USD/episode divides by every episode of those runs (all suites of a run share its instance); stack create/delete, NAT gateway, EBS and data transfer are not included. USD/run is per pooled run. s/episode comes from `episode_wall_s`, LeRobot `eval_info.json` (`eval_ep_s`) or the GR00T rollout log; ms/step only from `policy_ms_per_step`.
+
+Sources: `cosmos-policy` LIBERO-Spatial: cosmos-policy-demo@ap-northeast-2 2026-10-17-0254; `cosmos-policy` LIBERO-Object: cosmos-w-o@ap-northeast-2 2026-10-15-1429; `cosmos-policy` LIBERO-Goal: cosmos-w-g@ap-northeast-2 2026-10-15-1430; `cosmos-policy` LIBERO-10: cosmos-w-l@ap-northeast-2 2026-10-15-1431; `fastwam` LIBERO-Spatial: fastwam-s@ap-northeast-1 2026-10-15-1356; `fastwam` LIBERO-Object: fastwam-o@ap-northeast-1 2026-10-15-1356; `fastwam` LIBERO-Goal: fastwam-g@ap-northeast-2 2026-10-15-1428; `fastwam` LIBERO-10: fastwam-l@ap-northeast-1 2026-10-15-1355; `gr00t` LIBERO scenes (GR00T): gr00t-demo@us-east-1 2026-10-15-0847; `gr00t` SimplerEnv-Bridge: gr00t-bridge-demo@ap-northeast-2 2026-10-30-1425; `gr00t-g1` G1-LocoManip: gr00t-g1-demo@ap-northeast-2 2026-10-09-1435; `gr00t-gr1` GR1-Tabletop: gr00t-gr1-demo@ap-northeast-2 2026-10-09-1339; `lap` LIBERO-Spatial: lap-demo@us-west-2 2026-10-09-1444; `lingbot-va` LIBERO-10: lingbot-t9@ap-northeast-2 2026-10-15-1707, lingbot-t8@ap-northeast-2 2026-10-15-1706, lingbot-t7@ap-northeast-2 2026-10-15-1705, lingbot-t6@ap-northeast-2 2026-10-15-1704, lingbot-t5@ap-northeast-2 2026-10-15-1703, lingbot-t4@ap-northeast-2 2026-10-15-1703, lingbot-t3@ap-northeast-2 2026-10-15-1702, lingbot-t2@ap-northeast-2 2026-10-15-1701, lingbot-t1@ap-northeast-2 2026-10-15-1700, lingbot-t0@ap-northeast-2 2026-10-15-1659; `molmoact2` LIBERO-Goal: molmoact2-demo@ap-northeast-2 2026-10-09-1348; `openvla-oft` LIBERO-Spatial: oft-spatial-h@us-east-1 2026-10-15-1149; `openvla-oft` LIBERO-Object: openvla-oft-object-demo@us-east-1 2026-10-15-1147; `openvla-oft` LIBERO-Goal: openvla-oft-goal-demo@us-east-1 2026-10-15-0854; `openvla-oft` LIBERO-10: openvla-oft-demo@ap-northeast-1 2026-10-15-0947; `pi` LIBERO-Spatial: pi-demo@us-east-1 2026-10-26-1911; `pi` LIBERO-Object: pi-demo@ap-northeast-2 2026-10-15-0948; `pi` LIBERO-Goal: pi-demo@ap-northeast-2 2026-10-15-0948; `pi` LIBERO-10: pi-demo@ap-northeast-2 2026-10-15-0948; `real2sim` hope-video-scene-0000: real2sim-demo@ap-northeast-2 2026-10-29-0142; `rldx` LIBERO-Spatial: rldx-demo@ap-northeast-2 2026-08-19-0959; `rldx` LIBERO-Object: rldx-demo@ap-northeast-1 2026-08-19-0855; `rldx` LIBERO-Goal: rldx-demo@us-east-1 2026-08-19-0855; `rldx` LIBERO-10: rldx-demo@ap-northeast-2 2026-10-09-1346; `rldx` SimplerEnv-Bridge: rldx-bridge-demo@ap-northeast-2 2026-10-30-1332; `rldx-gr1` gr1_tabletop: rldx-gr1-demo@us-west-2 2026-10-09-1333; `rldx-kitchen` RoboCasa-Kitchen: rldx-kitchen-demo@ap-northeast-2 2026-10-09-1343; `rldx-simpler` simpler_google_vm: rldx-simpler-demo@us-east-1 2026-10-09-1327; `smolvla` LIBERO-Spatial: smolvla-demo@ap-northeast-2 2026-10-27-0514; `smolvla` LIBERO-Plus/background (Spatial): smolvla-demo@ap-northeast-2 2026-10-30-1424; `smolvla` LIBERO-Plus/camera (Spatial): smolvla-demo@ap-northeast-2 2026-10-30-1424; `smolvla` LIBERO-Plus/language (Spatial): smolvla-demo@ap-northeast-2 2026-10-30-1424; `smolvla` LIBERO-Plus/light (Spatial): smolvla-demo@ap-northeast-2 2026-10-30-1424; `smolvla` LIBERO-Plus/robot (Spatial): smolvla-demo@ap-northeast-2 2026-10-30-1424; `vla-adapter` LIBERO-Spatial: vla-adapter-demo@ap-northeast-2 2026-10-14-1337; `xvla` LIBERO-Spatial: xvla-demo@ap-northeast-2 2026-10-14-0642.
+<!-- leaderboard:end -->
 
 ## Post-run judge (judge.json)
 

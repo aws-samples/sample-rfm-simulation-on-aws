@@ -272,8 +272,31 @@ def _maybe_import_orphan_bucket(
         print(f"[pre-check] {stack_name} is {status} (failed first create) — deleting it ...")
         cfn.delete_stack(StackName=stack_name)
         cfn.get_waiter("stack_delete_complete").wait(StackName=stack_name)
+    elif status in ("CREATE_COMPLETE", "UPDATE_COMPLETE", "UPDATE_ROLLBACK_COMPLETE"):
+        # A finished run leaves its stack behind (the instance terminates itself). Re-running the target
+        # would update that stack, and CloudFormation cannot update the run's WaitCondition
+        # ("Update to resource type AWS::CloudFormation::WaitCondition is not supported"). Delete the
+        # compute stack — the results bucket is RETAINed — and re-adopt the bucket below, which is what
+        # `destroy.py --keep-data` + deploy does. Refuse while the run's instance is still alive.
+        outputs = cfn.describe_stacks(StackName=stack_name)["Stacks"][0].get("Outputs", [])
+        instance_id = next((o["OutputValue"] for o in outputs if o["OutputKey"] == "InstanceId"), None)
+        if instance_id:
+            ec2 = boto3.client("ec2", region_name=region)
+            try:
+                reservations = ec2.describe_instances(InstanceIds=[instance_id])["Reservations"]
+                state = reservations[0]["Instances"][0]["State"]["Name"] if reservations else "terminated"
+            except ClientError:
+                state = "terminated"
+            if state not in ("terminated", "shutting-down"):
+                print(f"[pre-check] {stack_name}: the previous run's instance {instance_id} is still {state}.")
+                print("            Wait for it to finish (or stop it), then run deploy again.")
+                sys.exit(1)
+        print(f"[pre-check] {stack_name} is {status} from a previous run — deleting the compute stack "
+              "(results bucket and gallery are kept) ...")
+        cfn.delete_stack(StackName=stack_name)
+        cfn.get_waiter("stack_delete_complete").wait(StackName=stack_name)
     elif status is not None:
-        return  # Stack still exists
+        return  # Stack still exists (in progress or failed) — let cdk report it
 
     print(f"[pre-check] Orphan S3 bucket detected: {bucket_name}")
     print("[pre-check] Re-adopting via `cdk import` before deploy ...")

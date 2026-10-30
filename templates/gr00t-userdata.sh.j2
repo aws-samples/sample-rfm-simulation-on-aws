@@ -684,6 +684,28 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
         "${K_ARGS[@]}" \
         2>&1 | tee /tmp/gr00t_rollout_task${TASK_IDX}.log \
         || log "  [warn] Task ${TASK_IDX} rollout error (continuing)"
+{%- if sim_id == "simpler" %}
+    # The very first get_action on a fresh instance can outlast the client's 15 s ZMQ receive timeout
+    # (cold CUDA kernels / caches): the first gr00t-bridge GPU run lost task 0 to `zmq.error.Again` while
+    # tasks 1-3 (same server start path) ran normally. Retry the task once in that case only.
+    if grep -q 'zmq.error.Again' /tmp/gr00t_rollout_task${TASK_IDX}.log 2>/dev/null \
+        && ! grep -qE 'success rate:[[:space:]]+[0-9.]+' /tmp/gr00t_rollout_task${TASK_IDX}.log; then
+        log "  [warn] Task ${TASK_IDX}: first policy call timed out (zmq.error.Again) — retrying the task once"
+        find /tmp -name "*.mp4" -newer /tmp/gr00t_task${TASK_IDX}_start.marker -delete 2>/dev/null || true
+        sleep 20
+        touch /tmp/gr00t_task${TASK_IDX}_start.marker
+        "${VENV}/bin/python" gr00t/eval/rollout_policy.py \
+            --env-name "${ENV_NAME}" \
+            --policy-client-host localhost \
+            --policy-client-port 8000 \
+            --n-episodes "${N_EPISODES}" \
+            --n-envs "${N_ENVS}" \
+            --max-episode-steps "${MAX_STEPS}" \
+            "${K_ARGS[@]}" \
+            2>&1 | tee /tmp/gr00t_rollout_task${TASK_IDX}.log \
+            || log "  [warn] Task ${TASK_IDX} rollout retry error (continuing)"
+    fi
+{%- endif %}
 
     # Collect videos (CLI saves to /tmp/sim_eval_videos_<env>/<uuid>/video.mp4)
     find /tmp -name "*.mp4" -newer /tmp/gr00t_task${TASK_IDX}_start.marker \

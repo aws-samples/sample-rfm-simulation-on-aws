@@ -9,6 +9,7 @@ Each target is one `--vla <target>` value for `python vlasim.py deploy` / `destr
 | `--vla` | `--libero-suite` | Model | Sim Environment | Robot | Stack |
 |---------|------------------|-------|----------------|-------|-------|
 | `gr00t` | — | GR00T N1.7-LIBERO | LIBERO-10 kitchen tasks | Franka Panda (7-DOF) | `GR00T-Demo` |
+| `gr00t-bridge` | — | GR00T N1.7-SimplerEnv-Bridge[¹³](#note-13-simplerenv-bridge-gr00t-bridge-rldx-bridge) | SimplerEnv Bridge (visual matching): spoon on towel, carrot on plate, stack cube, eggplant in basket | WidowX 250 (`SIMPLER_ENV_WIDOWX`) | `GR00T-Bridge-Demo` |
 | `gr00t-gr1` | — | GR00T N1.6-3B | RoboCasa GR1 tabletop tasks | Fourier GR1 humanoid (22-DOF) | `GR00T-GR1-Demo` |
 | `gr00t-g1` | — | GR00T N1.6-G1 (community re-finetune) | GR00T-WholeBodyControl loco-manip (GEAR WBC + MuJoCo) | Unitree G1 humanoid (whole-body) | `GR00T-G1-Demo` |
 | `pi` | — | π0.5 (pi05_libero) | LIBERO spatial/object | Franka Panda (7-DOF) | `Pi-Demo` |
@@ -28,6 +29,7 @@ Each target is one `--vla <target>` value for `python vlasim.py deploy` / `destr
 | `real2sim` | — | Real2Sim — not a policy: capture → 3D Gaussian Splatting (nerfstudio splatfacto) → per-object collision meshes → scripted grasp replay[¹²](#note-12-real2sim) | MuJoCo, 3 collision worlds (reconstructed / scene hull / ground truth) of a real tabletop (HOPE-Video, **NC** data) or your capture | UR5e + Robotiq 2F-85 (and a floating 2F-85) | `Real2Sim-Demo` |
 | `rldx` | — | RLDX-1 (RLWRLD MSAT / Qwen3-VL-8B, eager)[¹](#note-1-rldx-1-weights-license) | LIBERO-10 long-horizon | Franka Panda (7-DOF) | `RLDX-Demo` |
 | `rldx-simpler` | — | RLDX-1 (RLWRLD MSAT / Qwen3-VL-8B, eager)[¹](#note-1-rldx-1-weights-license) [²](#note-2-rldx-simpler) | SimplerEnv Google-VM (Fractal) | Google Robot (OXE_FRACTAL real-robot embodiment) | `RLDX-Simpler-Demo` |
+| `rldx-bridge` | — | RLDX-1 (RLWRLD MSAT / Qwen3-VL-8B, eager)[¹](#note-1-rldx-1-weights-license) [¹³](#note-13-simplerenv-bridge-gr00t-bridge-rldx-bridge) | SimplerEnv Bridge (visual matching), same 4 tasks | WidowX 250 (`OXE_BRIDGE_ORIG`) | `RLDX-Bridge-Demo` |
 | `rldx-gr1` | — | RLDX-1 (RLWRLD MSAT / Qwen3-VL-8B, eager)[¹](#note-1-rldx-1-weights-license) [³](#note-3-rldx-gr1) | RoboCasa GR-1 Tabletop (24-task) | GR-1 humanoid (bimanual + waist) | `RLDX-GR1-Demo` |
 | `openarm-isaac` | — | π0.5 (LeRobot pi05 `folding_latest`, 16-DOF bimanual), pipe-proof only[¹¹](#note-11-openarm-isaac-experimental) | Isaac Lab bimanual Reach (empty scene) | OpenArm (bimanual, 2 × 7-DOF + grippers) | `OpenArm-Isaac-Demo` |
 | `robolab-cosmos3` | — | NVIDIA Cosmos3-Edge-Policy-DROID (4B world action model; Cosmos3-Nano-Policy-DROID 16B via `model.variant: nano`), cosmos-framework policy server[¹³](#note-13-robolab) | NVIDIA RoboLab (Isaac Lab 2.2 / Isaac Sim 5.0): 12-task subset of RoboLab-120 (default) or the full 120 tasks | DROID Franka Panda + Robotiq 2F-85 | `RoboLab-Cosmos3-Demo` |
@@ -100,6 +102,15 @@ RLDX-1 weights are under the **RLWRLD Model License v1.0 (non-commercial)**; "si
 | Grasp, UR5e + 2F-85 | recon 4/9, scene hull 0/9, ground truth 4/9 |
 
 Two ground-truth objects are over-split (CreamCheese into 2 clusters, AlphabetSoup into 3); they have the largest per-object volume ratios (1.86 × and 3.19 ×) and Chamfer distances (24 and 39 mm, the other eight 3-6 mm). The UR5e lifts fewer objects than the floating hand (`recon` 4 vs 8, `gt` 4 vs 6), and on this run the floating hand lifted more objects in `recon` (8) than in `gt` (6). These are the numbers of one run on one scene.
+
+### Note 13: SimplerEnv Bridge (gr00t-bridge, rldx-bridge)
+
+`gr00t-bridge` and `rldx-bridge` run the **SimplerEnv WidowX/Bridge** visual-matching benchmark (WidowX 250 on BridgeData scenes, ManiSkill2_real2sim + SAPIEN) next to the Google Fractal one of `rldx-simpler`. Both run the four tasks every Bridge results table reports: `widowx_spoon_on_towel`, `widowx_carrot_on_plate`, `widowx_stack_cube` (green block on yellow block) and `widowx_put_eggplant_in_basket`, 10 episodes each by default (`tasks[].n_episodes` / `num_episodes` in the yaml; the upstream tables use 100 to 200). `summary.txt` carries `suite: simpler_bridge`, so `vlasim results` shows one SimplerEnv Bridge row per run. "Bridge" here is the benchmark (BridgeData V2), not [bridge mode](bridge-mode.md): both targets run local mode only.
+
+- **`gr00t-bridge`** — `nvidia/GR00T-N1.7-SimplerEnv-Bridge` @`940134b3` (NVIDIA Open Model License, commercial use allowed) on Isaac-GR00T @`65cc4a19`, the commit that published the N1.7 Bridge table. It follows the Bridge recipe of Isaac-GR00T `examples/SimplerEnv/README.md`: `run_gr00t_server.py --embodiment-tag SIMPLER_ENV_WIDOWX --use-sim-policy-wrapper` and the SimplerEnv rollout client with `--n-action-steps 4`, 300 steps per episode (`seed: 42` per task; at this pin the WidowX env ignores reset seeds, so only the RNGs are fixed). Same template as `gr00t` (`templates/gr00t-userdata.sh.j2`, branched by `sim_id`; the LIBERO render is unchanged). The SimplerEnv branch installs the Vulkan loader SAPIEN needs, runs `setup_SimplerEnv.sh`, adds the rollout-client packages that script misses at this pin (the list upstream added later, Isaac-GR00T `9c7e746`) and checks the rollout import chain and `gym.make` of the first task before the model loads. The checkpoint download skips the optimizer and RNG states (35.7 GB in the repo, 6.9 GB downloaded). Needs the HF token for the gated `nvidia/Cosmos-Reason2-2B` backbone, like `gr00t`.
+- **`rldx-bridge`** — `RLWRLD/RLDX-1-FT-SIMPLER-WIDOWX` @`e1314689` (RLWRLD Model License v1.0, **non-commercial**) on the same RLDX-1 pin, server and SimplerEnv venv as `rldx-simpler`, with the `widowx` settings of RLWRLD's `eval_simpler.sh` (`OXE_BRIDGE_ORIG`, 2 actions per chunk, 300 steps). The WidowX env reports euler roll/pitch/yaw plus a pad entry and no quaternion, so the observation/action adapter of `rldx-simpler` gets a WidowX branch (`model.simpler_robot: widowx`); the other rldx targets render unchanged.
+
+Both targets are rendered, `bash -n`-checked and synthesized but **not yet run on a GPU**; the Expected Results rows carry the published numbers until a measured run is added.
 
 ### Note 13: RoboLab
 
@@ -188,6 +199,7 @@ does not have to exist any more (its bucket is retained); the gallery score badg
 | `--vla` | `instance.preferred` (first choice first) | EBS (GB) |
 |---|---|---|
 | `gr00t` | `g6.12xlarge` → `g5.12xlarge` → `g6.xlarge` → `g5.xlarge` | 400 |
+| `gr00t-bridge` | `g6.2xlarge` → `g5.2xlarge` → `g6.xlarge` → `g5.xlarge` | 200 |
 | `gr00t-gr1` | `g6.12xlarge` → `g5.12xlarge` → `g6.xlarge` → `g5.xlarge` | 400 |
 | `gr00t-g1` | `g6.12xlarge` → `g5.12xlarge` → `g6.xlarge` → `g5.xlarge` | 500 |
 | `pi` | `g5.xlarge` → `g5.2xlarge` → `g6.xlarge` → `g6.2xlarge` | 200 |
@@ -204,6 +216,7 @@ does not have to exist any more (its bucket is retained); the gallery score badg
 | `real2sim` | `g5.2xlarge` → `g6.2xlarge` → `g5.4xlarge` → `g6.4xlarge` | 150 |
 | `rldx` | `g6.xlarge` → `g6.2xlarge` → `g5.xlarge` → `g5.2xlarge` | 150 |
 | `rldx-simpler` | `g6.2xlarge` → `g5.2xlarge` → `g6.xlarge` → `g5.xlarge` | 200 |
+| `rldx-bridge` | `g6.2xlarge` → `g5.2xlarge` → `g6.xlarge` → `g5.xlarge` | 200 |
 | `rldx-gr1` | `g6.2xlarge` → `g5.2xlarge` → `g6.xlarge` → `g5.xlarge` | 200 |
 | `rldx-kitchen` | `g6.2xlarge` → `g5.2xlarge` → `g6.xlarge` → `g5.xlarge` | 220 |
 | `openarm-lift-act` | `g6.12xlarge` → `g5.12xlarge` → `g6.24xlarge` → `g5.24xlarge` → `g6e.12xlarge` → `g6e.24xlarge` | 300 |
@@ -221,6 +234,9 @@ first time, or if you skipped `init`.
 ```bash
 # GR00T N1.7 — LIBERO kitchen tasks (~120 min)
 python vlasim.py deploy --vla gr00t --email you@example.com
+
+# GR00T N1.7 — SimplerEnv Bridge (WidowX 250, 4 tasks x 10 episodes, ~90-150 min, local mode only)
+python vlasim.py deploy --vla gr00t-bridge --email you@example.com
 
 # GR00T N1.6 + GR1 humanoid — RoboCasa tabletop tasks (~90 min)
 python vlasim.py deploy --vla gr00t-gr1 --email you@example.com
@@ -268,6 +284,10 @@ python vlasim.py deploy --vla rldx --email you@example.com
 # RLDX-1 (RLWRLD) — SimplerEnv Google-VM (real-robot OXE_FRACTAL embodiment, ~35-45 min)
 # NON-COMMERCIAL weights (RLWRLD Model License v1.0) — research / simulation benchmarking only.
 python vlasim.py deploy --vla rldx-simpler --email you@example.com
+
+# RLDX-1 (RLWRLD) — SimplerEnv Bridge (WidowX 250, OXE_BRIDGE_ORIG, 4 tasks x 10 episodes, ~100-160 min)
+# NON-COMMERCIAL weights (RLWRLD Model License v1.0) — research / simulation benchmarking only.
+python vlasim.py deploy --vla rldx-bridge --email you@example.com
 
 # RLDX-1 (RLWRLD) — RoboCasa GR-1 Tabletop (bimanual humanoid + waist, MuJoCo, ~25-35 min)
 # NON-COMMERCIAL weights (RLWRLD Model License v1.0) — research / simulation benchmarking only.
@@ -317,6 +337,7 @@ aws logs tail /flora-judge/userdata --follow --region us-east-1   # post-run jud
 
 ```bash
 python vlasim.py destroy --vla gr00t
+python vlasim.py destroy --vla gr00t-bridge
 python vlasim.py destroy --vla gr00t-gr1
 python vlasim.py destroy --vla gr00t-g1
 python vlasim.py destroy --vla pi
@@ -336,6 +357,7 @@ python vlasim.py destroy --vla aspire
 python vlasim.py destroy --vla real2sim
 python vlasim.py destroy --vla rldx
 python vlasim.py destroy --vla rldx-simpler
+python vlasim.py destroy --vla rldx-bridge
 python vlasim.py destroy --vla rldx-gr1
 python vlasim.py destroy --vla rldx-kitchen
 python vlasim.py destroy --vla openarm-lift-act

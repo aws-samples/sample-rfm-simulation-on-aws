@@ -13,8 +13,8 @@ Stdlib-only and side-effect free on import (vlasim doctor imports it on hosts wi
 """
 
 VLA_TARGETS = (
-    "gr00t", "gr00t-gr1", "gr00t-g1", "pi", "openvla-oft",
-    "lap", "rldx", "rldx-simpler", "rldx-gr1", "rldx-kitchen", "openarm-isaac", "openarm-lift-act",
+    "gr00t", "gr00t-bridge", "gr00t-gr1", "gr00t-g1", "pi", "openvla-oft",
+    "lap", "rldx", "rldx-simpler", "rldx-bridge", "rldx-gr1", "rldx-kitchen", "openarm-isaac", "openarm-lift-act",
     "molmoact2", "xvla", "smolvla", "lingbot-va", "vla-adapter", "fastwam", "cosmos-policy", "aspire",
     "real2sim", "robolab-cosmos3", "robolab-pi05",
 )

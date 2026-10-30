@@ -9,7 +9,7 @@ import { captureObjectPath, resolveInstanceCfg, VlaSimulatorStack } from '../lib
 // the tests run on a fresh checkout, and remove only the placeholders we created.
 const USERDATA_DIR = path.resolve(__dirname, '../../assets/userdata');
 const VLAS = ['gr00t', 'pi'];
-const SEED_VLAS = [...VLAS, 'openarm-lift-act', 'xvla', 'real2sim', 'robolab-cosmos3'];
+const SEED_VLAS = [...VLAS, 'openarm-lift-act', 'xvla', 'real2sim', 'gr00t-bridge', 'rldx-bridge', 'robolab-cosmos3'];
 const seeded: string[] = [];
 
 beforeAll(() => {
@@ -114,6 +114,24 @@ test('resolveInstanceCfg merges the selected variant and rejects unknown ones', 
   expect(() => resolveInstanceCfg('robolab-cosmos3', { ...cfg, model: { variant: 'huge' } })).toThrow(/not one of edge, nano/);
   const plain = { instance: { preferred: ['g6.xlarge'] } };
   expect(resolveInstanceCfg('xvla', plain)).toBe(plain.instance);
+});
+
+// SimplerEnv WidowX/Bridge targets: single-GPU list from their yaml (not gr00t's 12xlarge), and the
+// CloudWatch log grant follows the target id, matching the /<vla>/userdata group the template writes.
+test.each([
+  ['gr00t-bridge', 'GR00T-Bridge-Demo'],
+  ['rldx-bridge', 'RLDX-Bridge-Demo'],
+])('%s launches a single-GPU instance list and grants its own log group', (vla, stackName) => {
+  const app = new cdk.App({ context: { region: 'us-east-1', vla, notify_email: 'test@example.com' } });
+  const stack = new VlaSimulatorStack(app, stackName, { vla, env: { account: '123456789012', region: 'us-east-1' } });
+  const template = Template.fromStack(stack);
+  template.hasResourceProperties('AWS::CloudFormation::CustomResource', {
+    InstanceTypes: 'g6.2xlarge,g5.2xlarge,g6.xlarge,g5.xlarge',
+  });
+  expect(JSON.stringify(template.toJSON())).toContain(`log-group:/${vla}/*`);
+  template.hasResourceProperties('AWS::S3::Bucket', {
+    BucketName: `vla-sim-results-${stackName.toLowerCase()}-us-east-1-123456789012`,
+  });
 });
 
 // IAM hardening (audit A20/A21): PassRole is pinned to the instance role and to EC2, nothing passes

@@ -88,6 +88,7 @@ Source: [`results/cells.csv`](https://github.com/byongwu/pai-same-policy-differe
 |---------|------|-----------------------|--------|
 | `gr00t` | KITCHEN_SCENE3 (stove + moka pot) | ~90–100% | validated 2026-04-27 |
 | `gr00t` | KITCHEN_SCENE4 (black bowl in drawer) | ~90–100% | validated 2026-04-27 |
+| `gr00t-bridge` | simpler_bridge: widowx_spoon_on_towel / carrot_on_plate / stack_cube / put_eggplant_in_basket (4 tasks × 10 ep) | 78.0% / 58.0% / 48.0% / 53.0% (4-task mean 59.3%; 7-task Bridge average 62.3%, 100 ep per task) — [Isaac-GR00T examples/SimplerEnv README](https://github.com/NVIDIA/Isaac-GR00T/blob/65cc4a192e6d084650d97747308b6a8deb790722/examples/SimplerEnv/README.md) | measured 2026-10-30 (`g6.2xlarge`, ap-northeast-2, 10 ep per task): 80% / 50% / 50% / 40% = 4-task mean 55.0% (22/40) |
 | `gr00t-gr1` | PosttrainPnPNovelFromPlateToBowlSplitA (GR1) | ~80% | validated 2026-04-12 |
 | `gr00t-gr1` | PnPCanToDrawerClose (GR1) | 0% (pre-trained N1.6 not supported) | validated 2026-04-12 |
 | `gr00t-g1` | LMPnPAppleToPlateDC (G1 loco-manip, community re-finetune) | 30% (3/10) | validated 2026-06-15 — `nvidia/...` checkpoint scores 0%; `cloudwalk-research` re-finetune used |
@@ -109,6 +110,7 @@ Source: [`results/cells.csv`](https://github.com/byongwu/pai-same-policy-differe
 | `rldx` | libero_spatial (single task) | 97.8% LIBERO avg (paper) | validated 2026-06-20 — 1.0 (5/5 ep, eager, g6.xlarge L4 sm_89, full `deploy.py` smoke) |
 | `rldx-simpler` | simpler_env_google/google_robot_pick_coke_can (Google-VM Fractal) | 81.5% Google-VM (paper README) | validated 2026-06-24 — 1.0 (5/5 ep, eager, g6.2xlarge L4, full `deploy.py` 1-shot smoke) |
 | `rldx-simpler` | simpler_env_google/google_robot_move_near (Google-VM Fractal) | 81.5% Google-VM (paper README) | validated 2026-06-24 — 1.0 (5/5 ep, eager, g6.2xlarge L4, full `deploy.py` 1-shot smoke) |
+| `rldx-bridge` | simpler_bridge: the same 4 WidowX tasks (4 tasks × 10 ep) | 71.9% SIMPLER WidowX average ([RLDX-1 README](https://github.com/RLWRLD/RLDX-1) and model card; per-task numbers not published) | measured 2026-10-30 (`g6.2xlarge`, ap-northeast-2, 10 ep per task): 80% / 80% / 80% / 20% = 4-task mean 65.0% (26/40) |
 | `rldx-gr1` | gr1_unified/PnPCupToDrawerClose (GR-1 bimanual + waist) | 58.7% 24-task avg (paper README) | validated 2026-06-25 — 0.80 (4/5 ep, eager, g5.2xlarge A10G 24GB, full `deploy.py` 1-shot smoke) |
 | `rldx-gr1` | gr1_unified/PnPMilkToMicrowaveClose (GR-1 bimanual + waist) | 58.7% 24-task avg (paper README) | validated 2026-06-25 — 0.20 (1/5 ep, eager, g5.2xlarge A10G 24GB, full `deploy.py` 1-shot smoke) |
 | `rldx-kitchen` | robocasa_panda_omron/OpenSingleDoor (PandaOmron mobile manip) | 70.6% 24-task avg (paper README) | 0.80 (4/5), validated 2026-06-26 (g6.2xlarge L4) |

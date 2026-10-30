@@ -20,11 +20,13 @@ Prices are **us-east-1 Linux On-Demand, checked 2026-10-22** with the AWS Price 
 | `g6e.2xlarge` | 1 × L40S 48 GB | 8 | 64 GiB | 2.24208 |
 | `g6e.4xlarge` | 1 × L40S 48 GB | 16 | 128 GiB | 3.00424 |
 | `g6e.12xlarge` | 4 × L40S 48 GB | 48 | 384 GiB | 10.49264 |
+| `g6e.24xlarge` | 4 × L40S 48 GB | 96 | 768 GiB | 15.06559 |
+| `g6e.48xlarge` | 8 × L40S 48 GB | 192 | 1536 GiB | 30.13118 |
 | `g7e.2xlarge` | 1 × RTX PRO 6000 Blackwell 96 GB | 8 | 64 GiB | 3.36312 |
 | `g7e.4xlarge` | 1 × RTX PRO 6000 Blackwell 96 GB | 16 | 128 GiB | 3.99816 |
 | `p5.4xlarge` | 1 × H100 80 GB | 16 | 256 GiB | 6.88 |
 
-The `g6e.12xlarge`, `g7e` and `p5.4xlarge` rows were checked on 2026-10-28 (same API); they are used by the post-run judge only. In `ap-northeast-2`, `g7e.2xlarge` is US$4.13478 per hour.
+The `g6e.12xlarge`, `g7e` and `p5.4xlarge` rows were checked on 2026-10-28 (same API); they are used by the post-run judge and the RoboLab `nano` variant. `g6e.24xlarge` / `g6e.48xlarge` were checked on 2026-10-30 (RoboLab variants). In `ap-northeast-2`, `g7e.2xlarge` is US$4.13478, `g6e.2xlarge` US$2.75652, `g6e.12xlarge` US$12.90014 and `g6e.48xlarge` US$37.04468 per hour.
 
 ## Per-target estimate
 
@@ -40,6 +42,7 @@ Instance = the first entry of `instance.preferred` (the AZ selector may fall bac
 | `openvla-oft --libero-suite spatial` | `g6.xlarge` | ~1.5 h | ~1.21 |
 | `lap` | `g6.xlarge` | ~1.5-2.5 h | ~1.21-2.01 |
 | `molmoact2` | `g6e.2xlarge` | ~40-60 min | ~1.49-2.24 (validated in us-west-2) |
+| `gr00t-bridge` | `g6.2xlarge` | ~90-150 min (estimate, not yet run) | ~1.47-2.44 |
 | `xvla` | `g6.2xlarge` | ~15-30 min | ~0.24-0.49 |
 | `smolvla` | `g6.xlarge` | ~15-30 min | ~0.20-0.40 |
 | `lingbot-va` | `g6e.2xlarge` | ~2.5 h (6 episodes) | ~5.61 |
@@ -50,10 +53,17 @@ Instance = the first entry of `instance.preferred` (the AZ selector may fall bac
 | `real2sim` | `g5.2xlarge` | ~12 min measured (2026-10-29, `ap-northeast-2`, HOPE-Video scene 0: instance boot to done 11 min 53 s, of which packages, both venvs and the HOPE-Video download ~5 min, splatfacto training 272 s; stack create / delete not included) | ~0.24; ~0.30 in `ap-northeast-2` (US$1.4903 per hour there, Price List API 2026-10-29) |
 | `rldx` | `g6.xlarge` | ~80-120 min | ~1.07-1.61 |
 | `rldx-simpler` | `g6.2xlarge` | ~35-45 min | ~0.57-0.73 |
+| `rldx-bridge` | `g6.2xlarge` | ~100-160 min (estimate, not yet run) | ~1.63-2.61 |
 | `rldx-gr1` | `g6.2xlarge` | ~25-35 min | ~0.41-0.57 |
 | `rldx-kitchen` | `g6.2xlarge` | ~25-35 min | ~0.41-0.57 |
 | `openarm-lift-act` | `g6.12xlarge` | not recorded | 4.6016 per hour |
 | `openarm-isaac` | `g6.12xlarge` | not recorded (creation timeout 240 min) | 4.6016 per hour |
+| `smolvla --libero-variant plus` (70 episodes) | `g6.xlarge` | measured ~2 h in total (2026-10-30; the sensor-noise dimension alone ~80 min, CPU-bound fog at 360 px) | ~0.94-1.21, plus ~0.29 NAT processing for the 6.4 GB asset pack |
+| `openvla-oft --libero-suite spatial --libero-variant plus` (70 episodes) | `g6.xlarge` | measured ~1 h (2026-10-30) | ~1.61-2.01, plus ~0.29 NAT processing for the 6.4 GB asset pack |
+| `robolab-cosmos3` (`edge`, default) | `g6e.2xlarge` | measured ~1.9 h (2026-10-30, ap-northeast-2: ~35 min setup incl. a 30 GB server image build, ~75 min eval) | ~9-13 |
+| `robolab-cosmos3` (`nano`) | `g6e.12xlarge` | estimate ~5-8 h (2 shards; Nano ~4 s per inference call on the leaderboard) | ~52-84 |
+| `robolab-cosmos3` (`edge-full`) / `robolab-pi05` (`full`) | `g6e.48xlarge` | estimate ~6-9 h (8 shards over RoboLab-120 × 10; RoboLab quotes ~40 GPU hours for 120 tasks) | ~180-270 |
+| `robolab-pi05` (`subset`, default) | `g6e.2xlarge` | measured ~1.4 h (2026-10-30, ap-northeast-2) | ~9-12 |
 | `smolvla-robotwin` (default: 5 tasks × 5 ep, clean) | `g6.2xlarge` | estimate ~1.5-2 h (not run yet: ~60-90 min setup incl. CuRobo build and 4 GB assets + episode loop ≤ 0.5 h at 0.15 s/step) | ~1.47-1.96 |
 | `lingbot-vla2` (default: 5 tasks × 5 ep, clean) | `g6e.2xlarge` | estimate ~1.75-2.5 h (not run yet: as above + 25.5 GB fp32 checkpoint) | ~3.92-5.61 |
 | `smolvla-robotwin --robotwin-protocol clean` (49 tasks × 100 ep, 19 shards) | `g6.2xlarge` | estimate up to ~126 h of episode loop + ~1.25 h setup per shard ≈ 150 h (upper bound: every episode at its step limit) | up to ~147 |

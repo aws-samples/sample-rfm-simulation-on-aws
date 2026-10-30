@@ -1,0 +1,104 @@
+# NVIDIA RoboLab (Isaac Lab, DROID Franka, 120 tasks) x pi0.5-DROID (Physical Intelligence, openpi).
+# Shared template: templates/robolab-userdata.sh.j2 (same file as robolab-cosmos3; backend selects the server).
+#
+# Same instance layout as robolab-cosmos3, so the two rows are directly comparable:
+#   - policy server: openpi `scripts/serve_policy.py policy:checkpoint --policy.config=pi05_droid_jointpos`
+#     from the xuningy/openpi fork RoboLab points to (policies/pi0_family/README.md), in that fork's
+#     serve_policy.Dockerfile image, JAX capped at XLA_PYTHON_CLIENT_MEM_FRACTION=0.5 as RoboLab instructs
+#   - simulator client: RoboLab `policies/pi0_family/run.py --policy pi05 --headless`
+# The checkpoint is the joint-position DROID pi0.5 RoboLab evaluated (gs://openpi-assets-simeval, public,
+# ~12.4 GB, no Hugging Face token needed).
+#
+# Licenses: openpi code Apache-2.0; weights are published by Physical Intelligence under the openpi project
+# terms (PaliGemma-based); RoboLab assets mostly CC BY-NC-SA 4.0 (NON-COMMERCIAL); Isaac Sim NVIDIA license.
+#
+# Leaderboard (data v76, RoboLab-120, 10 episodes/task, default instructions, Isaac Lab 2.2.0 / Isaac Sim 5.0.0):
+#   pi0.5 336/1200 = 28.0% (L40S, RoboLab build 09545754 v0.1.0, evaluated 2026-05-09)
+model:
+  id: robolab-pi05
+  backend: pi05
+  # subset (default): 12-task subset x 5 episodes on 1x L40S; full: RoboLab-120 x 10 on g6e.48xlarge (8 shards)
+  variant: subset
+  display_name: "RoboLab x pi0.5-DROID"
+  license: "RoboLab Apache-2.0 code / CC BY-NC-SA 4.0 assets (non-commercial); Isaac Sim NVIDIA license; openpi Apache-2.0 code, weights per openpi"
+
+  robolab_repo: "https://github.com/NVlabs/RoboLab.git"
+  robolab_commit: "9cce00cadd5dc575fd2b8ea3836f5bdcde574229"
+  isaac_lab_tag: "2.2.0@sha256:b4d8e96cbfb9a6c40067bec6cc5ee180e36d4c0164b25f7215c5f47e31897b94"
+
+  server_repo: "https://github.com/xuningy/openpi.git"
+  # = the OPENPI_COMMIT RoboLab's Dockerfile pins for openpi-client (HEAD 2026-01-14)
+  server_commit: "aa6420561529593114160d05e5ad155792b272f3"
+  min_driver_major: 535
+
+protocols:
+  subset12:
+    label: "RoboLab/subset12"
+    description: "RoboLab-120 subset: 12 tasks x 5 episodes (default instructions)"
+    tasks:
+      - BananaInBowlTask
+      - RubiksCubeAndBananaTask
+      - PickUpGreenObjectTask
+      - SmallerObjectButterInBinTask
+      - MustardInLeftBinTask
+      - BowlStackingLeftOnRightTask
+      - BananasInBinThreeTotalTask
+      - PickUpBluePitcherTask
+      - RubiksCubeBehindBowlTask
+      - Stack3RubiksCubeTask
+      - BlockStackingSpecifiedOrderTask
+      - ReorientAllMugsTask
+    num_envs: 5
+    num_runs: 1
+  full:
+    label: "RoboLab/RoboLab-120"
+    description: "RoboLab-120 full protocol: 120 tasks x 10 episodes (default instructions)"
+    tasks: []
+    num_envs: 10
+    num_runs: 1
+
+eval:
+  instruction_type: default
+  video_mode: all
+  seed: 0
+  max_videos_per_task: 10
+
+variants:
+  subset:
+    policy_config: "pi05_droid_jointpos"
+    checkpoint_dir: "gs://openpi-assets-simeval/pi05_droid_jointpos"
+    client_args: ["--policy", "pi05"]
+    protocol: subset12
+    shards: 1
+    gpus_per_shard: 1          # JAX takes 50% of the L40S, Isaac Sim the rest
+    eval_timeout_min: 300
+    min_gpu_mib: 44000
+    min_host_mib: 60000
+    leaderboard: "pi0.5 28.0% (336/1200, RoboLab-120 default)"
+    instance:
+      preferred: [g6e.2xlarge, g6e.4xlarge]
+      ebs_gb: 500
+      creationpolicy_timeout: PT480M
+  full:
+    policy_config: "pi05_droid_jointpos"
+    checkpoint_dir: "gs://openpi-assets-simeval/pi05_droid_jointpos"
+    client_args: ["--policy", "pi05"]
+    protocol: full
+    shards: 8
+    gpus_per_shard: 1
+    eval_timeout_min: 570
+    min_gpu_mib: 44000
+    min_host_mib: 60000
+    leaderboard: "pi0.5 28.0% (336/1200, RoboLab-120 default)"
+    instance:
+      preferred: [g6e.48xlarge]
+      ebs_gb: 900
+      creationpolicy_timeout: PT720M
+
+instance:
+  preferred: [g6e.2xlarge, g6e.4xlarge]
+  ebs_gb: 500
+  creationpolicy_timeout: PT480M
+
+bridge:
+  enabled: false

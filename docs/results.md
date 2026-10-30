@@ -4,6 +4,7 @@ Back to the [README](../README.md) · [Documentation index](README.md)
 
 - [Downloading results](#downloading-results) and comparing runs with `vlasim results`
 - [Post-run judge](#post-run-judge-judgejson): Flora-Rewarder scores next to a run
+- [LIBERO-Plus robustness](#libero-plus-robustness): per-dimension drop vs the LIBERO baseline (`vlasim results --robustness`)
 - [Expected Results](#expected-results), including the [same-stack baseline](#same-stack-baseline-official-stack-50-episodes-per-suite) and [per-target smoke results](#per-target-smoke-results)
 
 ## Downloading results
@@ -56,6 +57,42 @@ post-run judge (judge.json):
 
 _The numbers above show the format only; no judged run is published yet._ Flora is a learned judge: the model card reports MAE 0.40 on the 1-5 scale (RoboRewardBench) and asks to validate it on held-out episodes of your own robot before using it for training or data selection. Treat disagreements as episodes to look at, not as a correction of the simulator.
 
+## LIBERO-Plus robustness
+
+A `--libero-variant plus` run ([targets](targets.md#libero-plus-robustness-sweep)) writes one task per perturbation dimension with `condition: LIBERO-Plus/<dimension>`, plus `benchmark: libero_plus`, `perturbation`, `perturbation_category`, `variants` and the fork / asset pins (`stack_libero_plus_commit`, `stack_libero_plus_assets`) in `summary.txt`, and the evaluated variant ids in `task-N/libero_plus_variants.json`. `vlasim results` shows each dimension as a row. `--robustness` puts the latest sweep of each stack next to the latest LIBERO run of the same stack and suite with the default condition (`S0`) and prints the drop in percentage points:
+
+```text
+$ python vlasim.py results --robustness --vla smolvla
+stack         region     suite           perturbation  run  k_n  rate  ci95  baseline  drop_pp
+smolvla-demo  us-east-1  libero_spatial  camera        ...
+...
+smolvla-demo  us-east-1  libero_spatial  all           ...
+```
+
+With 10 variants per dimension the 95% interval of one dimension is roughly ±0.3 wide; use `--perturb-n 50` (350 episodes) when the differences between dimensions matter.
+
+### Measured on this harness
+
+| `--vla` | Suite | Camera | Robot | Language | Light | Background | Noise | Layout | All | LIBERO baseline |
+|---|---|---|---|---|---|---|---|---|---|---|
+| `smolvla` | libero_spatial, 10 variants x 1 ep (2026-10-30, `g6.xlarge`) | 0.20 | 0.00 | 0.10 | 0.70 | 0.50 | 0.00 | 0.20 | 0.24 (17/70) | 0.80 (8/10, 2 tasks x 5 ep, 2026-10-14) |
+| `openvla-oft --libero-suite spatial` | libero_spatial, 10 variants x 1 ep (2026-10-30, `g6.xlarge`) | 1.00 | 0.30 | 0.90 | 1.00 | 1.00 | 1.00 | 0.90 | 0.87 (61/70) | 0.92 (46/50, 2026-06-01) |
+
+Both sweeps ran in ap-northeast-2 on 2026-10-30 with the default plan (seeded draw of 10 variants per dimension). With 10 variants per dimension, a single cell is a coarse signal; the pattern is what to read: OpenVLA-OFT keeps its LIBERO-Spatial skill under every dimension except the robot initial state, while SmolVLA drops on almost all of them. The sensor-noise dimension is CPU-bound on the LeRobot target (the fork recomputes its fog map in Python on every frame at 360 px): about 1.8 s per step, ~80 min for 10 episodes, against ~3 min for the other dimensions.
+
+### Reported in the LIBERO-Plus paper
+
+Success rate (%) per dimension from the leaderboard of the [LIBERO-Plus README](https://github.com/sylvestf/LIBERO-plus/blob/4976dc30028e805ff8094b55501d532c48fec182/README.md) (pinned commit; Fei et al., [arXiv 2510.13626](https://arxiv.org/abs/2510.13626)). The paper protocol evaluates every variant of all four suites (10,030 episodes, 1 each) and "Total" is over all of them, so these numbers are a reference for the shape of the drop, not a same-stack baseline for the 70-episode LIBERO-Spatial default here.
+
+| Model | Camera | Robot | Language | Light | Background | Noise | Layout | Total |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| OpenVLA | 0.8 | 3.5 | 23.0 | 8.1 | 34.8 | 15.2 | 28.5 | 15.6 |
+| OpenVLA-OFT | 56.4 | 31.9 | 79.5 | 88.7 | 93.3 | 75.8 | 74.2 | 69.6 |
+| π0 | 13.8 | 6.0 | 58.8 | 85.0 | 81.4 | 79.0 | 68.9 | 53.6 |
+| π0-FAST | 65.1 | 21.6 | 61.0 | 73.2 | 73.2 | 74.4 | 68.8 | 61.6 |
+
+SmolVLA is not in the paper. The `lerobot/smolvla_libero_plus` card (a SmolVLA fine-tuned on LIBERO-Plus data, not the `smolvla` checkpoint) reports 69.0% (400 episodes, task ids 0-9 of four suites); those ids are all Background Textures variants.
+
 ---
 
 ## Expected Results
@@ -88,6 +125,7 @@ Source: [`results/cells.csv`](https://github.com/byongwu/pai-same-policy-differe
 |---------|------|-----------------------|--------|
 | `gr00t` | KITCHEN_SCENE3 (stove + moka pot) | ~90–100% | validated 2026-04-27 |
 | `gr00t` | KITCHEN_SCENE4 (black bowl in drawer) | ~90–100% | validated 2026-04-27 |
+| `gr00t-bridge` | simpler_bridge: widowx_spoon_on_towel / carrot_on_plate / stack_cube / put_eggplant_in_basket (4 tasks × 10 ep) | 78.0% / 58.0% / 48.0% / 53.0% (4-task mean 59.3%; 7-task Bridge average 62.3%, 100 ep per task) — [Isaac-GR00T examples/SimplerEnv README](https://github.com/NVIDIA/Isaac-GR00T/blob/65cc4a192e6d084650d97747308b6a8deb790722/examples/SimplerEnv/README.md) | measured 2026-10-30 (`g6.2xlarge`, ap-northeast-2, 10 ep per task): 80% / 50% / 50% / 40% = 4-task mean 55.0% (22/40) |
 | `gr00t-gr1` | PosttrainPnPNovelFromPlateToBowlSplitA (GR1) | ~80% | validated 2026-04-12 |
 | `gr00t-gr1` | PnPCanToDrawerClose (GR1) | 0% (pre-trained N1.6 not supported) | validated 2026-04-12 |
 | `gr00t-g1` | LMPnPAppleToPlateDC (G1 loco-manip, community re-finetune) | 30% (3/10) | validated 2026-06-15 — `nvidia/...` checkpoint scores 0%; `cloudwalk-research` re-finetune used |
@@ -109,12 +147,27 @@ Source: [`results/cells.csv`](https://github.com/byongwu/pai-same-policy-differe
 | `rldx` | libero_spatial (single task) | 97.8% LIBERO avg (paper) | validated 2026-06-20 — 1.0 (5/5 ep, eager, g6.xlarge L4 sm_89, full `deploy.py` smoke) |
 | `rldx-simpler` | simpler_env_google/google_robot_pick_coke_can (Google-VM Fractal) | 81.5% Google-VM (paper README) | validated 2026-06-24 — 1.0 (5/5 ep, eager, g6.2xlarge L4, full `deploy.py` 1-shot smoke) |
 | `rldx-simpler` | simpler_env_google/google_robot_move_near (Google-VM Fractal) | 81.5% Google-VM (paper README) | validated 2026-06-24 — 1.0 (5/5 ep, eager, g6.2xlarge L4, full `deploy.py` 1-shot smoke) |
+| `rldx-bridge` | simpler_bridge: the same 4 WidowX tasks (4 tasks × 10 ep) | 71.9% SIMPLER WidowX average ([RLDX-1 README](https://github.com/RLWRLD/RLDX-1) and model card; per-task numbers not published) | measured 2026-10-30 (`g6.2xlarge`, ap-northeast-2, 10 ep per task): 80% / 80% / 80% / 20% = 4-task mean 65.0% (26/40) |
 | `rldx-gr1` | gr1_unified/PnPCupToDrawerClose (GR-1 bimanual + waist) | 58.7% 24-task avg (paper README) | validated 2026-06-25 — 0.80 (4/5 ep, eager, g5.2xlarge A10G 24GB, full `deploy.py` 1-shot smoke) |
 | `rldx-gr1` | gr1_unified/PnPMilkToMicrowaveClose (GR-1 bimanual + waist) | 58.7% 24-task avg (paper README) | validated 2026-06-25 — 0.20 (1/5 ep, eager, g5.2xlarge A10G 24GB, full `deploy.py` 1-shot smoke) |
 | `rldx-kitchen` | robocasa_panda_omron/OpenSingleDoor (PandaOmron mobile manip) | 70.6% 24-task avg (paper README) | 0.80 (4/5), validated 2026-06-26 (g6.2xlarge L4) |
 | `rldx-kitchen` | robocasa_panda_omron/OpenDrawer (PandaOmron mobile manip) | 70.6% 24-task avg (paper README) | 0.80 (4/5), validated 2026-06-26 (g6.2xlarge L4) |
 | `smolvla-robotwin` | RoboTwin2/clean, 5 tasks × 5 ep | — (not stated on the model card) | not run yet (STEP B) |
 | `lingbot-vla2` | RoboTwin2/clean, 5 tasks × 5 ep | 93.52% clean / 92.80% randomized, 50-task avg (upstream README) | not run yet (STEP B) |
+
+### RoboLab (`robolab-cosmos3`, `robolab-pi05`)
+
+Reference numbers are from the public [RoboLab leaderboard](https://research.nvidia.com/labs/srl/projects/robolab/leaderboard.html) (`static/data/leaderboard.json` v76, generated 2026-10-23): RoboLab-120, 10 episodes per task, default instructions, success rate with a 95% Clopper-Pearson interval, Isaac Lab 2.2.0 / Isaac Sim 5.0.0. The measured column is filled by the first AWS run (STEP B). The default 12-task subset is **not** comparable to these rows; only the `edge-full` / `full` variants run the same protocol.
+
+| `--vla` (variant) | Protocol | Leaderboard (RoboLab-120) | Measured on AWS |
+|---|---|---|---|
+| `robolab-cosmos3` (`edge`, `edge-full`) | subset12 / RoboLab-120 | Cosmos3-Edge-Policy 22.9% (275/1200, CI 20.6-25.4; L40, 9.2 GB; RoboLab `454152dd`, 2026-07-11) | subset12, `edge`: 31.7% (19/60), 2026-10-30, `g6e.2xlarge`, RoboLab `9cce00ca` |
+| `robolab-cosmos3` (`nano`) | subset12 | Cosmos3-Nano-Policy 36.8% (441/1200, CI 34.0-39.5; L40, 40 GB; RoboLab `88976795`, 2026-05-22) | not run yet |
+| `robolab-pi05` (`subset`, `full`) | subset12 / RoboLab-120 | π0.5 28.0% (336/1200, CI 25.5-30.6; L40S; RoboLab `09545754`, 2026-05-09) | subset12: 40.0% (24/60), 2026-10-30, `g6e.2xlarge`, RoboLab `9cce00ca` |
+
+The 12-task subset is not the leaderboard protocol, so read the two measured rows against each other rather than against RoboLab-120: on the same subset, instance and RoboLab pin, π0.5-DROID (40.0%) leads Cosmos3-Edge-Policy (31.7%), the same order as on the leaderboard (28.0% vs 22.9%). With 60 episodes each the two 95% intervals overlap.
+
+The leaderboard rows were produced with RoboLab v0.1.0-v0.2.0 builds; these targets pin `9cce00ca` (v0.3.2), and RoboLab notes that contact dynamics differ across simulator versions, so expect small shifts even on the full protocol.
 
 **Validated results (us-east-1, g6.12xlarge / g5.xlarge / g6.xlarge):**
 - GR00T N1.7: KITCHEN_SCENE3 = 1.0 (5/5), KITCHEN_SCENE4 = 1.0 (3/3)

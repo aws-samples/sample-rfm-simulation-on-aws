@@ -102,6 +102,7 @@ Instance = first choice in `models/<target>.yaml`; the deploy falls back to othe
 | `--vla` | Model | Benchmark | GPU instance |
 |---|---|---|---|
 | `gr00t` | GR00T N1.7-LIBERO | LIBERO-10 | `g6.12xlarge` |
+| `gr00t-bridge` | GR00T N1.7-SimplerEnv-Bridge | SimplerEnv Bridge (WidowX), 4 tasks | `g6.2xlarge` |
 | `gr00t-gr1` | GR00T N1.6-3B (**NC**) | RoboCasa GR1 tabletop (Fourier GR1 humanoid) | `g6.12xlarge` |
 | `gr00t-g1` | GR00T N1.6-G1 community re-finetune (optional N1.7 adapter) | GR00T-WholeBodyControl loco-manipulation (Unitree G1) | `g6.12xlarge` |
 | `pi` | π0.5 (`pi05_libero`) | LIBERO-Spatial / Object | `g5.xlarge` |
@@ -118,10 +119,13 @@ Instance = first choice in `models/<target>.yaml`; the deploy falls back to othe
 | `real2sim` | Real2Sim (not a policy): capture → 3DGS → collision meshes → scripted grasp | MuJoCo UR5e + Robotiq 2F-85 on a real tabletop scene (HOPE-Video, **NC** data) | `g5.2xlarge` |
 | `rldx` | RLDX-1 (RLWRLD, **NC**) | LIBERO-10 | `g6.xlarge` |
 | `rldx-simpler` | RLDX-1 (RLWRLD, **NC**) | SimplerEnv Google-VM (Fractal) | `g6.2xlarge` |
+| `rldx-bridge` | RLDX-1 (RLWRLD, **NC**) | SimplerEnv Bridge (WidowX), 4 tasks | `g6.2xlarge` |
 | `rldx-gr1` | RLDX-1 (RLWRLD, **NC**) | RoboCasa GR-1 Tabletop | `g6.2xlarge` |
 | `rldx-kitchen` | RLDX-1 (RLWRLD, **NC**) | RoboCasa Kitchen (PandaOmron) | `g6.2xlarge` |
 | `openarm-lift-act` | Scripted state machine (ACT demo collection) | Isaac Lab Lift-Cube (OpenArm) | `g6.12xlarge` |
 | `openarm-isaac` | π0.5 `folding_latest`, experimental pipe proof | Isaac Lab bimanual Reach (OpenArm) | `g6.12xlarge` |
+| `robolab-cosmos3` | NVIDIA Cosmos3-Edge-Policy-DROID (world action model; Nano 16B via `model.variant`) | NVIDIA RoboLab (Isaac Lab, DROID Franka), 12-task subset or RoboLab-120 (**NC** assets) | `g6e.2xlarge` |
+| `robolab-pi05` | π0.5-DROID (`pi05_droid_jointpos`, openpi) | NVIDIA RoboLab (Isaac Lab, DROID Franka), 12-task subset or RoboLab-120 (**NC** assets) | `g6e.2xlarge` |
 | `smolvla-robotwin` | SmolVLA-450M (RoboTwin fine-tune) | RoboTwin 2.0 bimanual (Aloha-AgileX; **NC** CuRobo planner) | `g6.2xlarge` |
 | `lingbot-vla2` | LingBot-VLA 2.0 (Robbyant, 6B) | RoboTwin 2.0 bimanual (Aloha-AgileX; **NC** CuRobo planner) | `g6e.2xlarge` |
 
@@ -129,9 +133,13 @@ Stack names, robots, per-target notes, deploy and cleanup commands: [docs/target
 
 **Real2Sim (`real2sim`).** Instead of a policy, this target checks a reconstruction: a multi-view capture of a tabletop is turned into a 3D Gaussian Splatting model (nerfstudio splatfacto), the table and each object are cut out of it as collision meshes (also written as a UsdPhysics `.usda`), and one scripted top-down grasp per object is replayed in MuJoCo with a UR5e + Robotiq 2F-85, against the reconstructed objects, a single scene hull (baseline) and, for the default HOPE-Video scene, the ground-truth meshes. Input: a [HOPE-Video](https://github.com/swtyree/hope-dataset) scene downloaded at run time (**CC BY-NC-SA 4.0, research / non-commercial**) or your own capture zip on S3 (`images/` + a metric nerfstudio `transforms.json`). Output: PSNR / SSIM / LPIPS, per-object fidelity, grasp success per world, videos in the gallery. Measured on HOPE-Video scene 0 (`g5.2xlarge`, `ap-northeast-2`, 2026-10-29): ~12 min instance time (about US$0.30 of EC2), PSNR 24.0, 10 of 10 objects matched (two of them over-split into 2-3 clusters), grasps lifted 8/9 objects with the floating gripper and 4/9 with the UR5e on the reconstruction, 0/9 on the single scene hull. Details: [targets note 12](docs/targets.md#note-12-real2sim).
 
-**RoboTwin 2.0 (`smolvla-robotwin`, `lingbot-vla2`).** [RoboTwin 2.0](https://github.com/RoboTwin-Platform/RoboTwin) is a 50-task dual-arm benchmark (SAPIEN, Aloha-AgileX) with a clean (Easy) and a domain-randomized (Hard) setting. Both targets run upstream LeRobot's `lerobot-eval --env.type=robotwin` in-process; the default run is 5 tasks x 5 episodes in the clean setting, and `--robotwin-protocol clean|randomized|full --robotwin-shard K/N` runs the official 49 tasks x 100 episodes in 12-hour shards. `vlasim results` labels the rows `RoboTwin2/<setting>`. Not run on AWS yet. Details: [targets note 14](docs/targets.md#note-14-robotwin-20-smolvla-robotwin-lingbot-vla2).
+**RoboLab (`robolab-cosmos3`, `robolab-pi05`).** [NVIDIA RoboLab](https://github.com/NVlabs/RoboLab) is a 120-task Isaac Lab benchmark on the DROID Franka with a public [leaderboard](https://research.nvidia.com/labs/srl/projects/robolab/leaderboard.html). Each target runs RoboLab's server-client setup on one instance: the policy server (cosmos-framework or openpi) and the headless Isaac Sim client side by side, one pair per GPU. The default is a 12-task subset × 5 episodes; `model.variant` in the model yaml switches to Cosmos3-Nano or to the full RoboLab-120 × 10 protocol on `g6e.48xlarge`. Not validated on AWS yet; leaderboard reference and notes: [targets note 13](docs/targets.md#note-14-robolab).
+
+**RoboTwin 2.0 (`smolvla-robotwin`, `lingbot-vla2`).** [RoboTwin 2.0](https://github.com/RoboTwin-Platform/RoboTwin) is a 50-task dual-arm benchmark (SAPIEN, Aloha-AgileX) with a clean (Easy) and a domain-randomized (Hard) setting. Both targets run upstream LeRobot's `lerobot-eval --env.type=robotwin` in-process; the default run is 5 tasks x 5 episodes in the clean setting, and `--robotwin-protocol clean|randomized|full --robotwin-shard K/N` runs the official 49 tasks x 100 episodes in 12-hour shards. `vlasim results` labels the rows `RoboTwin2/<setting>`. Not run on AWS yet. Details: [targets note 14](docs/targets.md#note-15-robotwin-20-smolvla-robotwin-lingbot-vla2).
 
 **Post-run judge (optional).** `python vlasim.py judge --vla <target> [--run RUN_ID]` scores every rollout video of a finished run with NVIDIA Flora-Rewarder (outcome score 1 to 5, success = score >= 4) on a `g7e.2xlarge` and writes `judge.json` / `judge.txt` next to the run; `vlasim results` then shows its agreement with the simulator's success flag. Flora-Rewarder is **non-commercial** (research only). Details: [docs/targets.md](docs/targets.md#post-run-judge-flora-rewarder).
+
+**Robustness sweep (optional, LIBERO-Plus).** `python vlasim.py deploy --vla smolvla --libero-variant plus` (also `openvla-oft --libero-suite spatial`) runs the same checkpoint on [LIBERO-Plus](https://github.com/sylvestf/LIBERO-plus) (arXiv 2510.13626), a LIBERO fork with seven perturbation dimensions (camera, robot initial state, language, light, background, sensor noise, object layout). Default: LIBERO-Spatial, 10 seeded variants per dimension, 1 episode each = 70 episodes, about 70-90 min on a `g6.xlarge` for `smolvla` (estimate). Each dimension is one row `LIBERO-Plus/<dimension>` in `vlasim results`; `python vlasim.py results --robustness --vla smolvla` prints the drop against the latest LIBERO run of the same stack. Without the flag nothing changes. The fork's code declares no license (research / evaluation use); it and its 6.4 GB asset pack are downloaded at run time. Details: [targets](docs/targets.md#libero-plus-robustness-sweep), [results](docs/results.md#libero-plus-robustness).
 
 > **A success rate belongs to the stack that produced it.** Episode count, init states, step cap and action-chunk execution all move the number; compare runs only when they match. See [Expected Results](docs/results.md#expected-results) for the same-stack baseline.
 
@@ -164,12 +172,14 @@ This sample's own code (CDK, generators, templates) is licensed under the MIT-0 
 
 It orchestrates third-party models, datasets and simulators that are downloaded at **runtime** into your AWS account (not vendored here), each under its own license. **Several are non-commercial or have no stated license:**
 
-- **RLDX-1** weights (`rldx`, `rldx-simpler`, `rldx-gr1`, `rldx-kitchen`): RLWRLD Model License v1.0, **non-commercial**; research / simulation benchmarking only.
+- **RLDX-1** weights (`rldx`, `rldx-simpler`, `rldx-bridge`, `rldx-gr1`, `rldx-kitchen`): RLWRLD Model License v1.0, **non-commercial**; research / simulation benchmarking only.
 - **GR00T N1.6-3B** (`gr00t-gr1`): NVIDIA One-Way Noncommercial License, **non-commercial**.
 - **Cosmos Policy** checkpoint (`cosmos-policy`): NVIDIA One-Way Noncommercial License (NSCLv1), **non-commercial**.
 - **ASPIRE** tools (`aspire`): SAM3 (Meta SAM License, gated) and Contact-GraspNet (NVIDIA, **non-commercial**).
 - **FastWAM** checkpoint (`fastwam`): no license stated; research / evaluation only.
 - **HOPE-Video** dataset (`real2sim` default input): CC BY-NC-SA 4.0, **non-commercial**; downloaded at run time, and the videos / meshes derived from it inherit that license.
+- **LIBERO-Plus** (`--libero-variant plus`, the optional robustness sweep): the fork's code repository declares no license; its asset pack is MIT on the Hugging Face dataset card. Research / evaluation use; both are downloaded at run time.
+- **RoboLab assets** (`robolab-cosmos3`, `robolab-pi05`): the scenes, objects and robot models bundled with RoboLab are mostly CC BY-NC-SA 4.0, **non-commercial** (RoboLab's code is Apache-2.0; the Cosmos3 weights are OpenMDW-1.1, commercial use allowed).
 - **NVIDIA CuRobo** (`smolvla-robotwin`, `lingbot-vla2`: RoboTwin 2.0 builds it as its motion planner): NVIDIA License, **non-commercial**; research / evaluation only.
 - **Flora-Rewarder** (`flora-judge`, the optional post-run judge): NVIDIA OneWay Noncommercial License, **non-commercial**; research and development only.
 

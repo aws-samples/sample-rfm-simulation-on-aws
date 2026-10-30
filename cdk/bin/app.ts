@@ -4,6 +4,7 @@
  *
  * Usage: deploy.py calls this automatically (examples for direct use):
  *   npx cdk deploy GR00T-Demo                  -c region=us-east-1 -c vla=gr00t
+ *   npx cdk deploy GR00T-Bridge-Demo           -c region=us-east-1 -c vla=gr00t-bridge
  *   npx cdk deploy GR00T-GR1-Demo              -c region=us-east-1 -c vla=gr00t-gr1
  *   npx cdk deploy Pi-Demo                     -c region=us-east-1 -c vla=pi
  *   npx cdk deploy OpenVLA-OFT-Demo            -c region=us-east-1 -c vla=openvla-oft
@@ -11,6 +12,7 @@
  *   npx cdk deploy LAP-Demo                    -c region=us-east-1 -c vla=lap
  *   npx cdk deploy RLDX-Demo                   -c region=us-east-1 -c vla=rldx
  *   npx cdk deploy RLDX-Simpler-Demo           -c region=us-east-1 -c vla=rldx-simpler
+ *   npx cdk deploy RLDX-Bridge-Demo            -c region=us-east-1 -c vla=rldx-bridge
  *   npx cdk deploy RLDX-GR1-Demo               -c region=us-east-1 -c vla=rldx-gr1
  *   npx cdk deploy RLDX-Kitchen-Demo  -c region=us-east-1 -c vla=rldx-kitchen
  *   npx cdk deploy OpenArm-Isaac-Demo          -c region=us-east-1 -c vla=openarm-isaac
@@ -18,6 +20,8 @@
  *   npx cdk deploy MolmoAct2-Demo              -c region=us-west-2 -c vla=molmoact2
  *   npx cdk deploy XVLA-Demo                   -c region=us-east-1 -c vla=xvla
  *   npx cdk deploy Real2Sim-Demo               -c region=ap-northeast-2 -c vla=real2sim
+ *   npx cdk deploy SmolVLA-Demo                -c region=us-east-1 -c vla=smolvla -c libero_variant=plus
+ *   npx cdk deploy RoboLab-Cosmos3-Demo        -c region=us-east-1 -c vla=robolab-cosmos3
  *   npx cdk deploy SmolVLA-RoboTwin-Demo       -c region=us-east-1 -c vla=smolvla-robotwin [-c robotwin_protocol=clean]
  *   npx cdk deploy LingBot-VLA2-Demo           -c region=us-east-1 -c vla=lingbot-vla2
  */
@@ -32,9 +36,9 @@ const app = new cdk.App();
 const region = app.node.tryGetContext('region') ?? 'ap-northeast-2';
 const vla: string = app.node.tryGetContext('vla');
 
-if (!vla || !['gr00t', 'gr00t-gr1', 'gr00t-g1', 'pi', 'openvla-oft', 'lap', 'rldx', 'rldx-simpler', 'rldx-gr1', 'rldx-kitchen', 'openarm-isaac', 'openarm-lift-act', 'molmoact2', 'xvla', 'smolvla', 'lingbot-va', 'vla-adapter', 'fastwam', 'cosmos-policy', 'aspire', 'real2sim', 'smolvla-robotwin', 'lingbot-vla2'].includes(vla)) {
+if (!vla || !['gr00t', 'gr00t-bridge', 'gr00t-gr1', 'gr00t-g1', 'pi', 'openvla-oft', 'lap', 'rldx', 'rldx-simpler', 'rldx-bridge', 'rldx-gr1', 'rldx-kitchen', 'openarm-isaac', 'openarm-lift-act', 'molmoact2', 'xvla', 'smolvla', 'lingbot-va', 'vla-adapter', 'fastwam', 'cosmos-policy', 'aspire', 'real2sim', 'robolab-cosmos3', 'robolab-pi05', 'smolvla-robotwin', 'lingbot-vla2'].includes(vla)) {
   throw new Error(
-    'CDK context "vla" is required. Pass -c vla=gr00t, -c vla=gr00t-gr1, -c vla=gr00t-g1, -c vla=pi, -c vla=openvla-oft, -c vla=lap, -c vla=rldx, -c vla=rldx-simpler, -c vla=rldx-gr1, -c vla=rldx-kitchen, -c vla=openarm-isaac, -c vla=openarm-lift-act, -c vla=molmoact2, -c vla=xvla, -c vla=smolvla, -c vla=lingbot-va, -c vla=vla-adapter, -c vla=fastwam, -c vla=cosmos-policy, -c vla=aspire, -c vla=real2sim, -c vla=smolvla-robotwin, or -c vla=lingbot-vla2.\n' +
+    'CDK context "vla" is required. Pass -c vla=gr00t, -c vla=gr00t-bridge, -c vla=gr00t-gr1, -c vla=gr00t-g1, -c vla=pi, -c vla=openvla-oft, -c vla=lap, -c vla=rldx, -c vla=rldx-simpler, -c vla=rldx-bridge, -c vla=rldx-gr1, -c vla=rldx-kitchen, -c vla=openarm-isaac, -c vla=openarm-lift-act, -c vla=molmoact2, -c vla=xvla, -c vla=smolvla, -c vla=lingbot-va, -c vla=vla-adapter, -c vla=fastwam, -c vla=cosmos-policy, -c vla=aspire, -c vla=real2sim, -c vla=robolab-cosmos3, -c vla=robolab-pi05, -c vla=smolvla-robotwin, or -c vla=lingbot-vla2.\n' +
     'Use deploy.py which sets this automatically.',
   );
 }
@@ -50,12 +54,20 @@ if (vla === 'openvla-oft' && !OFT_SUITES.includes(rawSuite as typeof OFT_SUITES[
 }
 const liberoSuite = vla === 'openvla-oft' ? normaliseSuite(rawSuite) : '';
 
+// LIBERO-Plus robustness sweep (deploy.py --libero-variant plus): same stack and results bucket as the LIBERO
+// run; the stack only takes the timeout / EBS size from models/<vla>.yaml libero_plus. Absent = LIBERO.
+const liberoVariant: string = app.node.tryGetContext('libero_variant') ?? 'libero';
+if (!['libero', 'plus'].includes(liberoVariant)) {
+  throw new Error(`Invalid libero_variant "${liberoVariant}". Supported: libero, plus.`);
+}
+
 const suiteCap = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1);
 const oftStackName = (suite: string): string =>
   suite === '10' ? 'OpenVLA-OFT-Demo' : `OpenVLA-OFT-${suiteCap(suite)}-Demo`;
 
 const stackNameMap: Record<string, string> = {
   'gr00t':       'GR00T-Demo',
+  'gr00t-bridge': 'GR00T-Bridge-Demo',
   'gr00t-gr1':   'GR00T-GR1-Demo',
   'gr00t-g1':    'GR00T-G1-Demo',
   'pi':          'Pi-Demo',
@@ -63,6 +75,7 @@ const stackNameMap: Record<string, string> = {
   'lap':         'LAP-Demo',
   'rldx':        'RLDX-Demo',
   'rldx-simpler': 'RLDX-Simpler-Demo',
+  'rldx-bridge': 'RLDX-Bridge-Demo',
   'rldx-gr1':    'RLDX-GR1-Demo',
   'rldx-kitchen': 'RLDX-Kitchen-Demo',
   'openarm-isaac': 'OpenArm-Isaac-Demo',
@@ -76,6 +89,8 @@ const stackNameMap: Record<string, string> = {
   'cosmos-policy': 'Cosmos-Policy-Demo',
   'aspire':      'ASPIRE-Demo',
   'real2sim':    'Real2Sim-Demo',
+  'robolab-cosmos3': 'RoboLab-Cosmos3-Demo',
+  'robolab-pi05': 'RoboLab-Pi05-Demo',
   'smolvla-robotwin': 'SmolVLA-RoboTwin-Demo',
   'lingbot-vla2': 'LingBot-VLA2-Demo',
 };
@@ -88,6 +103,7 @@ const oftDescription = (suite: string): string => {
 
 const descriptionMap: Record<string, string> = {
   'gr00t':       'GR00T N1.7 + LIBERO (Franka Panda)',
+  'gr00t-bridge': 'GR00T N1.7 + SimplerEnv Bridge (WidowX 250, SIMPLER_ENV_WIDOWX, ZeroMQ policy server + SAPIEN sim client)',
   'gr00t-gr1':   'GR00T N1.6 + RoboCasa (Fourier GR1 humanoid)',
   'gr00t-g1':    'GR00T N1.6 + WBC loco-manipulation (Unitree G1 humanoid)',
   'pi':          'π0.5',
@@ -95,6 +111,7 @@ const descriptionMap: Record<string, string> = {
   'lap':         'LAP-3B + LIBERO-Spatial (Franka Panda, JAX policy server + sim client)',
   'rldx':        'RLDX-1 (RLWRLD MSAT/Qwen3-VL-8B) + LIBERO (Franka Panda, ZeroMQ policy server + sim client, eager)',
   'rldx-simpler': 'RLDX-1 (RLWRLD MSAT/Qwen3-VL-8B) + SimplerEnv (Google Robot, OXE_FRACTAL real-robot embodiment, ZeroMQ policy server + sim client, eager)',
+  'rldx-bridge': 'RLDX-1 (RLWRLD MSAT/Qwen3-VL-8B) + SimplerEnv Bridge (WidowX 250, OXE_BRIDGE_ORIG real-robot embodiment, ZeroMQ policy server + sim client, eager)',
   'rldx-gr1':    'RLDX-1 (RLWRLD MSAT/Qwen3-VL-8B) + RoboCasa GR-1 Tabletop (GR-1 bimanual humanoid + waist, ZeroMQ policy server + MuJoCo sim client, eager)',
   'rldx-kitchen': 'RLDX-1 (RLWRLD MSAT/Qwen3-VL-8B) + RoboCasa Kitchen 24-task (PandaOmron single-arm mobile manipulator, ZeroMQ policy server + MuJoCo sim client, eager)',
   'openarm-isaac': 'π0.5 (LeRobot pi05 folding_latest, 16-DOF) + Isaac Lab bimanual OpenArm (pipe-proof)',
@@ -108,6 +125,8 @@ const descriptionMap: Record<string, string> = {
   'fastwam': 'FastWAM world action model (Wan2.2 video DiT + action expert) + LIBERO (Franka Panda, upstream LeRobot lerobot-eval, in-process)',
   'cosmos-policy': 'Cosmos Policy (NVIDIA world action model, research-only weights) + LIBERO (Franka Panda, in its own Docker image)',
   'real2sim': 'Real2Sim: capture to 3D Gaussian Splatting (nerfstudio splatfacto) to per-object collision meshes to scripted MuJoCo grasp (UR5e + Robotiq 2F-85)',
+  'robolab-cosmos3': 'Cosmos3-Policy-DROID (NVIDIA world action model, policy server) + NVIDIA RoboLab (Isaac Lab, DROID Franka, non-commercial assets)',
+  'robolab-pi05': 'pi0.5-DROID (openpi policy server) + NVIDIA RoboLab (Isaac Lab, DROID Franka, non-commercial assets)',
   'smolvla-robotwin': 'SmolVLA-450M (Hugging Face) + RoboTwin 2.0 bimanual (Aloha-AgileX, SAPIEN + CuRobo, upstream LeRobot lerobot-eval, in-process)',
   'lingbot-vla2': 'LingBot-VLA 2.0 (Robbyant) + RoboTwin 2.0 bimanual (Aloha-AgileX, SAPIEN + CuRobo, upstream LeRobot lerobot-eval, in-process)',
 };
@@ -115,6 +134,7 @@ const descriptionMap: Record<string, string> = {
 const stack = new VlaSimulatorStack(app, stackName, {
   vla,
   liberoSuite,
+  liberoVariant,
   env: {
     account: process.env.CDK_DEFAULT_ACCOUNT,
     region,

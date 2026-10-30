@@ -42,6 +42,7 @@ BASE_DIR = Path(__file__).parent
 
 STACK_NAMES = {
     "gr00t": "GR00T-Demo",
+    "gr00t-bridge": "GR00T-Bridge-Demo",
     "gr00t-gr1": "GR00T-GR1-Demo",
     "gr00t-g1": "GR00T-G1-Demo",
     "pi": "Pi-Demo",
@@ -49,6 +50,7 @@ STACK_NAMES = {
     "lap": "LAP-Demo",
     "rldx": "RLDX-Demo",
     "rldx-simpler": "RLDX-Simpler-Demo",
+    "rldx-bridge": "RLDX-Bridge-Demo",
     "rldx-gr1": "RLDX-GR1-Demo",
     "rldx-kitchen": "RLDX-Kitchen-Demo",
     "openarm-isaac": "OpenArm-Isaac-Demo",
@@ -62,6 +64,8 @@ STACK_NAMES = {
     "cosmos-policy": "Cosmos-Policy-Demo",
     "aspire": "ASPIRE-Demo",
     "real2sim": "Real2Sim-Demo",
+    "robolab-cosmos3": "RoboLab-Cosmos3-Demo",
+    "robolab-pi05": "RoboLab-Pi05-Demo",
     "smolvla-robotwin": "SmolVLA-RoboTwin-Demo",
     "lingbot-vla2": "LingBot-VLA2-Demo",
 }

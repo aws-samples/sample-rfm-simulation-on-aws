@@ -15,12 +15,15 @@ Usage:
     python generate.py --vla lap         [--config simulator-config.yaml] [--dry-run]
     python generate.py --vla rldx        [--config simulator-config.yaml] [--dry-run]
     python generate.py --vla rldx-simpler [--config simulator-config.yaml] [--dry-run]
+    python generate.py --vla rldx-bridge [--config simulator-config.yaml] [--dry-run]
+    python generate.py --vla gr00t-bridge [--config simulator-config.yaml] [--dry-run]
     python generate.py --vla rldx-gr1    [--config simulator-config.yaml] [--dry-run]
     python generate.py --vla rldx-kitchen [--config simulator-config.yaml] [--dry-run]
     python generate.py --vla openarm-isaac [--config simulator-config.yaml] [--dry-run]
     python generate.py --vla openarm-lift-act [--config simulator-config.yaml] [--dry-run]
     python generate.py --vla molmoact2   [--config simulator-config.yaml] [--dry-run]
     python generate.py --vla real2sim    [--config simulator-config.yaml] [--dry-run]
+    python generate.py --vla robolab-cosmos3 [--dry-run]   # model.variant in the yaml: edge | nano | edge-full
     python generate.py --vla smolvla-robotwin [--robotwin-protocol subset|clean|randomized|full] [--robotwin-shard K/N]
     python generate.py --judge-target flora-judge [--dry-run]   # post-run judge (deploy.py --judge)
 """
@@ -36,6 +39,7 @@ from pathlib import Path
 import yaml
 from jinja2 import Environment, FileSystemLoader
 
+import libero_plus
 import robotwin_plan
 from targets import JUDGE_TARGETS, VLA_TARGETS
 
@@ -74,6 +78,60 @@ def oft_stack_name(suite: str) -> str:
     if s == OFT_DEFAULT_SUITE:
         return "OpenVLA-OFT-Demo"
     return f"OpenVLA-OFT-{s.capitalize()}-Demo"
+
+
+# --libero-variant plus: targets whose template carries the LIBERO-Plus switch (each also needs a
+# `libero_plus:` block in models/<id>.yaml). See libero_plus.py and docs/targets.md.
+LIBERO_PLUS_TEMPLATE_TARGETS = ("openvla-oft", "xvla", "smolvla", "lingbot-va", "fastwam")
+
+
+def libero_plus_supported(vla: str, config: dict) -> bool:
+    return vla in LIBERO_PLUS_TEMPLATE_TARGETS and bool(config.get("libero_plus"))
+
+
+def _libero_plus_ctx(config: dict, vla: str, perturb, n, suite=None) -> tuple:
+    """(template context, task entries) for a --libero-variant plus render. Exits on a bad setting."""
+    if not libero_plus_supported(vla, config):
+        ok = [v for v in LIBERO_PLUS_TEMPLATE_TARGETS if (BASE_DIR / "models" / f"{v}.yaml").exists()
+              and (yaml.safe_load((BASE_DIR / "models" / f"{v}.yaml").read_text()) or {}).get("libero_plus")]
+        print(f"[error] --libero-variant plus is not available for --vla {vla} "
+              f"(supported: {', '.join(ok)}; needs a libero_plus block in models/<vla>.yaml "
+              f"and a template with the switch).", file=sys.stderr)
+        sys.exit(1)
+    try:
+        cfg, tasks = libero_plus.plan(config["libero_plus"], perturb=perturb, n=n, suite=suite)
+    except ValueError as e:
+        print(f"[error] models/{vla}.yaml libero_plus: {e}", file=sys.stderr)
+        sys.exit(1)
+    pins = str(cfg.get("pip_pins", "")).split()
+    bad = [x for x in pins if not _PIN_RE.match(x)]
+    if bad or not pins:
+        print(f"[error] models/{vla}.yaml: libero_plus.pip_pins must be name==version entries: {bad or pins}",
+              file=sys.stderr)
+        sys.exit(1)
+    for key in ("repo_commit", "assets_revision"):
+        if not re.fullmatch(r"[0-9a-f]{40}", str(cfg[key])):
+            print(f"[error] libero_plus.{key} must be a 40-hex commit", file=sys.stderr)
+            sys.exit(1)
+    if not re.fullmatch(r"[0-9a-f]{64}", str(cfg["assets_sha256"])):
+        print("[error] libero_plus.assets_sha256 must be 64 hex chars", file=sys.stderr)
+        sys.exit(1)
+    asset_dir = BASE_DIR / "assets" / "libero-plus"
+    ctx = {
+        **{k: _shell_safe(cfg[k], f"libero_plus.{k}") for k in (
+            "repo_url", "repo_commit", "assets_repo", "assets_revision", "assets_file", "assets_sha256", "suite")},
+        "assets_gb": f"{int(cfg['assets_bytes']) / 1e9:.1f}",
+        "pip_pins": " ".join(pins),
+        "perturb": cfg["perturb"],
+        "variants_per_category": cfg["variants_per_category"],
+        "episodes_per_variant": cfg["episodes_per_variant"],
+        "seed": cfg["seed"],
+        "hf_repo": _shell_safe(str(cfg.get("hf_repo", "") or ""), "libero_plus.hf_repo"),
+        "hf_model_revision": _shell_safe(str(cfg.get("hf_model_revision", "") or ""), "libero_plus.hf_model_revision"),
+        "select_py": (asset_dir / "select_variants.py").read_text(),
+        "oft_patch_py": (asset_dir / "oft_task_ids_patch.py").read_text(),
+    }
+    return ctx, tasks
 
 
 def _load_merged_config(simulator_config_path: Path, vla: str) -> dict:
@@ -138,8 +196,58 @@ def _build_gr00t_ctx(config: dict, resolved_grpc: str, model_id: str) -> dict:
     return ctx
 
 
-def generate_gr00t(config: dict, resolved_grpc: str, resolved_vpc: str, dry_run: bool) -> str:
-    ctx = _build_gr00t_ctx(config, resolved_grpc, "gr00t")
+_HF_PATTERN_RE = re.compile(r"^[A-Za-z0-9_.*/\-]+$")
+
+
+def _gr00t_sim_ctx(config: dict, vla: str) -> dict:
+    """Simulator parameterisation of gr00t-userdata.sh.j2 (rldx pattern: one template, branched by sim_id).
+
+    `gr00t` (LIBERO) sets none of these keys and renders byte-identically to the pre-parameterisation
+    template. `gr00t-bridge` sets sim_id: simpler — the SimplerEnv WidowX/Bridge rollout venv, the Vulkan
+    loader SAPIEN needs, and a checkpoint download that skips the optimizer/RNG states.
+    log_prefix = vla so the CloudWatch log group matches the stack's /${vla}/* IAM grant.
+    """
+    model = config.get("model", {})
+    tasks = config.get("tasks", [])
+    sim_id = model.get("sim_id", "libero")
+    if sim_id not in ("libero", "simpler"):
+        print(f"[error] models/{vla}.yaml: model.sim_id must be libero or simpler, got {sim_id!r}", file=sys.stderr)
+        sys.exit(1)
+    patterns = list(model.get("hf_ignore_patterns") or [])
+    bad = [x for x in patterns if not _HF_PATTERN_RE.match(str(x))]
+    if bad:
+        print(f"[error] models/{vla}.yaml: model.hf_ignore_patterns has unsafe entries: {bad}", file=sys.stderr)
+        sys.exit(1)
+    pins = (str(model.get("sim_extra_deps", "")) + " " + str(model.get("sim_protect_pins", ""))).split()
+    bad = [x for x in pins if not re.fullmatch(r"[A-Za-z0-9_.\-]+(\[[A-Za-z0-9_,\-]+\])?(==|<|>=)[A-Za-z0-9_.+\-]+", x)]
+    if bad:
+        print(f"[error] models/{vla}.yaml: sim_extra_deps / sim_protect_pins entries must be name==version: {bad}",
+              file=sys.stderr)
+        sys.exit(1)
+    first_env = str(tasks[0].get("env_name", "")) if tasks else ""
+    if sim_id == "simpler" and not re.fullmatch(r"simpler_env_(google|widowx)/[a-z0-9_]+", first_env):
+        print(f"[error] models/{vla}.yaml: SimplerEnv tasks need env_name simpler_env_(google|widowx)/<task>, "
+              f"got {first_env!r}", file=sys.stderr)
+        sys.exit(1)
+    return {
+        "log_prefix": vla,
+        "sim_id": sim_id,
+        "needs_vulkan": bool(model.get("needs_vulkan", False)),
+        "sim_extra_deps": str(model.get("sim_extra_deps", "")).strip(),
+        "first_env_name": first_env,
+        "hf_ignore_patterns": "[" + ", ".join(repr(str(x)) for x in patterns) + "]" if patterns else "",
+        "robot_label": _shell_safe(model.get("robot_label", ""), "robot_label"),
+        "sim_label": _shell_safe(model.get("sim_label", ""), "sim_label"),
+    }
+
+
+def generate_gr00t(config: dict, resolved_grpc: str, resolved_vpc: str, dry_run: bool, vla: str = "gr00t") -> str:
+    """GR00T N1.7 x {LIBERO (gr00t) | SimplerEnv WidowX/Bridge (gr00t-bridge)} — shared gr00t-userdata.sh.j2."""
+    ctx = _build_gr00t_ctx(config, resolved_grpc, vla)
+    ctx.update(_gr00t_sim_ctx(config, vla))
+    if ctx["sim_id"] != "libero" and resolved_grpc:
+        print(f"[error] {vla}: bridge mode (remote gRPC inference) is LIBERO-only.", file=sys.stderr)
+        sys.exit(1)
     env = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)), keep_trailing_newline=True)  # nosec B701 - shell script template, autoescape not applicable
     return env.get_template("gr00t-userdata.sh.j2").render(**ctx)
 
@@ -221,7 +329,8 @@ def generate_gr00t_g1(config: dict, resolved_grpc: str, resolved_vpc: str, dry_r
     return env.get_template("gr00t-g1-userdata.sh.j2").render(**ctx)
 
 
-def generate_openvla_oft(config: dict, libero_suite: str, dry_run: bool) -> str:
+def generate_openvla_oft(config: dict, libero_suite: str, dry_run: bool, plus: tuple = None) -> str:
+    """plus = (perturb, n) for --libero-variant plus (the sweep runs on the selected suite), else None."""
     suite = normalise_libero_suite(libero_suite)
     model = config.get("model", {})
     suites = model.get("suites", {})
@@ -240,6 +349,15 @@ def generate_openvla_oft(config: dict, libero_suite: str, dry_run: bool) -> str:
     if not tasks:
         print(f"[error] models/openvla-oft.yaml has no tasks for suite '{suite}'.", file=sys.stderr)
         sys.exit(1)
+
+    lp_ctx = None
+    if plus is not None:
+        lp_ctx, lp_tasks = _libero_plus_ctx(config, "openvla-oft", *plus, suite=suite_cfg["task_suite_name"])
+        if lp_ctx["hf_repo"]:
+            print("[error] models/openvla-oft.yaml: libero_plus.hf_repo is not supported (the checkpoint "
+                  "follows --libero-suite)", file=sys.stderr)
+            sys.exit(1)
+        tasks = [dict(t, num_trials_per_task=lp_ctx["episodes_per_variant"]) for t in lp_tasks]
 
     tasks_json = _tasks_json_for_bash(tasks)
     deployment = config.get("deployment", {})
@@ -261,6 +379,7 @@ def generate_openvla_oft(config: dict, libero_suite: str, dry_run: bool) -> str:
         # FIX 15 — tensorflow-metadata pin (its declared protobuf floor understates what its
         # generated code needs, so the resolver can pick a version that cannot import here).
         "tfmd_version": model.get("tfmd_version", ""),
+        "libero_plus": lp_ctx,
     }
 
     env = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)), keep_trailing_newline=True)  # nosec B701 - shell script template
@@ -291,6 +410,9 @@ def generate_rldx(config: dict, dry_run: bool, vla: str = "rldx") -> str:
     tasks_json = _tasks_json_for_bash(tasks)
     deployment = config.get("deployment", {})
     model = config.get("model", {})
+    if model.get("simpler_robot", "google") not in ("google", "widowx"):
+        print(f"[error] models/{vla}.yaml: model.simpler_robot must be google or widowx", file=sys.stderr)
+        sys.exit(1)
 
     ctx = {
         "tasks_json": tasks_json,
@@ -329,6 +451,9 @@ def generate_rldx(config: dict, dry_run: bool, vla: str = "rldx") -> str:
         "sim_needs_policy_fix": bool(
             model.get("sim_needs_policy_fix", model.get("sim_id", "libero") == "simpler")
         ),
+        # SimplerEnv robot for the FIX 6/7 adapter: "google" (Fractal, quaternion state — the default, so
+        # rldx-simpler renders byte-identically) or "widowx" (Bridge, euler state + pad, rldx-bridge).
+        "simpler_robot": model.get("simpler_robot", "google"),
         # FIX 5 — non-LIBERO sims whose external_dependencies/<sim> gitlink is absent at the pin
         # (SimplerEnv) must be pre-cloned --recursive so the setup script's already-populated
         # fallback runs. Empty for LIBERO (vendored dir present) → template skips the pre-clone.
@@ -545,7 +670,7 @@ def generate_molmoact2(config: dict, dry_run: bool) -> str:
 LEROBOT_LIBERO_TARGETS = ("xvla", "smolvla", "lingbot-va", "fastwam")
 
 
-def generate_lerobot_libero(config: dict, dry_run: bool, vla: str) -> str:
+def generate_lerobot_libero(config: dict, dry_run: bool, vla: str, plus: tuple = None) -> str:
     """Upstream LeRobot policy × LIBERO eval, in-process (shared lerobot-libero-userdata.sh.j2).
 
     LeRobot is installed from source at a pinned commit (`uv sync --locked --extra <policy> --extra
@@ -563,6 +688,15 @@ def generate_lerobot_libero(config: dict, dry_run: bool, vla: str) -> str:
         if not model.get(key):
             print(f"[error] models/{vla}.yaml: model.{key} is required", file=sys.stderr)
             sys.exit(1)
+    lp_ctx = None
+    if plus is not None:
+        # --libero-variant plus: one task entry per perturbation dimension; the variant ids are picked on
+        # the instance. The eval seed of the first LIBERO task entry is kept so only the scene changes.
+        lp_ctx, lp_tasks = _libero_plus_ctx(config, vla, *plus)
+        seed = tasks[0].get("seed", 1000)
+        tasks = [dict(t, n_episodes=lp_ctx["episodes_per_variant"], seed=seed) for t in lp_tasks]
+        if lp_ctx["hf_repo"]:
+            model = {**model, "hf_repo": lp_ctx["hf_repo"], "hf_model_revision": lp_ctx["hf_model_revision"]}
 
     ctx = {
         "vla": vla,
@@ -582,6 +716,7 @@ def generate_lerobot_libero(config: dict, dry_run: bool, vla: str) -> str:
         "env_args": list(model.get("env_args") or []),
         "min_gpu_mib": int(instance.get("min_gpu_mib", 20000)),
         "min_host_mib": int(instance.get("min_host_mib", 15000)),
+        "libero_plus": lp_ctx,
     }
     for a in ctx["policy_args"] + ctx["env_args"]:
         if "'" in a:
@@ -882,6 +1017,139 @@ def generate_real2sim(config: dict, dry_run: bool, vla: str = "real2sim") -> str
     return env.get_template("real2sim-userdata.sh.j2").render(**ctx)
 
 
+ROBOLAB_TARGETS = ("robolab-cosmos3", "robolab-pi05")
+_TASK_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]*$")
+_TOKEN_RE = re.compile(r"^[A-Za-z0-9_.=/:@+-]+$")
+_HEX40_RE = re.compile(r"^[0-9a-f]{40}$")
+
+
+def resolve_variant(config: dict, vla: str) -> tuple:
+    """(variant name, merged variant dict) for models with a ``variants:`` block selected by model.variant.
+    The same rule as resolveInstanceCfg() in cdk/lib/vla-simulator-stack.ts (the instance list comes from it)."""
+    variants = config.get("variants") or {}
+    name = str((config.get("model") or {}).get("variant", "")).strip()
+    if name not in variants:
+        print(f"[error] models/{vla}.yaml: model.variant {name!r} is not one of {sorted(variants)}", file=sys.stderr)
+        sys.exit(1)
+    return name, dict(variants[name] or {})
+
+
+def generate_robolab(config: dict, dry_run: bool, vla: str) -> str:
+    """NVIDIA RoboLab (Isaac Lab, DROID Franka) x a DROID policy server, both on one instance.
+
+    One shared template (robolab-userdata.sh.j2) for every policy backend (rldx pattern): `model.backend`
+    picks the server image and launch line (cosmos3 = NVIDIA/cosmos-framework action_policy_server_robolab,
+    pi05 = openpi serve_policy.py), `model.variant` picks checkpoint, protocol (task list x episodes),
+    shard layout and instance list. Embeds assets/robolab/robolab_report.py (stdlib) as base64."""
+    model = config.get("model", {})
+    ev = config.get("eval", {}) or {}
+
+    def fail(msg):
+        print(f"[error] models/{vla}.yaml: {msg}", file=sys.stderr)
+        sys.exit(1)
+
+    backend = model.get("backend")
+    if backend not in ("cosmos3", "pi05"):
+        fail("model.backend must be cosmos3 or pi05")
+    variant, var = resolve_variant(config, vla)
+    for key in ("robolab_repo", "robolab_commit", "isaac_lab_tag", "server_repo", "server_commit"):
+        if not model.get(key):
+            fail(f"model.{key} is required")
+    for key in ("robolab_commit", "server_commit"):
+        if not _HEX40_RE.match(str(model[key])):
+            fail(f"model.{key} must be a 40-hex commit")
+    protocols = config.get("protocols") or {}
+    proto = protocols.get(var.get("protocol"))
+    if not proto:
+        fail(f"variants.{variant}.protocol must name an entry of protocols: {sorted(protocols)}")
+    tasks = list(proto.get("tasks") or [])
+    bad = [t for t in tasks if not _TASK_RE.match(str(t))]
+    if bad:
+        fail(f"protocol task names must be RoboLab task class names: {bad}")
+    shards, per_shard = int(var.get("shards", 1)), int(var.get("gpus_per_shard", 1))
+    num_envs, num_runs = int(proto.get("num_envs", 1)), int(proto.get("num_runs", 1))
+    if not (1 <= shards <= 8 and per_shard in (1, 2) and num_envs >= 1 and num_runs >= 1):
+        fail("need 1 <= shards <= 8, gpus_per_shard 1 or 2, num_envs >= 1, num_runs >= 1")
+    instruction_type = str(ev.get("instruction_type", "default"))
+    video_mode = str(ev.get("video_mode", "all"))
+    if instruction_type not in ("default", "vague", "specific") or video_mode not in ("all", "viewport", "sensor", "none"):
+        fail("eval.instruction_type must be default|vague|specific and eval.video_mode all|viewport|sensor|none")
+
+    if backend == "cosmos3":
+        for key in ("hf_repo", "hf_model_revision"):
+            if not var.get(key):
+                fail(f"variants.{variant}.{key} is required")
+        if not _HEX40_RE.match(str(var["hf_model_revision"])):
+            fail(f"variants.{variant}.hf_model_revision must be a 40-hex commit")
+        for key in ("server_base_image", "server_cuda_version", "server_uv_groups"):
+            if not model.get(key):
+                fail(f"model.{key} is required for backend cosmos3")
+        checkpoint_ref = f"{var['hf_repo']}@{str(var['hf_model_revision'])[:8]}"
+        policy_label = var["hf_repo"].split("/")[-1]
+        client_script = "policies/cosmos3/run.py"
+    else:
+        for key in ("policy_config", "checkpoint_dir"):
+            if not var.get(key):
+                fail(f"variants.{variant}.{key} is required")
+        checkpoint_ref = var["checkpoint_dir"]
+        policy_label = f"pi0.5-DROID ({var['policy_config']})"
+        client_script = "policies/pi0_family/run.py"
+    tokens = [str(t) for t in (list(var.get("server_args") or []) + list(var.get("client_args") or [])
+                               + list(model.get("server_uv_groups") or []))]
+    tokens += [str(model[k]) for k in ("robolab_repo", "isaac_lab_tag", "server_repo", "server_base_image",
+                                       "server_cuda_version") if model.get(k)]
+    tokens += [str(var[k]) for k in ("hf_repo", "policy_config", "checkpoint_dir") if var.get(k)]
+    bad = [t for t in tokens if not _TOKEN_RE.match(t)]
+    if bad:
+        fail(f"unsafe characters in args / repos / images: {bad}")
+
+    asset = BASE_DIR / "assets" / "robolab" / "robolab_report.py"
+    ctx = {
+        "vla": vla,
+        "backend": backend,
+        "variant": variant,
+        "display_name": _shell_safe(model.get("display_name", vla), "display_name"),
+        "license": _shell_safe(model.get("license", "see models/" + vla + ".yaml"), "license"),
+        "policy_label": _shell_safe(policy_label, "policy_label"),
+        "checkpoint_ref": checkpoint_ref,
+        "robolab_repo": model["robolab_repo"],
+        "robolab_commit": model["robolab_commit"],
+        "isaac_lab_tag": model["isaac_lab_tag"],
+        "server_repo": model["server_repo"],
+        "server_commit": model["server_commit"],
+        "server_base_image": model.get("server_base_image", ""),
+        "server_cuda_version": model.get("server_cuda_version", ""),
+        "server_uv_groups": list(model.get("server_uv_groups") or []),
+        "min_driver_major": int(model.get("min_driver_major", 535)),
+        "hf_repo": var.get("hf_repo", ""),
+        "hf_model_revision": str(var.get("hf_model_revision", "")),
+        "server_args": [str(a) for a in var.get("server_args") or []],
+        "policy_config": var.get("policy_config", ""),
+        "checkpoint_dir": var.get("checkpoint_dir", ""),
+        "client_script": client_script,
+        "client_args": [str(a) for a in var.get("client_args") or []],
+        "label": _shell_safe(proto.get("label", "RoboLab/" + str(var.get("protocol"))), "protocol label"),
+        "description": _shell_safe(proto.get("description", ""), "protocol description"),
+        "leaderboard": _shell_safe(var.get("leaderboard", "see docs/results.md"), "leaderboard"),
+        "tasks": tasks,
+        "num_envs": num_envs,
+        "num_runs": num_runs,
+        "instruction_type": instruction_type,
+        "video_mode": video_mode,
+        "seed": int(ev.get("seed", 0)),
+        "max_videos_per_task": int(var.get("max_videos_per_task", ev.get("max_videos_per_task", 10))),
+        "shards": shards,
+        "gpus_per_shard": per_shard,
+        "eval_timeout_min": int(var.get("eval_timeout_min", 300)),
+        "server_warmup_timeout": int(var.get("server_warmup_timeout", 2700)),
+        "min_gpu_mib": int(var.get("min_gpu_mib", 44000)),
+        "min_host_mib": int(var.get("min_host_mib", 60000)),
+        "report_py_b64": base64.encodebytes(asset.read_bytes()).decode(),
+    }
+    env = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)), keep_trailing_newline=True)  # nosec B701 - shell script template
+    return env.get_template("robolab-userdata.sh.j2").render(**ctx)
+
+
 def _shell_safe(value: str, what: str) -> str:
     """Values pasted into double-quoted bash strings: no quotes, $, backticks or backslashes."""
     if any(c in str(value) for c in "\"'$`\\\n"):
@@ -983,6 +1251,15 @@ def main():
         "--libero-suite", default=OFT_DEFAULT_SUITE, choices=list(OFT_LIBERO_SUITES),
         help="openvla-oft: LIBERO suite (default: 10 = LIBERO-Long; `long` is alias for `10`)",
     )
+    parser.add_argument("--libero-variant", default="libero", choices=list(libero_plus.VARIANTS),
+                        help="LIBERO targets: `plus` swaps LIBERO for the LIBERO-Plus robustness fork and runs one "
+                             "eval per perturbation dimension (models/<vla>.yaml libero_plus; default: libero)")
+    parser.add_argument("--perturb", default=None, metavar="LIST",
+                        help=f"--libero-variant plus: comma-separated dimensions ({','.join(libero_plus.CATEGORIES)}) "
+                             "or all (default: libero_plus.perturb in the model yaml)")
+    parser.add_argument("--perturb-n", type=int, default=None, metavar="N",
+                        help="--libero-variant plus: variants per dimension, 1 episode each; 0 = every variant "
+                             "(default: libero_plus.variants_per_category)")
     parser.add_argument("--robotwin-protocol", default="subset", choices=list(robotwin_plan.PROTOCOLS),
                         help="RoboTwin targets: subset = the tasks of models/<vla>.yaml (default); clean / "
                              "randomized / full = the official 49 tasks x 100 episodes (full = both settings)")
@@ -1003,24 +1280,34 @@ def main():
 
     name = args.judge_target or args.vla
     config = _load_merged_config(config_path, name)
+    plus = None
+    if args.libero_variant == "plus":
+        if args.judge_target:
+            print("[error] --libero-variant applies to --vla targets, not judges.", file=sys.stderr)
+            sys.exit(1)
+        plus = (args.perturb, args.perturb_n)
+        _libero_plus_ctx(config, args.vla, *plus)  # fail fast (unsupported target / bad settings)
+    elif args.perturb is not None or args.perturb_n is not None:
+        print("[error] --perturb / --perturb-n need --libero-variant plus.", file=sys.stderr)
+        sys.exit(1)
     print(f"VLA: {name}")
     print(f"Config: {config_path}")
     print(f"Model:  {BASE_DIR / 'models' / (name + '.yaml')}")
 
     if args.judge_target:
         rendered = generate_flora_judge(config, args.dry_run, judge=args.judge_target)
-    elif args.vla == "gr00t":
-        rendered = generate_gr00t(config, args.resolved_grpc, args.resolved_vpc, args.dry_run)
+    elif args.vla in ("gr00t", "gr00t-bridge"):
+        rendered = generate_gr00t(config, args.resolved_grpc, args.resolved_vpc, args.dry_run, vla=args.vla)
     elif args.vla == "gr00t-gr1":
         rendered = generate_gr00t_gr1(config, args.resolved_grpc, args.resolved_vpc, args.dry_run)
     elif args.vla == "gr00t-g1":
         rendered = generate_gr00t_g1(config, args.resolved_grpc, args.resolved_vpc, args.dry_run,
                                      collect=args.collect)
     elif args.vla == "openvla-oft":
-        rendered = generate_openvla_oft(config, args.libero_suite, args.dry_run)
+        rendered = generate_openvla_oft(config, args.libero_suite, args.dry_run, plus=plus)
     elif args.vla == "lap":
         rendered = generate_lap(config, args.resolved_nlb, args.dry_run)
-    elif args.vla in ("rldx", "rldx-simpler", "rldx-gr1", "rldx-kitchen"):
+    elif args.vla in ("rldx", "rldx-simpler", "rldx-bridge", "rldx-gr1", "rldx-kitchen"):
         rendered = generate_rldx(config, args.dry_run, vla=args.vla)
     elif args.vla == "openarm-isaac":
         rendered = generate_openarm_isaac(config, args.dry_run)
@@ -1029,7 +1316,7 @@ def main():
     elif args.vla == "molmoact2":
         rendered = generate_molmoact2(config, args.dry_run)
     elif args.vla in LEROBOT_LIBERO_TARGETS:
-        rendered = generate_lerobot_libero(config, args.dry_run, vla=args.vla)
+        rendered = generate_lerobot_libero(config, args.dry_run, vla=args.vla, plus=plus)
     elif args.vla in LEROBOT_ROBOTWIN_TARGETS:
         rendered = generate_lerobot_robotwin(config, args.dry_run, vla=args.vla,
                                              protocol=args.robotwin_protocol, shard=args.robotwin_shard)
@@ -1041,6 +1328,8 @@ def main():
         rendered = generate_aspire(config, args.dry_run)
     elif args.vla == "real2sim":
         rendered = generate_real2sim(config, args.dry_run)
+    elif args.vla in ROBOLAB_TARGETS:
+        rendered = generate_robolab(config, args.dry_run, vla=args.vla)
     else:
         rendered = generate_pi(config, args.resolved_vpc, args.resolved_nlb, args.dry_run)
 

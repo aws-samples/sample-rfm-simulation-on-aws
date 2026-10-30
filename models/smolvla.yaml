@@ -33,3 +33,19 @@ tasks:
 
 bridge:
   enabled: false
+
+# LIBERO-Plus robustness sweep (off unless deployed with --libero-variant plus; see docs/targets.md).
+# Same checkpoint as the LIBERO run above, so `vlasim results --robustness` can put the two side by side.
+# Install recipe = LeRobot docker/Dockerfile.benchmark.libero_plus at the lerobot_commit above: the fork
+# replaces hf-libero in the venv and needs robosuite 1.4.1 (it uses single_arm_env, removed in 1.5).
+libero_plus:
+  suite: libero_spatial
+  perturb: [camera, robot, language, light, background, noise, layout]
+  variants_per_category: 10        # 7 x 10 variants x 1 episode = 70 episodes (~20-35 min of eval)
+  seed: 7
+  pip_pins: "robosuite==1.4.1 bddl==1.0.1 easydict==1.13 mujoco==3.7.0 matplotlib==3.10.8 Wand==0.6.13 scikit-image==0.25.2 gym==0.26.2"
+  # Optional: evaluate a checkpoint fine-tuned on LIBERO-Plus data instead (not the same policy as the
+  # LIBERO baseline, so its drop is not comparable): hf_repo: lerobot/smolvla_libero_plus,
+  # hf_model_revision: bb424c8a430f483a7e9aafb24a1a47f5c951eae5 (Apache-2.0).
+  creationpolicy_timeout: PT180M   # install ~30 + assets 6.4 GB ~10 + eval ~35 + buffer
+  ebs_gb: 150                      # + 6.4 GB zip and its extracted asset tree

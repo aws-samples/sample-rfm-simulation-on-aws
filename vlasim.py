@@ -32,7 +32,8 @@ Subcommands
            interval, and the stack fingerprint from summary.txt. Read-only.
            Forwards all flags to results.py (--vla, --region, --since,
            --all-runs, --csv, --json, --robustness = LIBERO-Plus drop per
-           perturbation dimension vs the LIBERO baseline).
+           perturbation dimension vs the LIBERO baseline). --matrix prints a target x benchmark
+           leaderboard with estimated cost and latency (leaderboard.py).
 
   judge    Score the rollout videos of a finished run with a post-run judge
            (NVIDIA Flora-Rewarder, outcome score 1..5 per episode, NON-COMMERCIAL
@@ -711,6 +712,7 @@ Usage:
   python vlasim.py deploy  --vla TARGET [--email A] [--region R] [--skip-doctor] [deploy.py flags...]
   python vlasim.py destroy --vla TARGET [destroy.py flags...]
   python vlasim.py results [--vla PREFIX] [--region R] [--since RUN_ID] [--all-runs] [--robustness] [--csv F] [--json F]
+  python vlasim.py results --matrix [--all-conditions] [--write-docs] [--csv F] [--json F]
   python vlasim.py gallery [--email A] [--region R] [--reset-password]
   python vlasim.py judge   --vla TARGET [--run RUN_ID] [--region R] [--skip-doctor]
 

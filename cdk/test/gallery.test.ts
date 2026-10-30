@@ -6,21 +6,7 @@ import { Match, Template } from 'aws-cdk-lib/assertions';
 import { GalleryStack } from '../lib/gallery-stack';
 import { VlaSimulatorStack } from '../lib/vla-simulator-stack';
 
-const USERDATA_DIR = path.resolve(__dirname, '../../assets/userdata');
-const seeded: string[] = [];
-beforeAll(() => {
-  fs.mkdirSync(USERDATA_DIR, { recursive: true });
-  for (const vla of ['smolvla', 'openvla-oft']) {
-    const p = path.join(USERDATA_DIR, `${vla}.sh`);
-    if (!fs.existsSync(p)) {
-      fs.writeFileSync(p, '#!/bin/bash\n# test placeholder\n');
-      seeded.push(p);
-    }
-  }
-});
-afterAll(() => {
-  for (const p of seeded) fs.rmSync(p, { force: true });
-});
+// Placeholder UserData for smolvla / openvla-oft comes from the jest globalSetup (test/userdata-seed.ts).
 
 const GID = '0123456789abcdef0123456789abcdef';
 const GALLERY_CTX = {

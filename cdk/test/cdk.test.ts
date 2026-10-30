@@ -1,31 +1,10 @@
-import * as fs from 'fs';
-import * as path from 'path';
 import * as cdk from 'aws-cdk-lib';
 import { Template } from 'aws-cdk-lib/assertions';
 import { captureObjectPath, resolveInstanceCfg, VlaSimulatorStack } from '../lib/vla-simulator-stack';
 
-// The stack reads the rendered UserData from assets/userdata/<vla>.sh (gitignored, written by
-// generate.py / deploy.py). Seed a placeholder for any target that has not been rendered yet so
-// the tests run on a fresh checkout, and remove only the placeholders we created.
-const USERDATA_DIR = path.resolve(__dirname, '../../assets/userdata');
+// The stack reads the rendered UserData from assets/userdata/<vla>.sh (gitignored); the jest
+// globalSetup seeds placeholders for the targets synthesized here (test/userdata-seed.ts).
 const VLAS = ['gr00t', 'pi'];
-const SEED_VLAS = [...VLAS, 'openarm-lift-act', 'xvla', 'real2sim', 'gr00t-bridge', 'rldx-bridge', 'smolvla', 'openvla-oft', 'robolab-cosmos3', 'smolvla-robotwin'];
-const seeded: string[] = [];
-
-beforeAll(() => {
-  fs.mkdirSync(USERDATA_DIR, { recursive: true });
-  for (const vla of SEED_VLAS) {
-    const p = path.join(USERDATA_DIR, `${vla}.sh`);
-    if (!fs.existsSync(p)) {
-      fs.writeFileSync(p, '#!/bin/bash\n# test placeholder\n');
-      seeded.push(p);
-    }
-  }
-});
-
-afterAll(() => {
-  for (const p of seeded) fs.rmSync(p, { force: true });
-});
 
 function makeApp(vla: string, extraCtx: Record<string, string> = {}) {
   const app = new cdk.App({

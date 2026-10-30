@@ -3,6 +3,7 @@
 RFM Simulation on AWS 1-Click Deploy
 Usage:
   python deploy.py --vla gr00t              # GR00T N1.7 + LIBERO local mode
+  python deploy.py --vla gr00t-bridge       # GR00T N1.7 + SimplerEnv Bridge (WidowX) local mode
   python deploy.py --vla gr00t-gr1          # GR00T N1.6 + GR1 humanoid + RoboCasa local mode
   python deploy.py --vla pi                 # π0.5  local mode
   python deploy.py --vla openvla-oft        # OpenVLA-OFT + LIBERO-10 local mode
@@ -434,6 +435,11 @@ def main():
         if args.vla == "openvla-oft":
             print("[error] Bridge mode not supported for openvla-oft (local only).", file=sys.stderr)
             sys.exit(1)
+        if args.vla == "gr00t-bridge":
+            print("[error] Bridge mode not supported for gr00t-bridge (local only — the remote gRPC bridge is "
+                  "wired for the LIBERO rollout venv). The name refers to the SimplerEnv Bridge benchmark.",
+                  file=sys.stderr)
+            sys.exit(1)
         if args.vla == "molmoact2":
             print("[error] Bridge mode not supported for molmoact2 (local only — MolmoAct2Policy runs in-process via lerobot-eval on the sim GPU).",
                   file=sys.stderr)
@@ -484,6 +490,8 @@ def main():
     libero_suite = normalise_libero_suite(args.libero_suite)
     if args.vla == "gr00t":
         stack_name = "GR00T-Demo"
+    elif args.vla == "gr00t-bridge":
+        stack_name = "GR00T-Bridge-Demo"
     elif args.vla == "gr00t-gr1":
         stack_name = "GR00T-GR1-Demo"
     elif args.vla == "gr00t-g1":
@@ -496,6 +504,8 @@ def main():
         stack_name = "RLDX-Demo"
     elif args.vla == "rldx-simpler":
         stack_name = "RLDX-Simpler-Demo"
+    elif args.vla == "rldx-bridge":
+        stack_name = "RLDX-Bridge-Demo"
     elif args.vla == "rldx-gr1":
         stack_name = "RLDX-GR1-Demo"
     elif args.vla == "rldx-kitchen":
@@ -606,6 +616,8 @@ def main():
     else:
         if args.vla == "gr00t":
             print("  Estimated time: ~120 min (install ~30min + model download ~10min + sim ~80min)")
+        elif args.vla == "gr00t-bridge":
+            print("  Estimated time: ~90-150 min (uv sync + simpler_uv venv + ManiSkill2_real2sim ~30-40min + 6.9GB ckpt + backbone DL ~10min + 4 tasks x (server load ~5-8min + 10 SAPIEN episodes))")
         elif args.vla == "gr00t-gr1":
             print("  Estimated time: ~90 min (install ~20min + model download ~5min + sim ~60min)")
         elif args.vla == "gr00t-g1":
@@ -621,6 +633,8 @@ def main():
             print("  Estimated time: ~80-120 min (uv sync + libero_uv venv ~30-40min + ckpt+backbone DL ~15min + server warmup ~3min + eager rollout)")
         elif args.vla == "rldx-simpler":
             print("  Estimated time: ~90-140 min (uv sync + simpler_uv venv + ManiSkill2_real2sim clone ~35-45min + ckpt+backbone DL ~15min + server warmup ~3min + SAPIEN eager rollout)")
+        elif args.vla == "rldx-bridge":
+            print("  Estimated time: ~100-160 min (uv sync + simpler_uv venv + ManiSkill2_real2sim clone ~35-45min + ckpt+backbone DL ~15min + server warmup up to ~18min + 4 tasks x 10 SAPIEN eager episodes)")
         elif args.vla == "rldx-gr1":
             print("  Estimated time: ~25-35 min (Gate-3 measured 2026-06-25, g5.2xlarge: uv syncs + robocasa_uv venv + tabletop assets ~12min + ckpt+backbone DL ~4min + fast server warmup ~210s + MuJoCo eager rollout ~10min)")
         elif args.vla == "rldx-kitchen":

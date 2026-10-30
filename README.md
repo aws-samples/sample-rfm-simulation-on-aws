@@ -102,6 +102,7 @@ Instance = first choice in `models/<target>.yaml`; the deploy falls back to othe
 | `--vla` | Model | Benchmark | GPU instance |
 |---|---|---|---|
 | `gr00t` | GR00T N1.7-LIBERO | LIBERO-10 | `g6.12xlarge` |
+| `gr00t-bridge` | GR00T N1.7-SimplerEnv-Bridge | SimplerEnv Bridge (WidowX), 4 tasks | `g6.2xlarge` |
 | `gr00t-gr1` | GR00T N1.6-3B (**NC**) | RoboCasa GR1 tabletop (Fourier GR1 humanoid) | `g6.12xlarge` |
 | `gr00t-g1` | GR00T N1.6-G1 community re-finetune (optional N1.7 adapter) | GR00T-WholeBodyControl loco-manipulation (Unitree G1) | `g6.12xlarge` |
 | `pi` | π0.5 (`pi05_libero`) | LIBERO-Spatial / Object | `g5.xlarge` |
@@ -118,6 +119,7 @@ Instance = first choice in `models/<target>.yaml`; the deploy falls back to othe
 | `real2sim` | Real2Sim (not a policy): capture → 3DGS → collision meshes → scripted grasp | MuJoCo UR5e + Robotiq 2F-85 on a real tabletop scene (HOPE-Video, **NC** data) | `g5.2xlarge` |
 | `rldx` | RLDX-1 (RLWRLD, **NC**) | LIBERO-10 | `g6.xlarge` |
 | `rldx-simpler` | RLDX-1 (RLWRLD, **NC**) | SimplerEnv Google-VM (Fractal) | `g6.2xlarge` |
+| `rldx-bridge` | RLDX-1 (RLWRLD, **NC**) | SimplerEnv Bridge (WidowX), 4 tasks | `g6.2xlarge` |
 | `rldx-gr1` | RLDX-1 (RLWRLD, **NC**) | RoboCasa GR-1 Tabletop | `g6.2xlarge` |
 | `rldx-kitchen` | RLDX-1 (RLWRLD, **NC**) | RoboCasa Kitchen (PandaOmron) | `g6.2xlarge` |
 | `openarm-lift-act` | Scripted state machine (ACT demo collection) | Isaac Lab Lift-Cube (OpenArm) | `g6.12xlarge` |
@@ -162,7 +164,7 @@ This sample's own code (CDK, generators, templates) is licensed under the MIT-0 
 
 It orchestrates third-party models, datasets and simulators that are downloaded at **runtime** into your AWS account (not vendored here), each under its own license. **Several are non-commercial or have no stated license:**
 
-- **RLDX-1** weights (`rldx`, `rldx-simpler`, `rldx-gr1`, `rldx-kitchen`): RLWRLD Model License v1.0, **non-commercial**; research / simulation benchmarking only.
+- **RLDX-1** weights (`rldx`, `rldx-simpler`, `rldx-bridge`, `rldx-gr1`, `rldx-kitchen`): RLWRLD Model License v1.0, **non-commercial**; research / simulation benchmarking only.
 - **GR00T N1.6-3B** (`gr00t-gr1`): NVIDIA One-Way Noncommercial License, **non-commercial**.
 - **Cosmos Policy** checkpoint (`cosmos-policy`): NVIDIA One-Way Noncommercial License (NSCLv1), **non-commercial**.
 - **ASPIRE** tools (`aspire`): SAM3 (Meta SAM License, gated) and Contact-GraspNet (NVIDIA, **non-commercial**).

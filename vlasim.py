@@ -352,6 +352,7 @@ def run_doctor(vla=None, region=None, email=None, quiet_header=False, bridge=Fal
 HF_TOKEN_PARAM = "/vla-simulator/hf-token"
 HF_TOKEN_TARGETS = {
     "gr00t": "nvidia/Cosmos-Reason2-2B",
+    "gr00t-bridge": "nvidia/Cosmos-Reason2-2B",
     "gr00t-g1": "the N1.7 server.hf_repo in models/gr00t-g1.yaml",
     "openarm-isaac": "google/paligemma-3b-pt-224",
     "cosmos-policy": "nvidia/Cosmos-Predict2-2B-Video2World",

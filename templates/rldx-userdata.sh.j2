@@ -649,6 +649,23 @@ if OBS_MARKER not in src:
                 )
             if "state.gripper" in observation:
                 observation["state.gripper_position"] = observation["state.gripper"]
+{%- if simpler_robot == 'widowx' %}
+        # WidowX/Bridge (OXE_BRIDGE_ORIG): the env emits euler state.roll/pitch/yaw + a state.pad
+        # placeholder and NO quaternion, so the block above does not fire. bridge_orig state dims per
+        # the ckpt statistics.json: end_effector_position=3, end_effector_rotation=3 (euler),
+        # gripper_position=1 (rldx/configs/data/simpler_widowx_config.py: video key image_0).
+        if "state.pad" in observation and "state.rw" not in observation:
+            if all(k in observation for k in ("state.x", "state.y", "state.z")):
+                observation["state.end_effector_position"] = np.concatenate(
+                    [observation["state.x"], observation["state.y"], observation["state.z"]], axis=-1
+                )
+            if all(k in observation for k in ("state.roll", "state.pitch", "state.yaw")):
+                observation["state.end_effector_rotation"] = np.concatenate(
+                    [observation["state.roll"], observation["state.pitch"], observation["state.yaw"]], axis=-1
+                )
+            if "state.gripper" in observation:
+                observation["state.gripper_position"] = observation["state.gripper"]
+{%- endif %}
 
 '''
     src = src.replace(obs_anchor, obs_block + obs_anchor, 1)
@@ -667,7 +684,7 @@ if ACT_MARKER not in src:
         ''' + ACT_MARKER + '''
         # Gate-1 verified the model returns keys: end_effector_position / end_effector_rotation /
         # gripper_close. Emit the fractal keys (server validates) AND decomposed keys (env reads).
-        is_simpler = "state.rw" in observation
+        is_simpler = "state.rw" in observation{% if simpler_robot == 'widowx' %} or "state.pad" in observation  # WidowX: euler + pad, no quaternion{% endif %}
         if is_simpler:
             is_libero = False
             flat_actions = {f"action.{k}": action[k] for k in action}

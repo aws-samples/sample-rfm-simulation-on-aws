@@ -4,6 +4,7 @@ Back to the [README](../README.md) · [Documentation index](README.md)
 
 - [Downloading results](#downloading-results) and comparing runs with `vlasim results`
 - [Post-run judge](#post-run-judge-judgejson): Flora-Rewarder scores next to a run
+- [LIBERO-Plus robustness](#libero-plus-robustness): per-dimension drop vs the LIBERO baseline (`vlasim results --robustness`)
 - [Expected Results](#expected-results), including the [same-stack baseline](#same-stack-baseline-official-stack-50-episodes-per-suite) and [per-target smoke results](#per-target-smoke-results)
 
 ## Downloading results
@@ -55,6 +56,42 @@ post-run judge (judge.json):
 ```
 
 _The numbers above show the format only; no judged run is published yet._ Flora is a learned judge: the model card reports MAE 0.40 on the 1-5 scale (RoboRewardBench) and asks to validate it on held-out episodes of your own robot before using it for training or data selection. Treat disagreements as episodes to look at, not as a correction of the simulator.
+
+## LIBERO-Plus robustness
+
+A `--libero-variant plus` run ([targets](targets.md#libero-plus-robustness-sweep)) writes one task per perturbation dimension with `condition: LIBERO-Plus/<dimension>`, plus `benchmark: libero_plus`, `perturbation`, `perturbation_category`, `variants` and the fork / asset pins (`stack_libero_plus_commit`, `stack_libero_plus_assets`) in `summary.txt`, and the evaluated variant ids in `task-N/libero_plus_variants.json`. `vlasim results` shows each dimension as a row. `--robustness` puts the latest sweep of each stack next to the latest LIBERO run of the same stack and suite with the default condition (`S0`) and prints the drop in percentage points:
+
+```text
+$ python vlasim.py results --robustness --vla smolvla
+stack         region     suite           perturbation  run  k_n  rate  ci95  baseline  drop_pp
+smolvla-demo  us-east-1  libero_spatial  camera        ...
+...
+smolvla-demo  us-east-1  libero_spatial  all           ...
+```
+
+With 10 variants per dimension the 95% interval of one dimension is roughly ±0.3 wide; use `--perturb-n 50` (350 episodes) when the differences between dimensions matter.
+
+### Measured on this harness
+
+| `--vla` | Suite | Camera | Robot | Language | Light | Background | Noise | Layout | All | LIBERO baseline |
+|---|---|---|---|---|---|---|---|---|---|---|
+| `smolvla` | libero_spatial, 10 variants x 1 ep (2026-10-30, `g6.xlarge`) | 0.20 | 0.00 | 0.10 | 0.70 | 0.50 | 0.00 | 0.20 | 0.24 (17/70) | 0.80 (8/10, 2 tasks x 5 ep, 2026-10-14) |
+| `openvla-oft --libero-suite spatial` | libero_spatial, 10 variants x 1 ep (2026-10-30, `g6.xlarge`) | 1.00 | 0.30 | 0.90 | 1.00 | 1.00 | 1.00 | 0.90 | 0.87 (61/70) | 0.92 (46/50, 2026-06-01) |
+
+Both sweeps ran in ap-northeast-2 on 2026-10-30 with the default plan (seeded draw of 10 variants per dimension). With 10 variants per dimension, a single cell is a coarse signal; the pattern is what to read: OpenVLA-OFT keeps its LIBERO-Spatial skill under every dimension except the robot initial state, while SmolVLA drops on almost all of them. The sensor-noise dimension is CPU-bound on the LeRobot target (the fork recomputes its fog map in Python on every frame at 360 px): about 1.8 s per step, ~80 min for 10 episodes, against ~3 min for the other dimensions.
+
+### Reported in the LIBERO-Plus paper
+
+Success rate (%) per dimension from the leaderboard of the [LIBERO-Plus README](https://github.com/sylvestf/LIBERO-plus/blob/4976dc30028e805ff8094b55501d532c48fec182/README.md) (pinned commit; Fei et al., [arXiv 2510.13626](https://arxiv.org/abs/2510.13626)). The paper protocol evaluates every variant of all four suites (10,030 episodes, 1 each) and "Total" is over all of them, so these numbers are a reference for the shape of the drop, not a same-stack baseline for the 70-episode LIBERO-Spatial default here.
+
+| Model | Camera | Robot | Language | Light | Background | Noise | Layout | Total |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| OpenVLA | 0.8 | 3.5 | 23.0 | 8.1 | 34.8 | 15.2 | 28.5 | 15.6 |
+| OpenVLA-OFT | 56.4 | 31.9 | 79.5 | 88.7 | 93.3 | 75.8 | 74.2 | 69.6 |
+| π0 | 13.8 | 6.0 | 58.8 | 85.0 | 81.4 | 79.0 | 68.9 | 53.6 |
+| π0-FAST | 65.1 | 21.6 | 61.0 | 73.2 | 73.2 | 74.4 | 68.8 | 61.6 |
+
+SmolVLA is not in the paper. The `lerobot/smolvla_libero_plus` card (a SmolVLA fine-tuned on LIBERO-Plus data, not the `smolvla` checkpoint) reports 69.0% (400 episodes, task ids 0-9 of four suites); those ids are all Background Textures variants.
 
 ---
 

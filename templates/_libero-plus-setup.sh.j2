@@ -1,0 +1,129 @@
+{#- LIBERO-Plus fork + asset pack (python deploy.py --vla <target> --libero-variant plus). Included by the LIBERO
+    templates only when generate.py passes a libero_plus context, so a default render does not change.
+    Caller sets: lp_python (interpreter of the eval env), lp_pip (pip command for that env), lp_log (log prefix),
+    lp_venv_mode ("uv": uv venv, the fork replaces hf-libero; "conda": the fork is cloned into LIBERO_DIR by the
+    caller), lp_step (step label), and must have defined hf_dl_guard and die(). -#}
+# ── [{{ lp_step }}] LIBERO-Plus robustness fork + asset pack (--libero-variant plus) ──
+# LIBERO-Plus (arXiv:2510.13626) installs under the same `libero` package as LIBERO and replaces each suite's
+# 10 tasks with ~2,400 perturbed variants. Code: {{ lp.repo_url }} @ {{ lp.repo_commit[:8] }} (no license declared:
+# research / evaluation use). Assets: HF dataset {{ lp.assets_repo }} @ {{ lp.assets_revision[:8] }} ({{ lp.assets_file }},
+# {{ lp.assets_gb }} GB, MIT on the dataset card). Both are downloaded here at run time, never vendored.
+log "[{{ lp_step }}] LIBERO-Plus: system packages (ImageMagick for Wand, fontconfig, expat, unzip)..."
+APT_RETRY=0
+until apt-get install -y --no-install-recommends -o DPkg::Lock::Timeout=300 \
+    unzip libexpat1 libfontconfig1-dev libmagickwand-dev \
+    2>&1 | tee /tmp/{{ lp_log }}_lp_apt.log; do
+    APT_RETRY=$((APT_RETRY + 1))
+    [ $APT_RETRY -ge 3 ] && die "LIBERO-Plus apt-get install failed after 3 retries"
+    log "[warn] LIBERO-Plus apt-get install failed (attempt $APT_RETRY), retrying in 30s..."
+    sleep 30
+done
+{%- if lp_venv_mode == "uv" %}
+LIBERO_PLUS_DIR=/home/ubuntu/LIBERO-plus
+log "[{{ lp_step }}] Cloning LIBERO-Plus @ {{ lp.repo_commit[:8] }}..."
+if [ ! -d "${LIBERO_PLUS_DIR}" ]; then
+    git clone {{ lp.repo_url }} "${LIBERO_PLUS_DIR}" 2>&1 | tee /tmp/{{ lp_log }}_lp_clone.log \
+        || die "LIBERO-Plus clone failed"
+    git -C "${LIBERO_PLUS_DIR}" checkout "{{ lp.repo_commit }}" \
+        || die "LIBERO-Plus: checkout pinned commit {{ lp.repo_commit[:8] }} failed"
+fi
+{%- else %}
+LIBERO_PLUS_DIR="${LIBERO_DIR}"
+{%- endif %}
+LP_COMMIT=$(git -C "${LIBERO_PLUS_DIR}" rev-parse HEAD)
+[ "${LP_COMMIT}" = "{{ lp.repo_commit }}" ] || die "LIBERO-Plus commit mismatch: expected {{ lp.repo_commit }}, got ${LP_COMMIT}"
+log "  LIBERO-Plus commit: ${LP_COMMIT}"
+LP_PKG="${LIBERO_PLUS_DIR}/libero/libero"
+# NumPy 2 compat: the fork's sensor-noise (fog) perturbation uses `np.float_`, removed in NumPy 2.0, so every
+# noise variant died in env.reset() on the LeRobot (numpy 2) env. Rewrite the alias to np.float64 (same dtype
+# on NumPy 1.x, so the conda / numpy<2 path is unaffected).
+grep -rlE 'np\.float_\b' --include='*.py' "${LIBERO_PLUS_DIR}/libero" | xargs -r sed -i -E 's/np\.float_\b/np.float64/g'
+! grep -rqE 'np\.float_\b' --include='*.py' "${LIBERO_PLUS_DIR}/libero" || die "LIBERO-Plus: np.float_ rewrite failed"
+# Image-size compat: fog() draws a fixed 256x256 plasma map and broadcasts it onto the frame, so frames larger
+# than 256 px (LeRobot renders 360x360) die with "operands could not be broadcast". Size the map to the next
+# power of two >= the frame; for frames <= 256 px that is still 256, so the paper's setting is unchanged.
+"{{ lp_python }}" - "${LIBERO_PLUS_DIR}/libero/libero/envs/env_wrapper.py" <<'LP_FOG_EOF' || die "LIBERO-Plus: fog map-size patch failed"
+import sys
+p = sys.argv[1]
+s = open(p).read()
+old = "plasma_fractal(wibbledecay=c[1])[:height_x, :weight_x]"
+new = "plasma_fractal(mapsize=max(256, 1 << (max(height_x, weight_x) - 1).bit_length()), wibbledecay=c[1])[:height_x, :weight_x]"
+if new not in s:
+    assert s.count(old) == 1, "fog(): expected exactly one plasma_fractal call"
+    open(p, "w").write(s.replace(old, new))
+print("fog map-size patch OK")
+LP_FOG_EOF
+
+log "[{{ lp_step }}] LIBERO-Plus runtime pins: {{ lp.pip_pins }}"
+{{ lp_pip }} {{ lp.pip_pins }} 2>&1 | tee /tmp/{{ lp_log }}_lp_pip.log \
+    || die "LIBERO-Plus pip pins failed (see /tmp/{{ lp_log }}_lp_pip.log)"
+{%- if lp_venv_mode == "uv" %}
+# The fork ships as a namespace package that a PEP 660 editable install cannot resolve, and hf-libero (pulled by
+# the libero extra) would shadow it: install it --no-deps, drop hf-libero and put the clone first on PYTHONPATH
+# (LeRobot docker/Dockerfile.benchmark.libero_plus). Every later call in this script uses `uv run --no-sync`;
+# a synced `uv run` would reinstall hf-libero from uv.lock.
+{{ lp_pip }} --no-deps -e "${LIBERO_PLUS_DIR}" 2>&1 | tee -a /tmp/{{ lp_log }}_lp_pip.log \
+    || die "LIBERO-Plus editable install failed (see /tmp/{{ lp_log }}_lp_pip.log)"
+uv pip uninstall --python "{{ lp_python }}" hf-libero 2>&1 | tee -a /tmp/{{ lp_log }}_lp_pip.log || true
+export PYTHONPATH="${LIBERO_PLUS_DIR}${PYTHONPATH:+:${PYTHONPATH}}"
+{%- endif %}
+
+# Asset pack: bddl_base_domain.py resolves scene XMLs package-relative (DIR_PATH/../assets), so the extracted
+# tree must end up at ${LP_PKG}/assets. The zip nests it under an author-specific prefix: take the shallowest
+# assets/ directory that has scenes/ and textures/. sha256 of the zip is checked against the LFS pointer.
+LP_DL=/home/ubuntu/libero-plus-dl
+mkdir -p "${LP_DL}"
+log "[{{ lp_step }}] Downloading LIBERO-Plus assets ({{ lp.assets_file }}, {{ lp.assets_gb }} GB)..."
+hf_dl_guard "LIBERO-Plus assets" /tmp/{{ lp_log }}_lp_assets.log \
+    -- "{{ lp_python }}" -c "
+from huggingface_hub import hf_hub_download
+print(hf_hub_download(repo_id='{{ lp.assets_repo }}', repo_type='dataset', filename='{{ lp.assets_file }}',
+                      revision='{{ lp.assets_revision }}', local_dir='${LP_DL}'))
+" || die "LIBERO-Plus asset download failed (see /tmp/{{ lp_log }}_lp_assets.log)"
+echo "{{ lp.assets_sha256 }}  ${LP_DL}/{{ lp.assets_file }}" | sha256sum -c - 2>&1 | tee -a /tmp/{{ lp_log }}_lp_assets.log \
+    || die "LIBERO-Plus {{ lp.assets_file }} sha256 mismatch"
+unzip -q "${LP_DL}/{{ lp.assets_file }}" -d "${LP_DL}/extract" || die "LIBERO-Plus unzip failed"
+rm -f "${LP_DL}/{{ lp.assets_file }}"
+LP_ASSETS_SRC=$(python3 -c "
+import os, sys
+hits = [r for r, d, _ in os.walk(sys.argv[1]) if os.path.basename(r) == 'assets' and {'scenes', 'textures'} <= set(d)]
+print(min(hits, key=lambda p: p.count(os.sep)) if hits else '')
+" "${LP_DL}/extract")
+[ -n "${LP_ASSETS_SRC}" ] || die "LIBERO-Plus: no assets/ dir with scenes/ and textures/ in {{ lp.assets_file }}"
+rm -rf "${LP_PKG}/assets"
+mv "${LP_ASSETS_SRC}" "${LP_PKG}/assets" || die "LIBERO-Plus: moving the asset tree failed"
+rm -rf "${LP_DL}"
+log "  LIBERO-Plus assets: ${LP_PKG}/assets ($(du -sh "${LP_PKG}/assets" 2>/dev/null | cut -f1))"
+
+# Point ~/.libero/config.yaml at the fork (the vanilla config written earlier points at the LIBERO package).
+mkdir -p /root/.libero
+cat > /root/.libero/config.yaml << LPCFG
+assets: ${LP_PKG}/assets
+bddl_files: ${LP_PKG}/bddl_files
+benchmark_root: ${LP_PKG}
+datasets: ${LP_PKG}/../datasets
+init_states: ${LP_PKG}/init_files
+LPCFG
+
+LP_CLASSIFICATION="${LP_PKG}/benchmark/task_classification.json"
+[ -f "${LP_CLASSIFICATION}" ] || die "LIBERO-Plus: ${LP_CLASSIFICATION} missing"
+log "[{{ lp_step }}] Verifying LIBERO-Plus (import libero resolves to the fork, {{ lp.suite }} has the variants)..."
+"{{ lp_python }}" -c "
+import libero, robosuite
+from libero.libero import benchmark
+suite = benchmark.get_benchmark_dict()['{{ lp.suite }}']()
+print('libero:', list(libero.__path__), '/ robosuite:', robosuite.__version__, '/ {{ lp.suite }} tasks:', suite.n_tasks)
+assert suite.n_tasks > 100, 'libero still resolves to vanilla LIBERO (10 tasks per suite)'
+{%- if lp_venv_mode == "conda" %}
+import numpy
+assert int(numpy.__version__.split('.')[0]) < 2, 'numpy ' + numpy.__version__ + ' (tensorflow 2.15 / torch 2.2 need numpy<2)'
+{%- endif %}
+{%- if lp_venv_mode == "uv" %}
+from lerobot.envs.configs import LiberoPlusEnv
+print('lerobot env: libero_plus OK')
+{%- endif %}
+" 2>&1 | tee /tmp/{{ lp_log }}_lp_verify.log \
+    || die "LIBERO-Plus verification failed (see /tmp/{{ lp_log }}_lp_verify.log)"
+
+cat > /tmp/lp_select_variants.py <<'LPSELECT_EOF'
+{{ lp.select_py }}LPSELECT_EOF

@@ -9,7 +9,7 @@ import { captureObjectPath, VlaSimulatorStack } from '../lib/vla-simulator-stack
 // the tests run on a fresh checkout, and remove only the placeholders we created.
 const USERDATA_DIR = path.resolve(__dirname, '../../assets/userdata');
 const VLAS = ['gr00t', 'pi'];
-const SEED_VLAS = [...VLAS, 'openarm-lift-act', 'xvla', 'real2sim', 'gr00t-bridge', 'rldx-bridge'];
+const SEED_VLAS = [...VLAS, 'openarm-lift-act', 'xvla', 'real2sim', 'gr00t-bridge', 'rldx-bridge', 'smolvla', 'openvla-oft'];
 const seeded: string[] = [];
 
 beforeAll(() => {
@@ -186,4 +186,30 @@ test.each(VLAS)('%s: AzSelector launches with IMDSv2 required (hop limit 2 for D
   expect(fns[0]).toMatch(/'HttpPutResponseHopLimit': 2/);
   const run = statements(template).filter((s) => actionsOf(s).includes('ec2:RunInstances') && s.Condition);
   expect(run.some((s) => s.Condition?.StringEquals?.['ec2:MetadataHttpTokens'] === 'required')).toBe(true);
+});
+
+// LIBERO-Plus sweep (deploy.py --libero-variant plus): same stack name, timeout / EBS from models/<vla>.yaml
+// libero_plus; without the context the stack is the LIBERO one. A target without the block is rejected.
+function plusStack(vla: string, stackName: string, liberoVariant?: string, liberoSuite = '') {
+  const app = new cdk.App({ context: { region: 'us-east-1', vla, notify_email: 'test@example.com' } });
+  return new VlaSimulatorStack(app, stackName, {
+    vla, liberoSuite, liberoVariant, env: { account: '123456789012', region: 'us-east-1' },
+  });
+}
+
+test('libero_variant=plus takes the timeout and EBS size from the libero_plus block', () => {
+  const plus = Template.fromStack(plusStack('smolvla', 'SmolVLA-Demo', 'plus'));
+  plus.hasResourceProperties('AWS::CloudFormation::WaitCondition', { Timeout: String(180 * 60) });
+  plus.hasResourceProperties('AWS::CloudFormation::CustomResource', { EbsGb: '150' });
+  const base = Template.fromStack(plusStack('smolvla', 'SmolVLA-Demo'));
+  base.hasResourceProperties('AWS::CloudFormation::WaitCondition', { Timeout: String(150 * 60) });
+  base.hasResourceProperties('AWS::CloudFormation::CustomResource', { EbsGb: '120' });
+  // OpenVLA-OFT: the suite-keyed timeout map is replaced by the scalar libero_plus value.
+  const oft = Template.fromStack(plusStack('openvla-oft', 'OpenVLA-OFT-Spatial-Demo', 'plus', 'spatial'));
+  oft.hasResourceProperties('AWS::CloudFormation::WaitCondition', { Timeout: String(240 * 60) });
+  oft.hasResourceProperties('AWS::CloudFormation::CustomResource', { EbsGb: '270' });
+});
+
+test('libero_variant=plus is rejected for a target without a libero_plus block', () => {
+  expect(() => plusStack('xvla', 'XVLA-Demo', 'plus')).toThrow(/libero_plus block/);
 });

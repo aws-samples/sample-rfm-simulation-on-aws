@@ -39,6 +39,20 @@ LP_PKG="${LIBERO_PLUS_DIR}/libero/libero"
 # on NumPy 1.x, so the conda / numpy<2 path is unaffected).
 grep -rlE 'np\.float_\b' --include='*.py' "${LIBERO_PLUS_DIR}/libero" | xargs -r sed -i -E 's/np\.float_\b/np.float64/g'
 ! grep -rqE 'np\.float_\b' --include='*.py' "${LIBERO_PLUS_DIR}/libero" || die "LIBERO-Plus: np.float_ rewrite failed"
+# Image-size compat: fog() draws a fixed 256x256 plasma map and broadcasts it onto the frame, so frames larger
+# than 256 px (LeRobot renders 360x360) die with "operands could not be broadcast". Size the map to the next
+# power of two >= the frame; for frames <= 256 px that is still 256, so the paper's setting is unchanged.
+"{{ lp_python }}" - "${LIBERO_PLUS_DIR}/libero/libero/envs/env_wrapper.py" <<'LP_FOG_EOF' || die "LIBERO-Plus: fog map-size patch failed"
+import sys
+p = sys.argv[1]
+s = open(p).read()
+old = "plasma_fractal(wibbledecay=c[1])[:height_x, :weight_x]"
+new = "plasma_fractal(mapsize=max(256, 1 << (max(height_x, weight_x) - 1).bit_length()), wibbledecay=c[1])[:height_x, :weight_x]"
+if new not in s:
+    assert s.count(old) == 1, "fog(): expected exactly one plasma_fractal call"
+    open(p, "w").write(s.replace(old, new))
+print("fog map-size patch OK")
+LP_FOG_EOF
 
 log "[{{ lp_step }}] LIBERO-Plus runtime pins: {{ lp.pip_pins }}"
 {{ lp_pip }} {{ lp.pip_pins }} 2>&1 | tee /tmp/{{ lp_log }}_lp_pip.log \

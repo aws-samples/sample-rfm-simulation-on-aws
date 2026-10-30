@@ -36,6 +36,10 @@ This sample's own code (CDK, generators, templates) is **MIT-0** (see [`LICENSE`
 | [MuJoCo](https://github.com/google-deepmind/mujoco) | LIBERO / RoboCasa / G1 targets | Apache-2.0 | — | |
 | [NVIDIA Isaac Lab](https://github.com/isaac-sim/IsaacLab) + Isaac Sim | `openarm-isaac`, `openarm-lift-act` | BSD-3-Clause (Isaac Lab) | NGC image `nvcr.io/nvidia/isaac-lab` bundles Isaac Sim under NVIDIA's license terms | |
 | [OpenArm Isaac Lab](https://github.com/enactic/openarm_isaac_lab) | `openarm-isaac`, `openarm-lift-act` | Apache-2.0 | — | |
+| SmolVLA (RoboTwin fine-tune) | `smolvla-robotwin` | Apache-2.0 (LeRobot) | Apache-2.0 (`lerobot/smolvla_robotwin`; backbone `HuggingFaceTB/SmolVLM2-500M-Video-Instruct` Apache-2.0) | shared `lerobot-robotwin` template, LeRobot Apache-2.0 |
+| [LingBot-VLA 2.0](https://github.com/Robbyant/lingbot-vla-v2) | `lingbot-vla2` | Apache-2.0 | Apache-2.0 (`lerobot/lingbot_vla_v2_robotwin` = `robbyant/lingbot-vla-v2-6b-robotwin`; tokenizer `Qwen/Qwen3-VL-4B-Instruct` Apache-2.0) | the distillation teachers (DINOv3 License) are training-only and not downloaded |
+| [RoboTwin 2.0](https://github.com/RoboTwin-Platform/RoboTwin) + [SAPIEN](https://github.com/haosulab/SAPIEN) + [mplib](https://github.com/haosulab/MPlib) | `smolvla-robotwin`, `lingbot-vla2` | MIT / MIT (PyPI metadata) / MIT | assets `TianxingChen/RoboTwin2.0`: MIT (dataset card) | cloned / downloaded at run time (pinned commit and dataset revision) |
+| **[NVIDIA CuRobo](https://github.com/NVlabs/curobo)** | `smolvla-robotwin`, `lingbot-vla2` | **NVIDIA License (NON-COMMERCIAL: research or evaluation only)** | — | built from source at run time (`v0.7.8`); RoboTwin 2.0 creates a CuRobo planner per arm on every episode reset, so these targets are research / evaluation only |
 
 Licenses were checked on 2026-10-22 against each upstream repository's license file and Hugging Face model card; upstream terms can change, so re-check before use. **This is sample code, not production-ready software.** It downloads third-party models, datasets and simulators at runtime into your AWS account; you are responsible for reviewing and complying with each component's license and terms of use (several weights above are non-commercial or have no stated license). See [`NOTICE`](../NOTICE).
 
@@ -49,5 +53,6 @@ The `rldx`/`rldx-simpler`/`rldx-gr1`/`rldx-kitchen` targets are built on **RLDX-
 - [lap](https://github.com/lihzha/lap) — LAP: Language-Action Pre-Training (zero-shot cross-embodiment, JAX)
 - [RLDX-1](https://github.com/RLWRLD/RLDX-1) — RLWRLD dexterity-first VLA (MSAT / Qwen3-VL-8B, Apache-2.0 code)
 - [LIBERO](https://libero-project.github.io/) — Long-horizon robot benchmark
+- [RoboTwin 2.0](https://robotwin-platform.github.io/) — dual-arm benchmark with strong domain randomization (50 tasks, SAPIEN, MIT)
 - [SimplerEnv](https://github.com/allenzren/SimplerEnv) + [ManiSkill2_real2sim](https://github.com/allenzren/ManiSkill2_real2sim) — real-to-sim eval for Google Fractal / WidowX Bridge (MIT)
 - [robocasa-gr1-tabletop-tasks](https://github.com/robocasa/robocasa-gr1-tabletop-tasks) — RoboCasa GR-1 humanoid tabletop benchmark (24 tasks, MIT)

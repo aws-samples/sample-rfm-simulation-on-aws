@@ -10,9 +10,11 @@ Prices are **us-east-1 Linux On-Demand, checked 2026-10-22** with the AWS Price 
 |---|---|---|---|---:|
 | `g6.xlarge` | 1 × L4 24 GB | 4 | 16 GiB | 0.8048 |
 | `g6.2xlarge` | 1 × L4 24 GB | 8 | 32 GiB | 0.9776 |
+| `g6.4xlarge` | 1 × L4 24 GB | 16 | 64 GiB | 1.3232 |
 | `g6.12xlarge` | 4 × L4 24 GB | 48 | 192 GiB | 4.6016 |
 | `g5.xlarge` | 1 × A10G 24 GB | 4 | 16 GiB | 1.006 |
 | `g5.2xlarge` | 1 × A10G 24 GB | 8 | 32 GiB | 1.212 |
+| `g5.4xlarge` | 1 × A10G 24 GB | 16 | 64 GiB | 1.624 |
 | `g5.12xlarge` | 4 × A10G 24 GB | 48 | 192 GiB | 5.672 |
 | `g6e.xlarge` | 1 × L40S 48 GB | 4 | 32 GiB | 1.861 |
 | `g6e.2xlarge` | 1 × L40S 48 GB | 8 | 64 GiB | 2.24208 |
@@ -52,7 +54,14 @@ Instance = the first entry of `instance.preferred` (the AZ selector may fall bac
 | `rldx-kitchen` | `g6.2xlarge` | ~25-35 min | ~0.41-0.57 |
 | `openarm-lift-act` | `g6.12xlarge` | not recorded | 4.6016 per hour |
 | `openarm-isaac` | `g6.12xlarge` | not recorded (creation timeout 240 min) | 4.6016 per hour |
+| `smolvla-robotwin` (default: 5 tasks × 5 ep, clean) | `g6.2xlarge` | estimate ~1.5-2 h (not run yet: ~60-90 min setup incl. CuRobo build and 4 GB assets + episode loop ≤ 0.5 h at 0.15 s/step) | ~1.47-1.96 |
+| `lingbot-vla2` (default: 5 tasks × 5 ep, clean) | `g6e.2xlarge` | estimate ~1.75-2.5 h (not run yet: as above + 25.5 GB fp32 checkpoint) | ~3.92-5.61 |
+| `smolvla-robotwin --robotwin-protocol clean` (49 tasks × 100 ep, 19 shards) | `g6.2xlarge` | estimate up to ~126 h of episode loop + ~1.25 h setup per shard ≈ 150 h (upper bound: every episode at its step limit) | up to ~147 |
+| `smolvla-robotwin --robotwin-protocol full` (clean + randomized, 47 shards) | `g6.2xlarge` | estimate up to ~252 h + ~1.5 h per shard ≈ 323 h | up to ~315 |
+| `lingbot-vla2 --robotwin-protocol full` (47 shards) | `g6e.2xlarge` | about the same hours as above (the simulator, not the policy, sets the pace) | up to ~723 |
 | `flora-judge` (post-run judge, `vlasim judge`) | `g7e.2xlarge` (measured on the `g6e.12xlarge` fallback, US$12.90/h in `ap-northeast-2`) | 13-15 min instance time measured for 10-47 episodes (+ ~10 min stack create/delete) | ~0.85-1.10 on `g7e.2xlarge`; ~2.80-3.25 measured on `g6e.12xlarge` |
+
+RoboTwin rows: prices checked 2026-10-30 (same API; `g5.4xlarge` and `g6.4xlarge` added). In `ap-northeast-2` the RoboTwin instances are US$1.20208 (`g6.2xlarge`), US$1.4903 (`g5.2xlarge`), US$1.62704 (`g6.4xlarge`), US$1.99691 (`g5.4xlarge`), US$2.75652 (`g6e.2xlarge`) and US$3.69355 (`g6e.4xlarge`) per hour. The 0.15 s per simulated step behind the episode-loop figures is a planning value, not a measurement; `deploy.py` uses it to size the shards, and the first measured run should replace it.
 
 ## Not included
 

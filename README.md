@@ -122,10 +122,14 @@ Instance = first choice in `models/<target>.yaml`; the deploy falls back to othe
 | `rldx-kitchen` | RLDX-1 (RLWRLD, **NC**) | RoboCasa Kitchen (PandaOmron) | `g6.2xlarge` |
 | `openarm-lift-act` | Scripted state machine (ACT demo collection) | Isaac Lab Lift-Cube (OpenArm) | `g6.12xlarge` |
 | `openarm-isaac` | π0.5 `folding_latest`, experimental pipe proof | Isaac Lab bimanual Reach (OpenArm) | `g6.12xlarge` |
+| `smolvla-robotwin` | SmolVLA-450M (RoboTwin fine-tune) | RoboTwin 2.0 bimanual (Aloha-AgileX; **NC** CuRobo planner) | `g6.2xlarge` |
+| `lingbot-vla2` | LingBot-VLA 2.0 (Robbyant, 6B) | RoboTwin 2.0 bimanual (Aloha-AgileX; **NC** CuRobo planner) | `g6e.2xlarge` |
 
 Stack names, robots, per-target notes, deploy and cleanup commands: [docs/targets.md](docs/targets.md). Measured success rates: [docs/results.md](docs/results.md).
 
 **Real2Sim (`real2sim`).** Instead of a policy, this target checks a reconstruction: a multi-view capture of a tabletop is turned into a 3D Gaussian Splatting model (nerfstudio splatfacto), the table and each object are cut out of it as collision meshes (also written as a UsdPhysics `.usda`), and one scripted top-down grasp per object is replayed in MuJoCo with a UR5e + Robotiq 2F-85, against the reconstructed objects, a single scene hull (baseline) and, for the default HOPE-Video scene, the ground-truth meshes. Input: a [HOPE-Video](https://github.com/swtyree/hope-dataset) scene downloaded at run time (**CC BY-NC-SA 4.0, research / non-commercial**) or your own capture zip on S3 (`images/` + a metric nerfstudio `transforms.json`). Output: PSNR / SSIM / LPIPS, per-object fidelity, grasp success per world, videos in the gallery. Measured on HOPE-Video scene 0 (`g5.2xlarge`, `ap-northeast-2`, 2026-10-29): ~12 min instance time (about US$0.30 of EC2), PSNR 24.0, 10 of 10 objects matched (two of them over-split into 2-3 clusters), grasps lifted 8/9 objects with the floating gripper and 4/9 with the UR5e on the reconstruction, 0/9 on the single scene hull. Details: [targets note 12](docs/targets.md#note-12-real2sim).
+
+**RoboTwin 2.0 (`smolvla-robotwin`, `lingbot-vla2`).** [RoboTwin 2.0](https://github.com/RoboTwin-Platform/RoboTwin) is a 50-task dual-arm benchmark (SAPIEN, Aloha-AgileX) with a clean (Easy) and a domain-randomized (Hard) setting. Both targets run upstream LeRobot's `lerobot-eval --env.type=robotwin` in-process; the default run is 5 tasks x 5 episodes in the clean setting, and `--robotwin-protocol clean|randomized|full --robotwin-shard K/N` runs the official 49 tasks x 100 episodes in 12-hour shards. `vlasim results` labels the rows `RoboTwin2/<setting>`. Not run on AWS yet. Details: [targets note 14](docs/targets.md#note-14-robotwin-20-smolvla-robotwin-lingbot-vla2).
 
 **Post-run judge (optional).** `python vlasim.py judge --vla <target> [--run RUN_ID]` scores every rollout video of a finished run with NVIDIA Flora-Rewarder (outcome score 1 to 5, success = score >= 4) on a `g7e.2xlarge` and writes `judge.json` / `judge.txt` next to the run; `vlasim results` then shows its agreement with the simulator's success flag. Flora-Rewarder is **non-commercial** (research only). Details: [docs/targets.md](docs/targets.md#post-run-judge-flora-rewarder).
 
@@ -166,6 +170,7 @@ It orchestrates third-party models, datasets and simulators that are downloaded 
 - **ASPIRE** tools (`aspire`): SAM3 (Meta SAM License, gated) and Contact-GraspNet (NVIDIA, **non-commercial**).
 - **FastWAM** checkpoint (`fastwam`): no license stated; research / evaluation only.
 - **HOPE-Video** dataset (`real2sim` default input): CC BY-NC-SA 4.0, **non-commercial**; downloaded at run time, and the videos / meshes derived from it inherit that license.
+- **NVIDIA CuRobo** (`smolvla-robotwin`, `lingbot-vla2`: RoboTwin 2.0 builds it as its motion planner): NVIDIA License, **non-commercial**; research / evaluation only.
 - **Flora-Rewarder** (`flora-judge`, the optional post-run judge): NVIDIA OneWay Noncommercial License, **non-commercial**; research and development only.
 
 You are responsible for reviewing and complying with each component's license and terms of use. **This is sample code, not production-ready software.** Full table: [docs/licenses.md](docs/licenses.md); attributions: [NOTICE](NOTICE).

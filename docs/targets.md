@@ -30,6 +30,8 @@ Each target is one `--vla <target>` value for `python vlasim.py deploy` / `destr
 | `rldx-simpler` | — | RLDX-1 (RLWRLD MSAT / Qwen3-VL-8B, eager)[¹](#note-1-rldx-1-weights-license) [²](#note-2-rldx-simpler) | SimplerEnv Google-VM (Fractal) | Google Robot (OXE_FRACTAL real-robot embodiment) | `RLDX-Simpler-Demo` |
 | `rldx-gr1` | — | RLDX-1 (RLWRLD MSAT / Qwen3-VL-8B, eager)[¹](#note-1-rldx-1-weights-license) [³](#note-3-rldx-gr1) | RoboCasa GR-1 Tabletop (24-task) | GR-1 humanoid (bimanual + waist) | `RLDX-GR1-Demo` |
 | `openarm-isaac` | — | π0.5 (LeRobot pi05 `folding_latest`, 16-DOF bimanual), pipe-proof only[¹¹](#note-11-openarm-isaac-experimental) | Isaac Lab bimanual Reach (empty scene) | OpenArm (bimanual, 2 × 7-DOF + grippers) | `OpenArm-Isaac-Demo` |
+| `smolvla-robotwin` | — | SmolVLA-450M (`lerobot/smolvla_robotwin`)[¹⁴](#note-14-robotwin-20-smolvla-robotwin-lingbot-vla2) | RoboTwin 2.0: 5-task clean subset (default) or the official 49 tasks × 100 episodes, clean / randomized | Aloha-AgileX dual arm (2 × 6-DOF + grippers, 14-D joint actions) | `SmolVLA-RoboTwin-Demo` |
+| `lingbot-vla2` | — | LingBot-VLA 2.0 (Robbyant, Qwen3-VL-4B + sparse-MoE action expert, 6B, fp32)[¹⁴](#note-14-robotwin-20-smolvla-robotwin-lingbot-vla2) | RoboTwin 2.0, same protocol as `smolvla-robotwin` | Aloha-AgileX dual arm | `LingBot-VLA2-Demo` |
 
 ## Notes
 
@@ -98,6 +100,19 @@ RLDX-1 weights are under the **RLWRLD Model License v1.0 (non-commercial)**; "si
 | Grasp, UR5e + 2F-85 | recon 4/9, scene hull 0/9, ground truth 4/9 |
 
 Two ground-truth objects are over-split (CreamCheese into 2 clusters, AlphabetSoup into 3); they have the largest per-object volume ratios (1.86 × and 3.19 ×) and Chamfer distances (24 and 39 mm, the other eight 3-6 mm). The UR5e lifts fewer objects than the floating hand (`recon` 4 vs 8, `gt` 4 vs 6), and on this run the floating hand lifted more objects in `recon` (8) than in `gt` (6). These are the numbers of one run on one scene.
+
+### Note 14: RoboTwin 2.0 (smolvla-robotwin, lingbot-vla2)
+
+[RoboTwin 2.0](https://github.com/RoboTwin-Platform/RoboTwin) (MIT; Chen et al., [arXiv 2506.18088](https://arxiv.org/abs/2506.18088)) is a 50-task dual-arm benchmark on SAPIEN with the Aloha-AgileX robot, evaluated in a **clean** (Easy, `demo_clean`) and a **randomized** (Hard, `demo_randomized`: clutter, backgrounds, lighting, table height) setting; the [leaderboard](https://robotwin-platform.github.io/leaderboard) protocol is 100 episodes per task in both. Both targets share `templates/lerobot-robotwin-userdata.sh.j2` and run upstream LeRobot's `lerobot-eval --env.type=robotwin` in-process, one call per task. Choosing new targets over a `--benchmark` switch on `smolvla`: the RoboTwin run needs a different checkpoint, a different simulator stack (SAPIEN + Vulkan + a CuRobo build) and other instance sizes and timeouts, and a separate stack keeps its results bucket apart from the LIBERO runs.
+
+- **Pins.** LeRobot `@552777b7` (`uv sync --locked`, Python 3.12); RoboTwin `@0aeea2d6` (the commit LeRobot's own RoboTwin benchmark image uses; RoboTwin `main` has since moved its configs and no longer matches the LeRobot wrapper); assets `TianxingChen/RoboTwin2.0 @981c92aa` (embodiments 220 MB + objects 3.7 GB; the 11 GB background textures only when the plan has the randomized setting); NVIDIA CuRobo `v0.7.8` (`@d64c4b00`), compiled on the instance for its GPU with an nvcc matching torch's CUDA; SAPIEN `3.0.0b1`, mplib `0.2.1`. Checkpoints `lerobot/smolvla_robotwin @eb55d3a7` and `lerobot/lingbot_vla_v2_robotwin @54f79a4b`; the repos their processors load (`HuggingFaceTB/SmolVLM2-500M-Video-Instruct`, `Qwen/Qwen3-VL-4B-Instruct`) are downloaded at pinned revisions and the eval runs with `HF_HUB_OFFLINE=1` against them.
+- **Protocol.** Default: `beat_block_hammer`, `click_bell`, `handover_block`, `lift_pot`, `stamp_seal` × 5 episodes, clean, seeds from 100000 (RoboTwin's own start seed), each task capped at RoboTwin's official step limit (`task_config/_eval_step_limit.yml`). `--robotwin-protocol clean|randomized|full` runs the official 49 tasks × 100 episodes (`open_laptop` is left out: its success check is broken for policy evaluation, per the LeRobot docs). One deploy has to finish inside the 12-hour CloudFormation WaitCondition, so `deploy.py` refuses a plan that cannot and prints the shard count: `--robotwin-shard K/N` runs every N-th (setting, task) unit; deploy K = 1..N one after the other (each shard is its own `RUN_ID`, read them together with `vlasim results --all-runs`).
+- **Results.** Each task is one `task-N/` with `suite: RoboTwin2/<setting>`, `robotwin_task`, `condition: <protocol>` and a stack fingerprint (LeRobot, RoboTwin, assets, SAPIEN, CuRobo), so `vlasim results` prints one `RoboTwin2/clean` / `RoboTwin2/randomized` row per run. Up to 10 videos per task (head camera) go to the results bucket and the gallery as `<task>_0--eval_episode_N.mp4`.
+- **Not the leaderboard protocol in two ways.** RoboTwin's own `script/eval_policy.py` first replays the scripted expert on every seed and keeps only seeds the expert solves; LeRobot's wrapper does not (episodes use consecutive seeds), so rates here can be lower than the leaderboard's. And seeds that RoboTwin rejects as unstable (a falling object at setup) are retried with seed + 100003 instead of being skipped (counted as `unstable_seeds_skipped` in `summary.txt`).
+- **Two patches** of `lerobot/envs/robotwin.py` at the pin, each asserted to apply exactly once: the task config comes from `LEROBOT_ROBOTWIN_TASK_CONFIG` (default `demo_clean`, so the randomized setting can run), and the unstable-seed retry above. mplib and SAPIEN get the two source fixes RoboTwin's installer applies.
+- **Install order.** mplib `0.2.1` declares `numpy<2` and SAPIEN `3.0.0b1` declares `opencv-python`; both are installed `--no-deps` and the rest of the RoboTwin stack against the frozen LeRobot lock, so no locked package moves (their binaries support numpy 2). Installed with its metadata, mplib downgrades numpy to 1.26 and `lerobot-eval` then dies at `import pyarrow`; that is how LeRobot's RoboTwin CI job ends on 2026-10-30 although the job is green. Before the checkpoint download the run imports the whole eval chain (including lazily imported modules) and resets one RoboTwin env on the GPU, then runs a 1-episode smoke eval with the exact command line.
+- **Licenses.** Both checkpoints and LeRobot are Apache-2.0, RoboTwin and its assets MIT, SAPIEN and mplib MIT; **CuRobo is under the NVIDIA License (non-commercial: research / evaluation only)**, and RoboTwin builds a CuRobo planner per arm on every reset, so these targets are research / evaluation only.
+- **Not done here.** X-VLA's RoboTwin checkpoint (`2toINF/X-VLA-RoboTwin2`) is not in LeRobot format and predicts end-effector poses; `lerobot/lingbot_va_robotwin` and `lerobot/fastwam_robotwin_uncond_3cam_384` are world action models that need `--env.action_mode=ee` and a larger GPU; `lerobot/hy_vla_robotwin` has no policy class in LeRobot at the pin; G0.5 and InternVLA RoboTwin checkpoints are non-commercial. Not run on AWS yet; expected numbers are in [results.md](results.md#robotwin-20-smolvla-robotwin-lingbot-vla2).
 
 ## Post-run judge (Flora-Rewarder)
 
@@ -196,6 +211,8 @@ does not have to exist any more (its bucket is retained); the gallery score badg
 | `rldx-kitchen` | `g6.2xlarge` → `g5.2xlarge` → `g6.xlarge` → `g5.xlarge` | 220 |
 | `openarm-lift-act` | `g6.12xlarge` → `g5.12xlarge` → `g6.24xlarge` → `g5.24xlarge` → `g6e.12xlarge` → `g6e.24xlarge` | 300 |
 | `openarm-isaac` | `g6.12xlarge` → `g5.12xlarge` → `g6.2xlarge` → `g5.2xlarge` | 500 |
+| `smolvla-robotwin` | `g6.2xlarge` → `g5.2xlarge` → `g6.4xlarge` → `g5.4xlarge` | 200 |
+| `lingbot-vla2` | `g6e.2xlarge` → `g6e.4xlarge` | 250 |
 | `flora-judge` ([post-run judge](#post-run-judge-flora-rewarder)) | `g7e.2xlarge` → `g7e.4xlarge` → `g6e.12xlarge` → `p5.4xlarge` | 250 |
 
 ## Deploy commands
@@ -269,6 +286,12 @@ python vlasim.py deploy --vla openarm-lift-act --email you@example.com
 # OpenArm bimanual π0.5 (folding_latest) in Isaac Lab — experimental pipe proof, success ~0 by design (note 11)
 python vlasim.py deploy --vla openarm-isaac --email you@example.com
 
+# RoboTwin 2.0 bimanual (LeRobot lerobot-eval; CuRobo planner is NON-COMMERCIAL, note 14)
+python vlasim.py deploy --vla smolvla-robotwin --email you@example.com   # 5 tasks x 5 ep, clean (estimate ~1.5-2 h)
+python vlasim.py deploy --vla lingbot-vla2 --email you@example.com       # LingBot-VLA 2.0, same subset, g6e
+# Official protocol (49 tasks x 100 ep) in 12-hour shards; deploy.py prints N if the plan does not fit
+python vlasim.py deploy --vla smolvla-robotwin --robotwin-protocol clean --robotwin-shard 1/19 --email you@example.com
+
 # Post-run judge: score a finished run's videos with NVIDIA Flora-Rewarder (NON-COMMERCIAL license, ~45-90 min)
 python vlasim.py judge --vla smolvla --email you@example.com
 ```
@@ -321,6 +344,8 @@ python vlasim.py destroy --vla rldx-gr1
 python vlasim.py destroy --vla rldx-kitchen
 python vlasim.py destroy --vla openarm-lift-act
 python vlasim.py destroy --vla openarm-isaac
+python vlasim.py destroy --vla smolvla-robotwin
+python vlasim.py destroy --vla lingbot-vla2
 python vlasim.py destroy --judge --vla smolvla   # post-run judge stack of smolvla (judge.json stays with the run)
 ```
 

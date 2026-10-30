@@ -264,12 +264,15 @@ clone_pinned() {
 # ── [3/9] RoboLab @ pin + its Git LFS assets + its Docker image ────────────────────────────────
 log "[3/9] RoboLab {{ robolab_commit[:8] }}..."
 clone_pinned "{{ robolab_repo }}" "$ROBOLAB_DIR" "{{ robolab_commit }}" || die "RoboLab clone/checkout failed"
-# ~6.2 GB of USD scenes / objects / robots (1,644 LFS objects at this pin). The Dockerfile COPYs assets/.
+# ~6.2 GB of USD scenes / objects / robots (1,620 of the pin's 1,644 LFS objects live under assets/; the other
+# 24 are docs/ images and an example .hdf5 that the benchmark never reads). The Dockerfile COPYs assets/.
 for _i in 1 2 3; do
     timeout 3600 git -C "$ROBOLAB_DIR" lfs pull --include "assets/**" > /tmp/{{ vla }}_lfs.log 2>&1 && break
     log "[warn] git lfs pull attempt ${_i} failed, retrying in 60s"; sleep 60
 done
-_lfs_missing=$(git -C "$ROBOLAB_DIR" lfs ls-files 2>/dev/null | grep -c ' - ' || true)
+# Count only assets/: `lfs ls-files` lists the whole repo, and the 24 docs/examples objects are never pulled
+# (the first GPU run died here on exactly those 24 with every asset present).
+_lfs_missing=$(git -C "$ROBOLAB_DIR" lfs ls-files 2>/dev/null | awk '$2 == "-" && $3 ~ /^assets\// {n++} END {print n+0}')
 log "  LFS objects still pointers: ${_lfs_missing} ($(du -sh "${ROBOLAB_DIR}/assets" 2>/dev/null | cut -f1))"
 [ "${_lfs_missing:-1}" -eq 0 ] || die "RoboLab assets incomplete (${_lfs_missing} LFS objects not downloaded, see /tmp/{{ vla }}_lfs.log)"
 

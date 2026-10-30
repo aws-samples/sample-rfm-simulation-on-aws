@@ -99,6 +99,45 @@ RLDX-1 weights are under the **RLWRLD Model License v1.0 (non-commercial)**; "si
 
 Two ground-truth objects are over-split (CreamCheese into 2 clusters, AlphabetSoup into 3); they have the largest per-object volume ratios (1.86 × and 3.19 ×) and Chamfer distances (24 and 39 mm, the other eight 3-6 mm). The UR5e lifts fewer objects than the floating hand (`recon` 4 vs 8, `gt` 4 vs 6), and on this run the floating hand lifted more objects in `recon` (8) than in `gt` (6). These are the numbers of one run on one scene.
 
+## LIBERO-Plus robustness sweep
+
+`--libero-variant plus` is a switch on existing LIBERO targets, not a new `--vla` target. It evaluates the **same checkpoint** on [LIBERO-Plus](https://github.com/sylvestf/LIBERO-plus) (Fei et al., [arXiv 2510.13626](https://arxiv.org/abs/2510.13626)), a fork of LIBERO that installs under the same `libero` package and replaces each suite's 10 tasks with ~2,400-2,600 perturbed variants (10,030 in total), each tagged with one of seven perturbation dimensions in the fork's `libero/libero/benchmark/task_classification.json`:
+
+| `--perturb` key | Dimension (classification category) | Variants in `libero_spatial` |
+|---|---|---:|
+| `camera` | Camera Viewpoints | 376 |
+| `robot` | Robot Initial States | 350 |
+| `language` | Language Instructions | 390 |
+| `light` | Light Conditions | 292 |
+| `background` | Background Textures | 258 |
+| `noise` | Sensor Noise | 351 |
+| `layout` | Objects Layout | 385 |
+
+```bash
+# SmolVLA: LIBERO-Spatial, 7 dimensions x 10 variants x 1 episode = 70 episodes (~70-90 min, estimate)
+python vlasim.py deploy --vla smolvla --libero-variant plus
+# OpenVLA-OFT on the LIBERO-Spatial checkpoint (the sweep runs on the --libero-suite you pick)
+python vlasim.py deploy --vla openvla-oft --libero-suite spatial --libero-variant plus
+# Fewer dimensions / more variants (0 = every variant of each dimension, ~350 episodes per dimension)
+python vlasim.py deploy --vla smolvla --libero-variant plus --perturb camera,light,noise --perturb-n 30
+# Compare with the LIBERO baseline of the same stack (run `deploy --vla smolvla` once without the flag too)
+python vlasim.py results --robustness --vla smolvla
+python vlasim.py destroy --vla smolvla
+```
+
+How it works:
+
+- **Plan.** generate.py replaces the target's `tasks` with one entry per dimension, `condition: LIBERO-Plus/<dimension>`. Settings come from the `libero_plus` block of `models/<id>.yaml` (`suite`, `perturb`, `variants_per_category`, `seed`, `pip_pins`, `creationpolicy_timeout`, `ebs_gb`); the shared pins live in `libero_plus.py`. `--perturb` / `--perturb-n` override the yaml.
+- **Variants.** On the instance, `assets/libero-plus/select_variants.py` reads the fork's classification file and draws N variants of each dimension without replacement with a fixed seed (`seed` in the yaml, default 7), so a re-run evaluates the same variants. The selected ids, names and difficulty levels are uploaded as `task-N/libero_plus_variants.json`. One episode per variant, the LIBERO-Plus protocol (`num_trials_per_task` 1). The 0-based suite index is the classification `id` minus 1 (the fork keeps the suite order at `task_order_index` 0).
+- **Install.** The fork is cloned at `4976dc30` (the SHA LeRobot pins in `docker/Dockerfile.benchmark.libero_plus`) and its asset pack (`Sylvest/LIBERO-plus` dataset @`dd2bd61b`, `assets.zip`, 6.4 GB) is downloaded, sha256-checked and extracted to `libero/libero/assets`. apt adds `libmagickwand-dev`, `libfontconfig1-dev`, `libexpat1` and `unzip`.
+  - `smolvla` (LeRobot): the LeRobot recipe — `robosuite==1.4.1` (the fork needs `single_arm_env`, removed in 1.5) and the other runtime pins, the fork `--no-deps -e`, `hf-libero` removed, the clone first on `PYTHONPATH`, and `lerobot-eval --env.type=libero_plus` through `uv run --no-sync` (a synced `uv run` would reinstall `hf-libero` from `uv.lock`). The other LeRobot LIBERO targets (`xvla`, `lingbot-va`, `fastwam`) share the template and get the switch by adding a `libero_plus` block to their yaml.
+  - `openvla-oft`: the fork is cloned in place of LIBERO and installed the same way (`editable_mode=compat`), plus `Wand` / `scikit-image` (its `extra_requirements.txt`) before the `numpy<2` re-pin. `run_libero_eval.py` iterates every task of the suite, so `assets/libero-plus/oft_task_ids_patch.py` rewrites that loop to the selected ids (after `stackpatch.py` restores the upstream file; the run stops if the loop is not found). `n_success` / `n_episodes` come from the eval log.
+- **Stack.** Same stack name and results bucket as the LIBERO run, so `vlasim results --robustness` finds both. The CDK context `libero_variant=plus` (set by deploy.py) only takes `creationpolicy_timeout` and `ebs_gb` from the `libero_plus` block. `destroy` is unchanged.
+- **Default off.** Without `--libero-variant plus` every rendered UserData script is byte-identical to before (checked for all targets), and so is the synthesized template.
+- **Not wired yet:** `pi` (the openpi LIBERO client runs in a Python 3.8 Docker image and loops every task of a suite; it needs the same loop patch inside that image), `gr00t`, `lap`, `rldx`, `vla-adapter`, `cosmos-policy`, `molmoact2`. `aspire` uses the separate LIBERO-Pro fork.
+- **Comparability.** A dimension row and the LIBERO baseline differ only in the scene when the checkpoint, eval seed and step cap are the same, which is what the switch keeps. `LIBERO-Plus/all` pools the dimensions with equal weight; the paper's "Total" weights by the number of variants per dimension. The LeRobot card of `lerobot/smolvla_libero_plus` reports 69.0% on task ids 0-9 of four suites; those ids are all Background Textures variants, so it is not a seven-dimension number.
+- **License.** The fork's code repository has no LICENSE file and GitHub reports no license: treat it as research / evaluation use. The asset pack is MIT on its Hugging Face dataset card. Both are downloaded at run time; nothing from LIBERO-Plus is vendored in this repository.
+
 ## Post-run judge (Flora-Rewarder)
 
 `flora-judge` is **not a `--vla` target**: it scores the rollout videos of a run that already

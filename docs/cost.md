@@ -52,6 +52,8 @@ Instance = the first entry of `instance.preferred` (the AZ selector may fall bac
 | `rldx-kitchen` | `g6.2xlarge` | ~25-35 min | ~0.41-0.57 |
 | `openarm-lift-act` | `g6.12xlarge` | not recorded | 4.6016 per hour |
 | `openarm-isaac` | `g6.12xlarge` | not recorded (creation timeout 240 min) | 4.6016 per hour |
+| `smolvla --libero-variant plus` (70 episodes) | `g6.xlarge` | ~70-90 min (estimate, not yet measured) | ~0.94-1.21, plus ~0.29 NAT processing for the 6.4 GB asset pack |
+| `openvla-oft --libero-suite spatial --libero-variant plus` (70 episodes) | `g6.xlarge` | ~2-2.5 h (estimate, not yet measured) | ~1.61-2.01, plus ~0.29 NAT processing for the 6.4 GB asset pack |
 | `flora-judge` (post-run judge, `vlasim judge`) | `g7e.2xlarge` (measured on the `g6e.12xlarge` fallback, US$12.90/h in `ap-northeast-2`) | 13-15 min instance time measured for 10-47 episodes (+ ~10 min stack create/delete) | ~0.85-1.10 on `g7e.2xlarge`; ~2.80-3.25 measured on `g6e.12xlarge` |
 
 ## Not included

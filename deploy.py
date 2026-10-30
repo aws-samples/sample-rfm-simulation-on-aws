@@ -445,6 +445,8 @@ def main():
         stack_name = "RLDX-Demo"
     elif args.vla == "rldx-simpler":
         stack_name = "RLDX-Simpler-Demo"
+    elif args.vla == "rldx-bridge":
+        stack_name = "RLDX-Bridge-Demo"
     elif args.vla == "rldx-gr1":
         stack_name = "RLDX-GR1-Demo"
     elif args.vla == "rldx-kitchen":
@@ -553,6 +555,8 @@ def main():
             print("  Estimated time: ~80-120 min (uv sync + libero_uv venv ~30-40min + ckpt+backbone DL ~15min + server warmup ~3min + eager rollout)")
         elif args.vla == "rldx-simpler":
             print("  Estimated time: ~90-140 min (uv sync + simpler_uv venv + ManiSkill2_real2sim clone ~35-45min + ckpt+backbone DL ~15min + server warmup ~3min + SAPIEN eager rollout)")
+        elif args.vla == "rldx-bridge":
+            print("  Estimated time: ~100-160 min (uv sync + simpler_uv venv + ManiSkill2_real2sim clone ~35-45min + ckpt+backbone DL ~15min + server warmup up to ~18min + 4 tasks x 10 SAPIEN eager episodes)")
         elif args.vla == "rldx-gr1":
             print("  Estimated time: ~25-35 min (Gate-3 measured 2026-06-25, g5.2xlarge: uv syncs + robocasa_uv venv + tabletop assets ~12min + ckpt+backbone DL ~4min + fast server warmup ~210s + MuJoCo eager rollout ~10min)")
         elif args.vla == "rldx-kitchen":

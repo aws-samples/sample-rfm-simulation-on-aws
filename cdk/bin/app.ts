@@ -12,6 +12,7 @@
  *   npx cdk deploy LAP-Demo                    -c region=us-east-1 -c vla=lap
  *   npx cdk deploy RLDX-Demo                   -c region=us-east-1 -c vla=rldx
  *   npx cdk deploy RLDX-Simpler-Demo           -c region=us-east-1 -c vla=rldx-simpler
+ *   npx cdk deploy RLDX-Bridge-Demo            -c region=us-east-1 -c vla=rldx-bridge
  *   npx cdk deploy RLDX-GR1-Demo               -c region=us-east-1 -c vla=rldx-gr1
  *   npx cdk deploy RLDX-Kitchen-Demo  -c region=us-east-1 -c vla=rldx-kitchen
  *   npx cdk deploy OpenArm-Isaac-Demo          -c region=us-east-1 -c vla=openarm-isaac
@@ -31,9 +32,9 @@ const app = new cdk.App();
 const region = app.node.tryGetContext('region') ?? 'ap-northeast-2';
 const vla: string = app.node.tryGetContext('vla');
 
-if (!vla || !['gr00t', 'gr00t-bridge', 'gr00t-gr1', 'gr00t-g1', 'pi', 'openvla-oft', 'lap', 'rldx', 'rldx-simpler', 'rldx-gr1', 'rldx-kitchen', 'openarm-isaac', 'openarm-lift-act', 'molmoact2', 'xvla', 'smolvla', 'lingbot-va', 'vla-adapter', 'fastwam', 'cosmos-policy', 'aspire', 'real2sim'].includes(vla)) {
+if (!vla || !['gr00t', 'gr00t-bridge', 'gr00t-gr1', 'gr00t-g1', 'pi', 'openvla-oft', 'lap', 'rldx', 'rldx-simpler', 'rldx-bridge', 'rldx-gr1', 'rldx-kitchen', 'openarm-isaac', 'openarm-lift-act', 'molmoact2', 'xvla', 'smolvla', 'lingbot-va', 'vla-adapter', 'fastwam', 'cosmos-policy', 'aspire', 'real2sim'].includes(vla)) {
   throw new Error(
-    'CDK context "vla" is required. Pass -c vla=gr00t, -c vla=gr00t-bridge, -c vla=gr00t-gr1, -c vla=gr00t-g1, -c vla=pi, -c vla=openvla-oft, -c vla=lap, -c vla=rldx, -c vla=rldx-simpler, -c vla=rldx-gr1, -c vla=rldx-kitchen, -c vla=openarm-isaac, -c vla=openarm-lift-act, -c vla=molmoact2, -c vla=xvla, -c vla=smolvla, -c vla=lingbot-va, -c vla=vla-adapter, -c vla=fastwam, -c vla=cosmos-policy, -c vla=aspire, or -c vla=real2sim.\n' +
+    'CDK context "vla" is required. Pass -c vla=gr00t, -c vla=gr00t-bridge, -c vla=gr00t-gr1, -c vla=gr00t-g1, -c vla=pi, -c vla=openvla-oft, -c vla=lap, -c vla=rldx, -c vla=rldx-simpler, -c vla=rldx-bridge, -c vla=rldx-gr1, -c vla=rldx-kitchen, -c vla=openarm-isaac, -c vla=openarm-lift-act, -c vla=molmoact2, -c vla=xvla, -c vla=smolvla, -c vla=lingbot-va, -c vla=vla-adapter, -c vla=fastwam, -c vla=cosmos-policy, -c vla=aspire, or -c vla=real2sim.\n' +
     'Use deploy.py which sets this automatically.',
   );
 }
@@ -63,6 +64,7 @@ const stackNameMap: Record<string, string> = {
   'lap':         'LAP-Demo',
   'rldx':        'RLDX-Demo',
   'rldx-simpler': 'RLDX-Simpler-Demo',
+  'rldx-bridge': 'RLDX-Bridge-Demo',
   'rldx-gr1':    'RLDX-GR1-Demo',
   'rldx-kitchen': 'RLDX-Kitchen-Demo',
   'openarm-isaac': 'OpenArm-Isaac-Demo',
@@ -94,6 +96,7 @@ const descriptionMap: Record<string, string> = {
   'lap':         'LAP-3B + LIBERO-Spatial (Franka Panda, JAX policy server + sim client)',
   'rldx':        'RLDX-1 (RLWRLD MSAT/Qwen3-VL-8B) + LIBERO (Franka Panda, ZeroMQ policy server + sim client, eager)',
   'rldx-simpler': 'RLDX-1 (RLWRLD MSAT/Qwen3-VL-8B) + SimplerEnv (Google Robot, OXE_FRACTAL real-robot embodiment, ZeroMQ policy server + sim client, eager)',
+  'rldx-bridge': 'RLDX-1 (RLWRLD MSAT/Qwen3-VL-8B) + SimplerEnv Bridge (WidowX 250, OXE_BRIDGE_ORIG real-robot embodiment, ZeroMQ policy server + sim client, eager)',
   'rldx-gr1':    'RLDX-1 (RLWRLD MSAT/Qwen3-VL-8B) + RoboCasa GR-1 Tabletop (GR-1 bimanual humanoid + waist, ZeroMQ policy server + MuJoCo sim client, eager)',
   'rldx-kitchen': 'RLDX-1 (RLWRLD MSAT/Qwen3-VL-8B) + RoboCasa Kitchen 24-task (PandaOmron single-arm mobile manipulator, ZeroMQ policy server + MuJoCo sim client, eager)',
   'openarm-isaac': 'π0.5 (LeRobot pi05 folding_latest, 16-DOF) + Isaac Lab bimanual OpenArm (pipe-proof)',

@@ -9,7 +9,7 @@ import { captureObjectPath, VlaSimulatorStack } from '../lib/vla-simulator-stack
 // the tests run on a fresh checkout, and remove only the placeholders we created.
 const USERDATA_DIR = path.resolve(__dirname, '../../assets/userdata');
 const VLAS = ['gr00t', 'pi'];
-const SEED_VLAS = [...VLAS, 'openarm-lift-act', 'xvla', 'real2sim', 'gr00t-bridge'];
+const SEED_VLAS = [...VLAS, 'openarm-lift-act', 'xvla', 'real2sim', 'gr00t-bridge', 'rldx-bridge'];
 const seeded: string[] = [];
 
 beforeAll(() => {
@@ -93,6 +93,7 @@ test('yaml-driven targets launch their own preferred instance list', () => {
 // CloudWatch log grant follows the target id, matching the /<vla>/userdata group the template writes.
 test.each([
   ['gr00t-bridge', 'GR00T-Bridge-Demo'],
+  ['rldx-bridge', 'RLDX-Bridge-Demo'],
 ])('%s launches a single-GPU instance list and grants its own log group', (vla, stackName) => {
   const app = new cdk.App({ context: { region: 'us-east-1', vla, notify_email: 'test@example.com' } });
   const stack = new VlaSimulatorStack(app, stackName, { vla, env: { account: '123456789012', region: 'us-east-1' } });

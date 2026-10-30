@@ -50,6 +50,7 @@ STACK_NAMES = {
     "lap": "LAP-Demo",
     "rldx": "RLDX-Demo",
     "rldx-simpler": "RLDX-Simpler-Demo",
+    "rldx-bridge": "RLDX-Bridge-Demo",
     "rldx-gr1": "RLDX-GR1-Demo",
     "rldx-kitchen": "RLDX-Kitchen-Demo",
     "openarm-isaac": "OpenArm-Isaac-Demo",

@@ -15,6 +15,7 @@ Usage:
     python generate.py --vla lap         [--config simulator-config.yaml] [--dry-run]
     python generate.py --vla rldx        [--config simulator-config.yaml] [--dry-run]
     python generate.py --vla rldx-simpler [--config simulator-config.yaml] [--dry-run]
+    python generate.py --vla rldx-bridge [--config simulator-config.yaml] [--dry-run]
     python generate.py --vla gr00t-bridge [--config simulator-config.yaml] [--dry-run]
     python generate.py --vla rldx-gr1    [--config simulator-config.yaml] [--dry-run]
     python generate.py --vla rldx-kitchen [--config simulator-config.yaml] [--dry-run]
@@ -340,6 +341,9 @@ def generate_rldx(config: dict, dry_run: bool, vla: str = "rldx") -> str:
     tasks_json = _tasks_json_for_bash(tasks)
     deployment = config.get("deployment", {})
     model = config.get("model", {})
+    if model.get("simpler_robot", "google") not in ("google", "widowx"):
+        print(f"[error] models/{vla}.yaml: model.simpler_robot must be google or widowx", file=sys.stderr)
+        sys.exit(1)
 
     ctx = {
         "tasks_json": tasks_json,
@@ -378,6 +382,9 @@ def generate_rldx(config: dict, dry_run: bool, vla: str = "rldx") -> str:
         "sim_needs_policy_fix": bool(
             model.get("sim_needs_policy_fix", model.get("sim_id", "libero") == "simpler")
         ),
+        # SimplerEnv robot for the FIX 6/7 adapter: "google" (Fractal, quaternion state — the default, so
+        # rldx-simpler renders byte-identically) or "widowx" (Bridge, euler state + pad, rldx-bridge).
+        "simpler_robot": model.get("simpler_robot", "google"),
         # FIX 5 — non-LIBERO sims whose external_dependencies/<sim> gitlink is absent at the pin
         # (SimplerEnv) must be pre-cloned --recursive so the setup script's already-populated
         # fallback runs. Empty for LIBERO (vendored dir present) → template skips the pre-clone.
@@ -968,7 +975,7 @@ def main():
         rendered = generate_openvla_oft(config, args.libero_suite, args.dry_run)
     elif args.vla == "lap":
         rendered = generate_lap(config, args.resolved_nlb, args.dry_run)
-    elif args.vla in ("rldx", "rldx-simpler", "rldx-gr1", "rldx-kitchen"):
+    elif args.vla in ("rldx", "rldx-simpler", "rldx-bridge", "rldx-gr1", "rldx-kitchen"):
         rendered = generate_rldx(config, args.dry_run, vla=args.vla)
     elif args.vla == "openarm-isaac":
         rendered = generate_openarm_isaac(config, args.dry_run)

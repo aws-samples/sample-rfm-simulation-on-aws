@@ -133,6 +133,57 @@ def test_render_default(vla, tmp_path):
     assert "expected 1 match" in text
 
 
+# Verbatim excerpt of RoboTwin @0aeea2d6 envs/robot/planner.py (the lines the mplib patch rewrites).
+_PLANNER_EXCERPT = """import mplib.planner
+import mplib
+import numpy as np
+from mplib.sapien_utils import SapienPlanner, SapienPlanningWorld
+
+
+# ********************** MplibPlanner **********************
+class MplibPlanner:
+    def __init__(self, urdf_path, srdf_path, move_group, robot_origion_pose, robot_entity,
+                 planner_type="mplib_RRT", scene=None):
+        if scene is None:
+            pass
+        else:
+            planning_world = SapienPlanningWorld(scene, [robot_entity])
+            self.planner = SapienPlanner(planning_world, move_group)
+
+        self.planner_type = planner_type
+"""
+
+
+@pytest.mark.parametrize("vla", TARGETS)
+def test_mplib_topp_only_patch(vla, tmp_path):
+    # mplib 0.2.1 segfaults on numpy 2 (old pybind11): the template swaps RoboTwin's SapienPlanner for a
+    # TOPP-only shim, before the verify step, and the verify asserts it. Run the embedded patch for real.
+    proc, script = _render(tmp_path, vla)
+    assert proc.returncode == 0, proc.stderr
+    text = script.read_text()
+    m = re.search(r'"\$\{VENV_PY\}" - "\$\{ROBOTWIN_DIR\}/envs/robot/planner.py" << \'PATCHEOF\'.*?\n(.*?)\nPATCHEOF\n',
+                  text, re.S)
+    assert m, "RoboTwin planner patch block missing"
+    assert text.index("envs/robot/planner.py\" << 'PATCHEOF'") < text.index("[5/8] Verifying")
+    assert '"envs.robot.planner is not patched' in text
+    body = m.group(1).split("\n", 1)[1]  # drop the `|| die` continuation line
+    (tmp_path / "patch.py").write_text(body)
+    target = tmp_path / "planner.py"
+    target.write_text(_PLANNER_EXCERPT)
+    for expect in ("SapienPlanner -> _ToppOnlyPlanner", "already patched"):  # idempotent on re-run
+        run = subprocess.run([sys.executable, str(tmp_path / "patch.py"), str(target)], capture_output=True, text=True)
+        assert run.returncode == 0 and expect in run.stdout, run.stderr
+    out = target.read_text()
+    assert "SapienPlanningWorld(scene" not in out
+    assert "self.planner = _ToppOnlyPlanner(robot_entity, move_group)" in out
+    assert out.index("class _ToppOnlyPlanner") < out.index("class MplibPlanner")
+    compile(out, "planner.py", "exec")
+    # a planner.py that moved upstream fails loudly instead of silently skipping the patch
+    target.write_text(_PLANNER_EXCERPT.replace("SapienPlanner(planning_world", "SapienPlanner(world"))
+    run = subprocess.run([sys.executable, str(tmp_path / "patch.py"), str(target)], capture_output=True, text=True)
+    assert run.returncode != 0 and "not found exactly once" in run.stderr
+
+
 def test_render_randomized_shard(tmp_path):
     proc, script = _render(tmp_path, "smolvla-robotwin", "--robotwin-protocol", "full", "--robotwin-shard", "2/25")
     assert proc.returncode == 0, proc.stderr

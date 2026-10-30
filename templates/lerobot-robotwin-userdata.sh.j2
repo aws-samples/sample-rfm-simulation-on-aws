@@ -264,7 +264,9 @@ log "  venv python: ${PY_VER}"
 # locked package. mplib 0.2.1 declares numpy<2 and sapien 3.0.0b1 declares opencv-python, so both go in
 # with --no-deps: installed with their metadata, mplib downgrades numpy 2.2.6 -> 1.26.4 and pyarrow then
 # refuses to import (lerobot-eval dies at `import datasets`; observed in LeRobot's own RoboTwin CI job,
-# 2026-10-30). Their binaries are built with a numpy-2-aware pybind11 (they probe numpy._core), and
+# 2026-10-30). numpy 1.26 for the whole venv is not an option (x86 repro 2026-10-30: pyarrow 26
+# "requires NumPy 2.0", lerobot 0.6.2 itself declares numpy>=2,<2.3, opencv-python-headless 4.13 needs
+# numpy>=2). sapien's binary is fine on numpy 2; mplib's is NOT (see the RoboTwin planner patch below).
 # cv2 comes from LeRobot's opencv-python-headless.
 uv pip freeze --python "${VENV_PY}" | grep -vE '^(-e |#)| @ ' > /tmp/{{ vla }}_constraints.txt \
     || die "uv pip freeze failed"
@@ -301,6 +303,65 @@ for d in site.getsitepackages():
         done.add("sapien")
 assert done == {"mplib", "sapien"}, f"patched only {done}"
 print("mplib / sapien patches applied")
+PATCHEOF
+
+# RoboTwin planner patch — mplib's C++ core segfaults under numpy 2.
+# Root cause: the mplib 0.2.1 cp312 wheel (2024-08, the last release) is built with a vendored pybind11
+# snapshot 0a756c0b = 2.12.0.dev1 (2023-09): it already imports numpy._core but predates pybind11's numpy-2
+# ABI support, so EVERY numpy/list -> Eigen argument crashes (upstream answered with numpy<2, commit 555c7cfd;
+# HEAD 5225ea50 only drops the pin, same pybind11). x86 repro (c7i, py3.12, 2026-10-30):
+#   numpy 2.2.6: mplib.collision_detection.fcl.Box(side=np.array([.1,.2,.3]))      -> SIGSEGV (lists too)
+#                SapienPlanningWorld(scene, [robot])  -> SIGSEGV in conversion.py:311 convert_physx_component
+#                (= the first GPU run: planner.py:309 <- robot.py:304 set_planner, during env.reset())
+#   numpy 1.26.4: both OK — but pyarrow/datasets/lerobot_eval no longer import (see above).
+# RoboTwin @{{ robotwin_commit[:8] }} plans every path with CuRobo (robot.py: left/right_planner = CuroboPlanner
+# for all embodiments, config `planner: curobo`); the two MplibPlanners built in set_planner() are used for
+# exactly one thing: `.TOPP` in _base_task.take_action (qpos actions). mplib's Planner.TOPP is pure Python
+# (toppra) with joint_vel/acc_limits = ones(dof of the move group) — SapienPlanner never sets other limits.
+# So the patch replaces the SapienPlanningWorld/SapienPlanner construction with a TOPP-only object that
+# reuses mplib's own TOPP function and derives dof from the SAPIEN articulation. Verified on the x86 box:
+# real SapienPlanner (numpy 1.26.4) vs this shim (numpy 2.2.6) on all 5 embodiments of the pinned assets
+# (ARX-X5, aloha-agilex fl/fr_link6, franka-panda, piper, ur5-wsg): identical dof, limits, sample count,
+# duration and trajectory checksum. Any other mplib planner call raises instead of crashing.
+"${VENV_PY}" - "${ROBOTWIN_DIR}/envs/robot/planner.py" << 'PATCHEOF' 2>&1 | tee -a /tmp/{{ vla }}_robotwin_patch.log \
+    || die "RoboTwin planner.py (mplib TOPP-only) patch failed"
+import pathlib, sys
+p = pathlib.Path(sys.argv[1])
+src = p.read_text()
+if "class _ToppOnlyPlanner" in src:
+    print("RoboTwin planner.py: already patched"); sys.exit(0)
+old_ctor = (
+    "            planning_world = SapienPlanningWorld(scene, [robot_entity])\n"
+    "            self.planner = SapienPlanner(planning_world, move_group)\n"
+)
+anchor = "# ********************** MplibPlanner **********************\n"
+shim = '''class _ToppOnlyPlanner:
+    """rfm-sim patch: mplib 0.2.1's C++ core segfaults on numpy 2 (old pybind11); RoboTwin only needs TOPP."""
+    TOPP = mplib.planner.Planner.TOPP  # pure Python (toppra), unchanged
+
+    def __init__(self, robot_entity, move_group):
+        link = {l.get_name(): l for l in robot_entity.get_links()}[move_group]
+        dof = 0
+        while link is not None:
+            joint = link.get_joint()
+            if joint is not None:
+                dof += joint.get_dof()
+            link = link.get_parent()
+        # = mplib.Planner defaults (SapienPlanner passes no limits)
+        self.joint_vel_limits = np.ones(dof)
+        self.joint_acc_limits = np.ones(dof)
+
+    def __getattr__(self, name):
+        raise NotImplementedError(f"mplib planner .{name} disabled (numpy-2 segfault patch); RoboTwin plans with CuRobo")
+
+
+'''
+assert src.count(old_ctor) == 1, "planner.py: SapienPlanner construction not found exactly once"
+assert src.count(anchor) == 1, "planner.py: MplibPlanner anchor not found exactly once"
+src = src.replace(old_ctor, "            self.planner = _ToppOnlyPlanner(robot_entity, move_group)\n")
+src = src.replace(anchor, shim + anchor)
+p.write_text(src)
+print("RoboTwin planner.py: SapienPlanner -> _ToppOnlyPlanner (TOPP only)")
 PATCHEOF
 
 # CuRobo (NVlabs) — RoboTwin's Robot.set_planner() builds a CuroboPlanner per arm on every reset, so the
@@ -508,6 +569,7 @@ import envs.robot.planner as planner
 # planner.py swallows a failed CuRobo import and leaves CuroboPlanner undefined -> the error would only
 # show up at the first reset() as an ImportError deep inside RoboTwin.
 assert hasattr(planner, "CuroboPlanner"), "envs.robot.planner has no CuroboPlanner (CuRobo import failed)"
+assert hasattr(planner, "_ToppOnlyPlanner"), "envs.robot.planner is not patched (mplib would segfault on numpy 2)"
 from lerobot.envs.configs import RoboTwinEnvConfig
 from lerobot.envs.robotwin import RoboTwinEnv, _load_robotwin_task
 tasks = json.loads(os.environ["RFM_PLAN_TASKS"])

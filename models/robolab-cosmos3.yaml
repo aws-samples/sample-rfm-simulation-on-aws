@@ -1,0 +1,136 @@
+# NVIDIA RoboLab (Isaac Lab, DROID Franka, 120 tasks) x Cosmos3-Policy-DROID (NVIDIA world action model).
+# Shared template: templates/robolab-userdata.sh.j2 (same file as robolab-pi05; backend selects the server).
+#
+# One instance runs BOTH processes RoboLab is designed around (server-client):
+#   - policy server: NVIDIA/cosmos-framework `action_policy_server_robolab` (OpenPI msgpack WebSocket, port 8000+i)
+#     in the image built from the framework's own Dockerfile (CUDA 12.8 base, cu128-train + policy-server groups)
+#   - simulator client: RoboLab `policies/cosmos3/run.py --headless` in the image built by RoboLab's
+#     docker/build_docker.sh on nvcr.io/nvidia/isaac-lab:2.2.0 (Isaac Sim 5.0 = the stack the leaderboard used)
+# A run = one "shard" (server + sim pair) per GPU (or GPU pair); tasks are split round-robin across shards.
+#
+# Licenses: RoboLab code Apache-2.0, but its bundled scenes/objects/robots are mostly CC BY-NC-SA 4.0
+# (NON-COMMERCIAL, see RoboLab THIRD_PARTY_NOTICES.md); Isaac Sim runs under the NVIDIA Isaac Sim license
+# (the NGC container EULA, accepted by ACCEPT_EULA=Y); Cosmos3 weights + cosmos-framework code OpenMDW-1.1
+# (permissive, commercial use allowed). Hugging Face repos are public (not gated).
+#
+# Leaderboard (research.nvidia.com/labs/srl/projects/robolab/leaderboard.html, data v76 generated 2026-10-23,
+# RoboLab-120, 10 episodes/task, default instructions, Isaac Lab 2.2.0 / Isaac Sim 5.0.0):
+#   Cosmos3-Nano-Policy 441/1200 = 36.8%  (L40, 40 GB, RoboLab build 88976795 v0.1.0, evaluated 2026-05-22)
+#   Cosmos3-Edge-Policy 275/1200 = 22.9%  (L40, 9.20 GB BF16 peak, RoboLab build 454152dd v0.2.0, evaluated 2026-07-11)
+model:
+  id: robolab-cosmos3
+  backend: cosmos3
+  # Which entry of `variants:` below to run. CDK (instance list / EBS / timeout) and generate.py both read it:
+  #   edge       Cosmos3-Edge-Policy-DROID (4B) on 1x L40S, 12-task subset x 5 episodes (default)
+  #   nano       Cosmos3-Nano-Policy-DROID (16B, ~40 GB) on g6e.12xlarge: per shard the server gets its own L40S
+  #   edge-full  Edge on g6e.48xlarge (8 shards), the full RoboLab-120 x 10 episodes leaderboard protocol
+  variant: edge
+  display_name: "RoboLab x Cosmos3-Policy-DROID"
+  license: "RoboLab Apache-2.0 code / CC BY-NC-SA 4.0 assets (non-commercial); Isaac Sim NVIDIA license; Cosmos3 OpenMDW-1.1"
+
+  robolab_repo: "https://github.com/NVlabs/RoboLab.git"
+  robolab_commit: "9cce00cadd5dc575fd2b8ea3836f5bdcde574229"   # main 2026-10-27 (pyproject 0.3.2)
+  # RoboLab's Dockerfile does FROM nvcr.io/nvidia/isaac-lab:${ISAACLAB_TAG}; tag@digest pins the 2.2.0 image index.
+  isaac_lab_tag: "2.2.0@sha256:b4d8e96cbfb9a6c40067bec6cc5ee180e36d4c0164b25f7215c5f47e31897b94"
+
+  server_repo: "https://github.com/NVIDIA/cosmos-framework.git"
+  server_commit: "86e1ee52f276c11d6cc66dfd17da2795dfbe937b"     # main 2026-10-30 (framework 1.2.2)
+  # The framework Dockerfile defaults to CUDA 13.0.2 (needs NVIDIA driver >= 580). The project DLAMI ships an
+  # older driver, so build on the CUDA 12.8 base (driver >= 570) and sync the matching cu128-train group.
+  server_base_image: "nvidia/cuda:12.8.1-cudnn-devel-ubuntu24.04@sha256:24c8e3581ea6330038b0d374920721983312627f8adbfcf390bdb4b399d280ed"
+  server_cuda_version: "12.8.1"
+  server_uv_groups: ["cu128-train", "policy-server"]
+  min_driver_major: 570
+
+protocols:
+  # 12 of the 120 RoboLab-120 tasks: 6 simple / 4 moderate / 2 complex, covering the visual (color, semantics,
+  # size), relational (conjunction, counting, spatial) and procedural (affordance, stacking, reorientation)
+  # axes. BananaInBowlTask + RubiksCubeAndBananaTask are the pair RoboLab's README suggests for sanity checks.
+  subset12:
+    label: "RoboLab/subset12"
+    description: "RoboLab-120 subset: 12 tasks x 5 episodes (default instructions)"
+    tasks:
+      - BananaInBowlTask
+      - RubiksCubeAndBananaTask
+      - PickUpGreenObjectTask
+      - SmallerObjectButterInBinTask
+      - MustardInLeftBinTask
+      - BowlStackingLeftOnRightTask
+      - BananasInBinThreeTotalTask
+      - PickUpBluePitcherTask
+      - RubiksCubeBehindBowlTask
+      - Stack3RubiksCubeTask
+      - BlockStackingSpecifiedOrderTask
+      - ReorientAllMugsTask
+    num_envs: 5            # parallel episodes per task (RoboLab --num-envs)
+    num_runs: 1            # sequential runs per task; episodes per task = num_envs x num_runs
+  # The leaderboard protocol: every task under robolab/tasks/benchmark (tasks: [] = all), 10 episodes each.
+  full:
+    label: "RoboLab/RoboLab-120"
+    description: "RoboLab-120 full protocol: 120 tasks x 10 episodes (default instructions)"
+    tasks: []
+    num_envs: 10
+    num_runs: 1
+
+eval:
+  instruction_type: default   # leaderboard headline column ("Default"); vague / specific are the other two
+  video_mode: all             # RoboLab --video-mode: all (sensor + viewport) | viewport | sensor | none
+  seed: 0
+  max_videos_per_task: 10     # cap uploaded mp4s per RoboLab task (results are still counted for all episodes)
+
+variants:
+  edge:
+    hf_repo: "nvidia/Cosmos3-Edge-Policy-DROID"
+    hf_model_revision: "0110e64ca982589f1a3d856cbdd7d465dccb79bc"   # 2026-10-24
+    # cosmos-framework docs/action_policy_droid_server.md (Edge): structured JSON prompts + CFG only in [960, 1001].
+    server_args: ["--format-prompt-as-json", "True", "--guidance-interval", "960", "1001"]
+    protocol: subset12
+    shards: 1
+    gpus_per_shard: 1          # server and sim share one 48 GB L40S (Edge BF16 peak 9.2 GB)
+    eval_timeout_min: 300
+    min_gpu_mib: 44000
+    min_host_mib: 60000
+    leaderboard: "Cosmos3-Edge-Policy 22.9% (275/1200, RoboLab-120 default)"
+    instance:
+      preferred: [g6e.2xlarge, g6e.4xlarge]
+      ebs_gb: 600
+      creationpolicy_timeout: PT540M
+  nano:
+    hf_repo: "nvidia/Cosmos3-Nano-Policy-DROID"
+    hf_model_revision: "24aa5d14a6cbef19ac6930bd2bf67c9c08e56be0"   # 2026-10-24
+    server_args: []            # framework defaults are the released Nano DROID RoboLab settings
+    protocol: subset12
+    shards: 2
+    gpus_per_shard: 2          # ~40 GB server on its own L40S, Isaac Sim on the other
+    eval_timeout_min: 480
+    min_gpu_mib: 44000
+    min_host_mib: 120000
+    leaderboard: "Cosmos3-Nano-Policy 36.8% (441/1200, RoboLab-120 default)"
+    instance:
+      preferred: [g6e.12xlarge, g6e.24xlarge]
+      ebs_gb: 700
+      creationpolicy_timeout: PT660M
+  edge-full:
+    hf_repo: "nvidia/Cosmos3-Edge-Policy-DROID"
+    hf_model_revision: "0110e64ca982589f1a3d856cbdd7d465dccb79bc"
+    server_args: ["--format-prompt-as-json", "True", "--guidance-interval", "960", "1001"]
+    protocol: full
+    shards: 8
+    gpus_per_shard: 1
+    eval_timeout_min: 570
+    min_gpu_mib: 44000
+    min_host_mib: 60000
+    leaderboard: "Cosmos3-Edge-Policy 22.9% (275/1200, RoboLab-120 default)"
+    instance:
+      preferred: [g6e.48xlarge]
+      ebs_gb: 1000
+      creationpolicy_timeout: PT720M   # the WaitCondition maximum (12 h)
+
+# Defaults for tools that read instance.* without resolving model.variant (vlasim doctor regex fallback).
+instance:
+  preferred: [g6e.2xlarge, g6e.4xlarge]
+  ebs_gb: 600
+  creationpolicy_timeout: PT540M
+
+bridge:
+  enabled: false

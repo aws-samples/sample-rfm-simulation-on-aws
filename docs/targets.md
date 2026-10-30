@@ -32,6 +32,8 @@ Each target is one `--vla <target>` value for `python vlasim.py deploy` / `destr
 | `rldx-bridge` | — | RLDX-1 (RLWRLD MSAT / Qwen3-VL-8B, eager)[¹](#note-1-rldx-1-weights-license) [¹³](#note-13-simplerenv-bridge-gr00t-bridge-rldx-bridge) | SimplerEnv Bridge (visual matching), same 4 tasks | WidowX 250 (`OXE_BRIDGE_ORIG`) | `RLDX-Bridge-Demo` |
 | `rldx-gr1` | — | RLDX-1 (RLWRLD MSAT / Qwen3-VL-8B, eager)[¹](#note-1-rldx-1-weights-license) [³](#note-3-rldx-gr1) | RoboCasa GR-1 Tabletop (24-task) | GR-1 humanoid (bimanual + waist) | `RLDX-GR1-Demo` |
 | `openarm-isaac` | — | π0.5 (LeRobot pi05 `folding_latest`, 16-DOF bimanual), pipe-proof only[¹¹](#note-11-openarm-isaac-experimental) | Isaac Lab bimanual Reach (empty scene) | OpenArm (bimanual, 2 × 7-DOF + grippers) | `OpenArm-Isaac-Demo` |
+| `robolab-cosmos3` | — | NVIDIA Cosmos3-Edge-Policy-DROID (4B world action model; Cosmos3-Nano-Policy-DROID 16B via `model.variant: nano`), cosmos-framework policy server[¹³](#note-13-robolab) | NVIDIA RoboLab (Isaac Lab 2.2 / Isaac Sim 5.0): 12-task subset of RoboLab-120 (default) or the full 120 tasks | DROID Franka Panda + Robotiq 2F-85 | `RoboLab-Cosmos3-Demo` |
+| `robolab-pi05` | — | π0.5-DROID (`pi05_droid_jointpos`, openpi policy server)[¹³](#note-13-robolab) | NVIDIA RoboLab, same protocol as `robolab-cosmos3` | DROID Franka Panda + Robotiq 2F-85 | `RoboLab-Pi05-Demo` |
 
 ## Notes
 
@@ -149,6 +151,16 @@ How it works:
 - **Comparability.** A dimension row and the LIBERO baseline differ only in the scene when the checkpoint, eval seed and step cap are the same, which is what the switch keeps. `LIBERO-Plus/all` pools the dimensions with equal weight; the paper's "Total" weights by the number of variants per dimension. The LeRobot card of `lerobot/smolvla_libero_plus` reports 69.0% on task ids 0-9 of four suites; those ids are all Background Textures variants, so it is not a seven-dimension number.
 - **License.** The fork's code repository has no LICENSE file and GitHub reports no license: treat it as research / evaluation use. The asset pack is MIT on its Hugging Face dataset card. Both are downloaded at run time; nothing from LIBERO-Plus is vendored in this repository.
 
+### Note 13: RoboLab
+
+`robolab-cosmos3` and `robolab-pi05` run [NVIDIA RoboLab](https://github.com/NVlabs/RoboLab) (pinned `@9cce00ca`, 2026-10-27) the way its README describes it: a **policy server** and a **headless Isaac Sim client** talking the OpenPI msgpack WebSocket protocol, here both on one instance. One shared template, `templates/robolab-userdata.sh.j2`, does, in order: disable GPU ECC and reboot once (Isaac Sim on L40S, same as `openarm-isaac`); `git lfs pull` RoboLab's ~6.2 GB of assets; build RoboLab's own image with `docker/build_docker.sh` on `nvcr.io/nvidia/isaac-lab:2.2.0` pinned by digest (Isaac Lab 2.2.0 / Isaac Sim 5.0.0, the stack every leaderboard row except one was measured on); build the policy server image; download the checkpoint once; start one server per shard (port 8000+i) and run `policies/<backend>/run.py --headless --instruction-type default` per shard over a round-robin slice of the task list. Shards run in parallel, one per GPU (`gpus_per_shard: 2` gives the server its own GPU). `assets/robolab/robolab_report.py` merges the shards' `episode_results.jsonl` into `task-0/summary.txt` (suite `RoboLab/subset12` or `RoboLab/RoboLab-120` in `vlasim results`), `task-0/robolab_results.json` (per task, per difficulty, Wilson intervals, subtask score) and the gallery videos (`<task>_run<r>_env<e>_success=<bool>[_viewport].mp4`, at most `max_videos_per_task` per task and camera).
+
+- **Policy servers.** `robolab-cosmos3`: [NVIDIA/cosmos-framework](https://github.com/NVIDIA/cosmos-framework) `@86e1ee52`, `python -m cosmos_framework.scripts.action_policy_server_robolab`, image from the framework's Dockerfile on the **CUDA 12.8** base (`cu128-train` + `policy-server` groups; the framework default CUDA 13.0 needs driver ≥ 580, newer than the project DLAMI), apex skipped. Edge is served with `--format-prompt-as-json True --guidance-interval 960 1001` (framework docs); Nano with the defaults. Checkpoints: `nvidia/Cosmos3-Edge-Policy-DROID@0110e64c` (9.2 GB) / `nvidia/Cosmos3-Nano-Policy-DROID@24aa5d14` (33 GB), public, not gated. `robolab-pi05`: the [xuningy/openpi](https://github.com/xuningy/openpi) fork RoboLab links to, `@aa642056` (the same commit RoboLab's image pins for `openpi-client`), `serve_policy.py policy:checkpoint --policy.config=pi05_droid_jointpos --policy.dir=gs://openpi-assets-simeval/pi05_droid_jointpos` (public GCS, 12.4 GB) with `XLA_PYTHON_CLIENT_MEM_FRACTION=0.5`.
+- **Variants** (`model.variant` in the model yaml; the CDK stack reads the instance list, EBS and timeout of the selected variant): `robolab-cosmos3` = `edge` (default; 1 × L40S, 12 tasks × 5 episodes), `nano` (`g6e.12xlarge`, 2 shards of sim GPU + server GPU), `edge-full` (`g6e.48xlarge`, 8 shards, RoboLab-120 × 10 = the leaderboard protocol); `robolab-pi05` = `subset` (default) and `full` (`g6e.48xlarge`, 8 shards).
+- **Subset.** 12 of the 120 tasks, 6 simple / 4 moderate / 2 complex, covering the visual, relational and procedural axes, × 5 episodes (`--num-envs 5`), default instructions: `BananaInBowlTask`, `RubiksCubeAndBananaTask` (the README's sanity pair), `PickUpGreenObjectTask`, `SmallerObjectButterInBinTask`, `MustardInLeftBinTask`, `BowlStackingLeftOnRightTask`, `BananasInBinThreeTotalTask`, `PickUpBluePitcherTask`, `RubiksCubeBehindBowlTask`, `Stack3RubiksCubeTask`, `BlockStackingSpecifiedOrderTask`, `ReorientAllMugsTask`. A subset rate is **not** a RoboLab-120 number; compare it only with another run of the same subset.
+- **Licenses.** RoboLab code Apache-2.0, but most bundled scenes, objects and robot models are **CC BY-NC-SA 4.0 (non-commercial)** (RoboLab `THIRD_PARTY_NOTICES.md`); Isaac Sim runs under NVIDIA's license (the container EULA is accepted with `ACCEPT_EULA=Y`); Cosmos3 weights and cosmos-framework are OpenMDW-1.1 (commercial use allowed); openpi is Apache-2.0. See [licenses.md](licenses.md).
+- **Status.** Rendered, linted and synthesized; **not run on AWS yet**. Leaderboard references are in [results.md](results.md#expected-results).
+
 ## Post-run judge (Flora-Rewarder)
 
 `flora-judge` is **not a `--vla` target**: it scores the rollout videos of a run that already
@@ -248,6 +260,8 @@ does not have to exist any more (its bucket is retained); the gallery score badg
 | `rldx-kitchen` | `g6.2xlarge` → `g5.2xlarge` → `g6.xlarge` → `g5.xlarge` | 220 |
 | `openarm-lift-act` | `g6.12xlarge` → `g5.12xlarge` → `g6.24xlarge` → `g5.24xlarge` → `g6e.12xlarge` → `g6e.24xlarge` | 300 |
 | `openarm-isaac` | `g6.12xlarge` → `g5.12xlarge` → `g6.2xlarge` → `g5.2xlarge` | 500 |
+| `robolab-cosmos3` | `edge` (default): `g6e.2xlarge` → `g6e.4xlarge`; `nano`: `g6e.12xlarge` → `g6e.24xlarge`; `edge-full`: `g6e.48xlarge` | 600 / 700 / 1000 |
+| `robolab-pi05` | `subset` (default): `g6e.2xlarge` → `g6e.4xlarge`; `full`: `g6e.48xlarge` | 500 / 900 |
 | `flora-judge` ([post-run judge](#post-run-judge-flora-rewarder)) | `g7e.2xlarge` → `g7e.4xlarge` → `g6e.12xlarge` → `p5.4xlarge` | 250 |
 
 ## Deploy commands
@@ -328,6 +342,11 @@ python vlasim.py deploy --vla openarm-lift-act --email you@example.com
 # OpenArm bimanual π0.5 (folding_latest) in Isaac Lab — experimental pipe proof, success ~0 by design (note 11)
 python vlasim.py deploy --vla openarm-isaac --email you@example.com
 
+# NVIDIA RoboLab (Isaac Lab, DROID Franka; assets CC BY-NC-SA 4.0) — 12-task subset x 5 episodes (~4-6 h, note 13)
+# model.variant in models/robolab-*.yaml: nano (g6e.12xlarge) or the full RoboLab-120 protocol (g6e.48xlarge, up to 12 h)
+python vlasim.py deploy --vla robolab-cosmos3 --email you@example.com   # Cosmos3-Edge-Policy-DROID
+python vlasim.py deploy --vla robolab-pi05 --email you@example.com      # pi0.5-DROID
+
 # Post-run judge: score a finished run's videos with NVIDIA Flora-Rewarder (NON-COMMERCIAL license, ~45-90 min)
 python vlasim.py judge --vla smolvla --email you@example.com
 ```
@@ -382,6 +401,8 @@ python vlasim.py destroy --vla rldx-gr1
 python vlasim.py destroy --vla rldx-kitchen
 python vlasim.py destroy --vla openarm-lift-act
 python vlasim.py destroy --vla openarm-isaac
+python vlasim.py destroy --vla robolab-cosmos3
+python vlasim.py destroy --vla robolab-pi05
 python vlasim.py destroy --judge --vla smolvla   # post-run judge stack of smolvla (judge.json stays with the run)
 ```
 

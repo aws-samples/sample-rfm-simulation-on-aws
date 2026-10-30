@@ -307,6 +307,12 @@ DFEOF
 {% else %}
 # openpi serve_policy.Dockerfile (CUDA 12.2 runtime, uv sync --frozen). Same UV_HTTP_TIMEOUT bump as the pi target.
 sed -i 's/uv sync --frozen/UV_HTTP_TIMEOUT=300 uv sync --frozen/g' "${SERVER_DIR}/scripts/docker/serve_policy.Dockerfile"
+# The fork's models_pytorch/gemma_pytorch.py does `import pytest` at import time, but pytest is a dev
+# dependency and the Dockerfile syncs --no-dev: the first robolab-pi05 GPU run died in serve_policy.py with
+# ModuleNotFoundError: pytest. Add it (version = the fork's uv.lock) before the CMD line.
+sed -i '/^CMD /i RUN uv pip install --python /.venv/bin/python pytest==8.3.5' "${SERVER_DIR}/scripts/docker/serve_policy.Dockerfile"
+grep -q '^RUN uv pip install --python /.venv/bin/python pytest==8.3.5' "${SERVER_DIR}/scripts/docker/serve_policy.Dockerfile" \
+    || die "openpi Dockerfile: pytest layer not inserted"
 ( cd "$SERVER_DIR" && DOCKER_BUILDKIT=1 docker build --network=host -t "$SERVER_IMAGE" \
     -f scripts/docker/serve_policy.Dockerfile . ) > /tmp/{{ vla }}_server_build.log 2>&1 \
     || die "openpi server image build failed (see /tmp/{{ vla }}_server_build.log)"

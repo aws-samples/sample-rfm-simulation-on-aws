@@ -40,7 +40,7 @@ sample-rfm-simulation-on-aws/
 ├── generate.py               # Renders assets/userdata/{vla}.sh from templates/ + models/
 ├── simulator-config.yaml     # Shared deployment settings
 ├── requirements.txt          # boto3[crt], pyyaml, jinja2
-├── models/                   # One config per --vla target (21) + the post-run judge (flora-judge.yaml)
+├── models/                   # One config per --vla target (23) + the post-run judge (flora-judge.yaml)
 │   ├── gr00t.yaml            # GR00T N1.7 on LIBERO-10
 │   ├── gr00t-gr1.yaml        # GR00T N1.6 + GR1 humanoid (RoboCasa)
 │   ├── gr00t-g1.yaml         # GR00T N1.6 + Unitree G1 whole-body loco-manip (optional N1.7 adapter)
@@ -62,8 +62,10 @@ sample-rfm-simulation-on-aws/
 │   ├── rldx-kitchen.yaml     # RLDX-1 on RoboCasa Kitchen
 │   ├── openarm-lift-act.yaml # OpenArm Lift-Cube scripted ACT collection (Isaac Lab)
 │   ├── openarm-isaac.yaml    # OpenArm bimanual π0.5 pipe proof (Isaac Lab, experimental)
+│   ├── robolab-cosmos3.yaml  # NVIDIA RoboLab x Cosmos3-Policy-DROID (variants: edge, nano, edge-full)
+│   ├── robolab-pi05.yaml     # NVIDIA RoboLab x π0.5-DROID (variants: subset, full)
 │   └── flora-judge.yaml      # post-run judge: NVIDIA Flora-Rewarder outcome score (not a --vla target)
-├── templates/                # Jinja2 UserData templates (16)
+├── templates/                # Jinja2 UserData templates (17)
 │   ├── gr00t-userdata.sh.j2
 │   ├── gr00t-gr1-userdata.sh.j2
 │   ├── gr00t-g1-userdata.sh.j2          # GR00T-WholeBodyControl loco-manip, optional 2-venv N1.7 server
@@ -79,6 +81,7 @@ sample-rfm-simulation-on-aws/
 │   ├── rldx-userdata.sh.j2              # shared: rldx, rldx-simpler, rldx-gr1, rldx-kitchen
 │   ├── openarm-lift-act-userdata.sh.j2  # Isaac Lab container, scripted ACT collection
 │   ├── openarm-isaac-userdata.sh.j2     # Isaac Lab container, bimanual π0.5 eval
+│   ├── robolab-userdata.sh.j2           # shared: robolab-cosmos3, robolab-pi05 (policy server + Isaac Sim per GPU)
 │   ├── flora-judge-userdata.sh.j2       # post-run judge: vLLM + NVIDIA batch_utils terminal reward
 │   └── _gallery-sns.sh.j2               # included: "Video history" block of the SNS message
 ├── assets/
@@ -92,6 +95,7 @@ sample-rfm-simulation-on-aws/
 │   ├── openarm-lift-act/     # Lift-Cube env overlay, scripted collector, HDF5 → LeRobot
 │   ├── openarm-isaac/        # bimanual env overlay + LeRobot rollout driver
 │   ├── real2sim/             # capture prep, splat -> metres, segmentation, grasp replay, report
+│   ├── robolab/              # robolab_report.py: shard outputs -> summary.txt, robolab_results.json, videos
 │   └── flora-judge/          # flora_judge.py: videos -> episodes, scores -> judge.json (stdlib)
 ├── cdk/
 │   ├── bin/app.ts            # CDK app: one stack per --vla target

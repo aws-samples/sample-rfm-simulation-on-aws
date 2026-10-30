@@ -18,11 +18,13 @@ Prices are **us-east-1 Linux On-Demand, checked 2026-10-22** with the AWS Price 
 | `g6e.2xlarge` | 1 × L40S 48 GB | 8 | 64 GiB | 2.24208 |
 | `g6e.4xlarge` | 1 × L40S 48 GB | 16 | 128 GiB | 3.00424 |
 | `g6e.12xlarge` | 4 × L40S 48 GB | 48 | 384 GiB | 10.49264 |
+| `g6e.24xlarge` | 4 × L40S 48 GB | 96 | 768 GiB | 15.06559 |
+| `g6e.48xlarge` | 8 × L40S 48 GB | 192 | 1536 GiB | 30.13118 |
 | `g7e.2xlarge` | 1 × RTX PRO 6000 Blackwell 96 GB | 8 | 64 GiB | 3.36312 |
 | `g7e.4xlarge` | 1 × RTX PRO 6000 Blackwell 96 GB | 16 | 128 GiB | 3.99816 |
 | `p5.4xlarge` | 1 × H100 80 GB | 16 | 256 GiB | 6.88 |
 
-The `g6e.12xlarge`, `g7e` and `p5.4xlarge` rows were checked on 2026-10-28 (same API); they are used by the post-run judge only. In `ap-northeast-2`, `g7e.2xlarge` is US$4.13478 per hour.
+The `g6e.12xlarge`, `g7e` and `p5.4xlarge` rows were checked on 2026-10-28 (same API); they are used by the post-run judge and the RoboLab `nano` variant. `g6e.24xlarge` / `g6e.48xlarge` were checked on 2026-10-30 (RoboLab variants). In `ap-northeast-2`, `g7e.2xlarge` is US$4.13478, `g6e.2xlarge` US$2.75652, `g6e.12xlarge` US$12.90014 and `g6e.48xlarge` US$37.04468 per hour.
 
 ## Per-target estimate
 
@@ -52,6 +54,10 @@ Instance = the first entry of `instance.preferred` (the AZ selector may fall bac
 | `rldx-kitchen` | `g6.2xlarge` | ~25-35 min | ~0.41-0.57 |
 | `openarm-lift-act` | `g6.12xlarge` | not recorded | 4.6016 per hour |
 | `openarm-isaac` | `g6.12xlarge` | not recorded (creation timeout 240 min) | 4.6016 per hour |
+| `robolab-cosmos3` (`edge`, default) | `g6e.2xlarge` | estimate ~4-6 h (not run yet: ~1.5 h setup + 12 tasks × 5 episodes) | ~9-13 |
+| `robolab-cosmos3` (`nano`) | `g6e.12xlarge` | estimate ~5-8 h (2 shards; Nano ~4 s per inference call on the leaderboard) | ~52-84 |
+| `robolab-cosmos3` (`edge-full`) / `robolab-pi05` (`full`) | `g6e.48xlarge` | estimate ~6-9 h (8 shards over RoboLab-120 × 10; RoboLab quotes ~40 GPU hours for 120 tasks) | ~180-270 |
+| `robolab-pi05` (`subset`, default) | `g6e.2xlarge` | estimate ~4-5.5 h (not run yet) | ~9-12 |
 | `flora-judge` (post-run judge, `vlasim judge`) | `g7e.2xlarge` (measured on the `g6e.12xlarge` fallback, US$12.90/h in `ap-northeast-2`) | 13-15 min instance time measured for 10-47 episodes (+ ~10 min stack create/delete) | ~0.85-1.10 on `g7e.2xlarge`; ~2.80-3.25 measured on `g6e.12xlarge` |
 
 ## Not included

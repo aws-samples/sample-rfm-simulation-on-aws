@@ -38,6 +38,7 @@ Instance = the first entry of `instance.preferred` (the AZ selector may fall bac
 | `openvla-oft --libero-suite spatial` | `g6.xlarge` | ~1.5 h | ~1.21 |
 | `lap` | `g6.xlarge` | ~1.5-2.5 h | ~1.21-2.01 |
 | `molmoact2` | `g6e.2xlarge` | ~40-60 min | ~1.49-2.24 (validated in us-west-2) |
+| `gr00t-bridge` | `g6.2xlarge` | ~90-150 min (estimate, not yet run) | ~1.47-2.44 |
 | `xvla` | `g6.2xlarge` | ~15-30 min | ~0.24-0.49 |
 | `smolvla` | `g6.xlarge` | ~15-30 min | ~0.20-0.40 |
 | `lingbot-va` | `g6e.2xlarge` | ~2.5 h (6 episodes) | ~5.61 |
@@ -48,10 +49,13 @@ Instance = the first entry of `instance.preferred` (the AZ selector may fall bac
 | `real2sim` | `g5.2xlarge` | ~12 min measured (2026-10-29, `ap-northeast-2`, HOPE-Video scene 0: instance boot to done 11 min 53 s, of which packages, both venvs and the HOPE-Video download ~5 min, splatfacto training 272 s; stack create / delete not included) | ~0.24; ~0.30 in `ap-northeast-2` (US$1.4903 per hour there, Price List API 2026-10-29) |
 | `rldx` | `g6.xlarge` | ~80-120 min | ~1.07-1.61 |
 | `rldx-simpler` | `g6.2xlarge` | ~35-45 min | ~0.57-0.73 |
+| `rldx-bridge` | `g6.2xlarge` | ~100-160 min (estimate, not yet run) | ~1.63-2.61 |
 | `rldx-gr1` | `g6.2xlarge` | ~25-35 min | ~0.41-0.57 |
 | `rldx-kitchen` | `g6.2xlarge` | ~25-35 min | ~0.41-0.57 |
 | `openarm-lift-act` | `g6.12xlarge` | not recorded | 4.6016 per hour |
 | `openarm-isaac` | `g6.12xlarge` | not recorded (creation timeout 240 min) | 4.6016 per hour |
+| `smolvla --libero-variant plus` (70 episodes) | `g6.xlarge` | ~70-90 min (estimate, not yet measured) | ~0.94-1.21, plus ~0.29 NAT processing for the 6.4 GB asset pack |
+| `openvla-oft --libero-suite spatial --libero-variant plus` (70 episodes) | `g6.xlarge` | ~2-2.5 h (estimate, not yet measured) | ~1.61-2.01, plus ~0.29 NAT processing for the 6.4 GB asset pack |
 | `flora-judge` (post-run judge, `vlasim judge`) | `g7e.2xlarge` (measured on the `g6e.12xlarge` fallback, US$12.90/h in `ap-northeast-2`) | 13-15 min instance time measured for 10-47 episodes (+ ~10 min stack create/delete) | ~0.85-1.10 on `g7e.2xlarge`; ~2.80-3.25 measured on `g6e.12xlarge` |
 
 ## Not included

@@ -31,7 +31,8 @@ Subcommands
            per (stack, run, suite, condition): k/n successes, rate, 95% Wilson
            interval, and the stack fingerprint from summary.txt. Read-only.
            Forwards all flags to results.py (--vla, --region, --since,
-           --all-runs, --csv, --json). --matrix prints a target x benchmark
+           --all-runs, --csv, --json, --robustness = LIBERO-Plus drop per
+           perturbation dimension vs the LIBERO baseline). --matrix prints a target x benchmark
            leaderboard with estimated cost and latency (leaderboard.py).
 
   judge    Score the rollout videos of a finished run with a post-run judge
@@ -352,6 +353,7 @@ def run_doctor(vla=None, region=None, email=None, quiet_header=False, bridge=Fal
 HF_TOKEN_PARAM = "/vla-simulator/hf-token"
 HF_TOKEN_TARGETS = {
     "gr00t": "nvidia/Cosmos-Reason2-2B",
+    "gr00t-bridge": "nvidia/Cosmos-Reason2-2B",
     "gr00t-g1": "the N1.7 server.hf_repo in models/gr00t-g1.yaml",
     "openarm-isaac": "google/paligemma-3b-pt-224",
     "cosmos-policy": "nvidia/Cosmos-Predict2-2B-Video2World",
@@ -704,7 +706,7 @@ Usage:
   python vlasim.py init    [--email A] [--region R] [--bootstrap] [--skip-install]
   python vlasim.py deploy  --vla TARGET [--email A] [--region R] [--skip-doctor] [deploy.py flags...]
   python vlasim.py destroy --vla TARGET [destroy.py flags...]
-  python vlasim.py results [--vla PREFIX] [--region R] [--since RUN_ID] [--all-runs] [--csv F] [--json F]
+  python vlasim.py results [--vla PREFIX] [--region R] [--since RUN_ID] [--all-runs] [--robustness] [--csv F] [--json F]
   python vlasim.py results --matrix [--all-conditions] [--write-docs] [--csv F] [--json F]
   python vlasim.py gallery [--email A] [--region R] [--reset-password]
   python vlasim.py judge   --vla TARGET [--run RUN_ID] [--region R] [--skip-doctor]
@@ -715,7 +717,7 @@ Three-step quick start:
   python vlasim.py deploy --vla gr00t-g1          # preflight + deploy
 
 `deploy` and `destroy` forward all flags to deploy.py / destroy.py unchanged
-(e.g. --bridge, --collect, --libero-suite, --no-gallery, --keep-data, --delete-all).
+(e.g. --bridge, --collect, --libero-suite, --libero-variant plus, --no-gallery, --keep-data, --delete-all).
 Run `deploy --help` for the full list.
 """
 

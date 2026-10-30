@@ -29,4 +29,3 @@ export function teardown(): void {
   for (const p of JSON.parse(fs.readFileSync(LEDGER, 'utf8')) as string[]) fs.rmSync(p, { force: true });
   fs.rmSync(LEDGER, { force: true });
 }
-

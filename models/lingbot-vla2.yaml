@@ -17,7 +17,7 @@ model:
   lerobot_repo: "https://github.com/huggingface/lerobot.git"
   lerobot_commit: "552777b7c384e8e71a02303da39583f9a2653760"     # main 2026-10-30 (lingbot_vla_v2 since 8cd02c15)
   python_version: "3.12"
-  uv_extras: [lingbot_vla_v2]
+  uv_extras: [lingbot_vla_v2, dataset, evaluation]   # dataset: pyarrow/datasets (lerobot-eval imports them); evaluation: av
   policy_module: lingbot_vla_v2
   policy_args: []
   env_args: []

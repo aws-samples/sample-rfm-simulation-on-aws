@@ -17,7 +17,7 @@ model:
   lerobot_repo: "https://github.com/huggingface/lerobot.git"
   lerobot_commit: "552777b7c384e8e71a02303da39583f9a2653760"     # main 2026-10-30 (RoboTwin env since 0f1c9b08)
   python_version: "3.12"
-  uv_extras: [smolvla]
+  uv_extras: [smolvla, dataset, evaluation]   # dataset: pyarrow/datasets (lerobot-eval imports them); evaluation: av
   policy_module: smolvla
   policy_args: []
   env_args: []

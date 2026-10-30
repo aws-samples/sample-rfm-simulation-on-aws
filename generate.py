@@ -35,6 +35,7 @@ from pathlib import Path
 import yaml
 from jinja2 import Environment, FileSystemLoader
 
+import libero_plus
 from targets import JUDGE_TARGETS, VLA_TARGETS
 
 BASE_DIR = Path(__file__).parent
@@ -72,6 +73,60 @@ def oft_stack_name(suite: str) -> str:
     if s == OFT_DEFAULT_SUITE:
         return "OpenVLA-OFT-Demo"
     return f"OpenVLA-OFT-{s.capitalize()}-Demo"
+
+
+# --libero-variant plus: targets whose template carries the LIBERO-Plus switch (each also needs a
+# `libero_plus:` block in models/<id>.yaml). See libero_plus.py and docs/targets.md.
+LIBERO_PLUS_TEMPLATE_TARGETS = ("openvla-oft", "xvla", "smolvla", "lingbot-va", "fastwam")
+
+
+def libero_plus_supported(vla: str, config: dict) -> bool:
+    return vla in LIBERO_PLUS_TEMPLATE_TARGETS and bool(config.get("libero_plus"))
+
+
+def _libero_plus_ctx(config: dict, vla: str, perturb, n, suite=None) -> tuple:
+    """(template context, task entries) for a --libero-variant plus render. Exits on a bad setting."""
+    if not libero_plus_supported(vla, config):
+        ok = [v for v in LIBERO_PLUS_TEMPLATE_TARGETS if (BASE_DIR / "models" / f"{v}.yaml").exists()
+              and (yaml.safe_load((BASE_DIR / "models" / f"{v}.yaml").read_text()) or {}).get("libero_plus")]
+        print(f"[error] --libero-variant plus is not available for --vla {vla} "
+              f"(supported: {', '.join(ok)}; needs a libero_plus block in models/<vla>.yaml "
+              f"and a template with the switch).", file=sys.stderr)
+        sys.exit(1)
+    try:
+        cfg, tasks = libero_plus.plan(config["libero_plus"], perturb=perturb, n=n, suite=suite)
+    except ValueError as e:
+        print(f"[error] models/{vla}.yaml libero_plus: {e}", file=sys.stderr)
+        sys.exit(1)
+    pins = str(cfg.get("pip_pins", "")).split()
+    bad = [x for x in pins if not _PIN_RE.match(x)]
+    if bad or not pins:
+        print(f"[error] models/{vla}.yaml: libero_plus.pip_pins must be name==version entries: {bad or pins}",
+              file=sys.stderr)
+        sys.exit(1)
+    for key in ("repo_commit", "assets_revision"):
+        if not re.fullmatch(r"[0-9a-f]{40}", str(cfg[key])):
+            print(f"[error] libero_plus.{key} must be a 40-hex commit", file=sys.stderr)
+            sys.exit(1)
+    if not re.fullmatch(r"[0-9a-f]{64}", str(cfg["assets_sha256"])):
+        print("[error] libero_plus.assets_sha256 must be 64 hex chars", file=sys.stderr)
+        sys.exit(1)
+    asset_dir = BASE_DIR / "assets" / "libero-plus"
+    ctx = {
+        **{k: _shell_safe(cfg[k], f"libero_plus.{k}") for k in (
+            "repo_url", "repo_commit", "assets_repo", "assets_revision", "assets_file", "assets_sha256", "suite")},
+        "assets_gb": f"{int(cfg['assets_bytes']) / 1e9:.1f}",
+        "pip_pins": " ".join(pins),
+        "perturb": cfg["perturb"],
+        "variants_per_category": cfg["variants_per_category"],
+        "episodes_per_variant": cfg["episodes_per_variant"],
+        "seed": cfg["seed"],
+        "hf_repo": _shell_safe(str(cfg.get("hf_repo", "") or ""), "libero_plus.hf_repo"),
+        "hf_model_revision": _shell_safe(str(cfg.get("hf_model_revision", "") or ""), "libero_plus.hf_model_revision"),
+        "select_py": (asset_dir / "select_variants.py").read_text(),
+        "oft_patch_py": (asset_dir / "oft_task_ids_patch.py").read_text(),
+    }
+    return ctx, tasks
 
 
 def _load_merged_config(simulator_config_path: Path, vla: str) -> dict:
@@ -219,7 +274,8 @@ def generate_gr00t_g1(config: dict, resolved_grpc: str, resolved_vpc: str, dry_r
     return env.get_template("gr00t-g1-userdata.sh.j2").render(**ctx)
 
 
-def generate_openvla_oft(config: dict, libero_suite: str, dry_run: bool) -> str:
+def generate_openvla_oft(config: dict, libero_suite: str, dry_run: bool, plus: tuple = None) -> str:
+    """plus = (perturb, n) for --libero-variant plus (the sweep runs on the selected suite), else None."""
     suite = normalise_libero_suite(libero_suite)
     model = config.get("model", {})
     suites = model.get("suites", {})
@@ -238,6 +294,15 @@ def generate_openvla_oft(config: dict, libero_suite: str, dry_run: bool) -> str:
     if not tasks:
         print(f"[error] models/openvla-oft.yaml has no tasks for suite '{suite}'.", file=sys.stderr)
         sys.exit(1)
+
+    lp_ctx = None
+    if plus is not None:
+        lp_ctx, lp_tasks = _libero_plus_ctx(config, "openvla-oft", *plus, suite=suite_cfg["task_suite_name"])
+        if lp_ctx["hf_repo"]:
+            print("[error] models/openvla-oft.yaml: libero_plus.hf_repo is not supported (the checkpoint "
+                  "follows --libero-suite)", file=sys.stderr)
+            sys.exit(1)
+        tasks = [dict(t, num_trials_per_task=lp_ctx["episodes_per_variant"]) for t in lp_tasks]
 
     tasks_json = _tasks_json_for_bash(tasks)
     deployment = config.get("deployment", {})
@@ -259,6 +324,7 @@ def generate_openvla_oft(config: dict, libero_suite: str, dry_run: bool) -> str:
         # FIX 15 — tensorflow-metadata pin (its declared protobuf floor understates what its
         # generated code needs, so the resolver can pick a version that cannot import here).
         "tfmd_version": model.get("tfmd_version", ""),
+        "libero_plus": lp_ctx,
     }
 
     env = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)), keep_trailing_newline=True)  # nosec B701 - shell script template
@@ -543,7 +609,7 @@ def generate_molmoact2(config: dict, dry_run: bool) -> str:
 LEROBOT_LIBERO_TARGETS = ("xvla", "smolvla", "lingbot-va", "fastwam")
 
 
-def generate_lerobot_libero(config: dict, dry_run: bool, vla: str) -> str:
+def generate_lerobot_libero(config: dict, dry_run: bool, vla: str, plus: tuple = None) -> str:
     """Upstream LeRobot policy × LIBERO eval, in-process (shared lerobot-libero-userdata.sh.j2).
 
     LeRobot is installed from source at a pinned commit (`uv sync --locked --extra <policy> --extra
@@ -561,6 +627,15 @@ def generate_lerobot_libero(config: dict, dry_run: bool, vla: str) -> str:
         if not model.get(key):
             print(f"[error] models/{vla}.yaml: model.{key} is required", file=sys.stderr)
             sys.exit(1)
+    lp_ctx = None
+    if plus is not None:
+        # --libero-variant plus: one task entry per perturbation dimension; the variant ids are picked on
+        # the instance. The eval seed of the first LIBERO task entry is kept so only the scene changes.
+        lp_ctx, lp_tasks = _libero_plus_ctx(config, vla, *plus)
+        seed = tasks[0].get("seed", 1000)
+        tasks = [dict(t, n_episodes=lp_ctx["episodes_per_variant"], seed=seed) for t in lp_tasks]
+        if lp_ctx["hf_repo"]:
+            model = {**model, "hf_repo": lp_ctx["hf_repo"], "hf_model_revision": lp_ctx["hf_model_revision"]}
 
     ctx = {
         "vla": vla,
@@ -580,6 +655,7 @@ def generate_lerobot_libero(config: dict, dry_run: bool, vla: str) -> str:
         "env_args": list(model.get("env_args") or []),
         "min_gpu_mib": int(instance.get("min_gpu_mib", 20000)),
         "min_host_mib": int(instance.get("min_host_mib", 15000)),
+        "libero_plus": lp_ctx,
     }
     for a in ctx["policy_args"] + ctx["env_args"]:
         if "'" in a:
@@ -888,6 +964,15 @@ def main():
         "--libero-suite", default=OFT_DEFAULT_SUITE, choices=list(OFT_LIBERO_SUITES),
         help="openvla-oft: LIBERO suite (default: 10 = LIBERO-Long; `long` is alias for `10`)",
     )
+    parser.add_argument("--libero-variant", default="libero", choices=list(libero_plus.VARIANTS),
+                        help="LIBERO targets: `plus` swaps LIBERO for the LIBERO-Plus robustness fork and runs one "
+                             "eval per perturbation dimension (models/<vla>.yaml libero_plus; default: libero)")
+    parser.add_argument("--perturb", default=None, metavar="LIST",
+                        help=f"--libero-variant plus: comma-separated dimensions ({','.join(libero_plus.CATEGORIES)}) "
+                             "or all (default: libero_plus.perturb in the model yaml)")
+    parser.add_argument("--perturb-n", type=int, default=None, metavar="N",
+                        help="--libero-variant plus: variants per dimension, 1 episode each; 0 = every variant "
+                             "(default: libero_plus.variants_per_category)")
     parser.add_argument("--collect", action="store_true",
                         help="gr00t-g1: trajectory COLLECTION mode (success-only obs/action HDF5 for "
                              "N1.7 G1 adapter FT) instead of the default rollout/video mode.")
@@ -900,6 +985,16 @@ def main():
 
     name = args.judge_target or args.vla
     config = _load_merged_config(config_path, name)
+    plus = None
+    if args.libero_variant == "plus":
+        if args.judge_target:
+            print("[error] --libero-variant applies to --vla targets, not judges.", file=sys.stderr)
+            sys.exit(1)
+        plus = (args.perturb, args.perturb_n)
+        _libero_plus_ctx(config, args.vla, *plus)  # fail fast (unsupported target / bad settings)
+    elif args.perturb is not None or args.perturb_n is not None:
+        print("[error] --perturb / --perturb-n need --libero-variant plus.", file=sys.stderr)
+        sys.exit(1)
     print(f"VLA: {name}")
     print(f"Config: {config_path}")
     print(f"Model:  {BASE_DIR / 'models' / (name + '.yaml')}")
@@ -914,7 +1009,7 @@ def main():
         rendered = generate_gr00t_g1(config, args.resolved_grpc, args.resolved_vpc, args.dry_run,
                                      collect=args.collect)
     elif args.vla == "openvla-oft":
-        rendered = generate_openvla_oft(config, args.libero_suite, args.dry_run)
+        rendered = generate_openvla_oft(config, args.libero_suite, args.dry_run, plus=plus)
     elif args.vla == "lap":
         rendered = generate_lap(config, args.resolved_nlb, args.dry_run)
     elif args.vla in ("rldx", "rldx-simpler", "rldx-gr1", "rldx-kitchen"):
@@ -926,7 +1021,7 @@ def main():
     elif args.vla == "molmoact2":
         rendered = generate_molmoact2(config, args.dry_run)
     elif args.vla in LEROBOT_LIBERO_TARGETS:
-        rendered = generate_lerobot_libero(config, args.dry_run, vla=args.vla)
+        rendered = generate_lerobot_libero(config, args.dry_run, vla=args.vla, plus=plus)
     elif args.vla == "cosmos-policy":
         rendered = generate_cosmos_policy(config, args.dry_run)
     elif args.vla == "vla-adapter":

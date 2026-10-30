@@ -11,6 +11,8 @@ k/n successes and a 95% Wilson interval, so runs under different knobs
     python vlasim.py results --all-runs             # every run, not just the latest
     python vlasim.py results --vla openvla-oft --since 2026-10-19
     python vlasim.py results --csv out.csv --json out.json
+    python vlasim.py results --matrix               # target x benchmark matrix with cost and latency
+    python vlasim.py results --write-docs           # refresh the leaderboard block in docs/results.md
 
 Episode count, in order of preference: n_episodes (+ n_success) in summary.txt;
 otherwise the per-episode videos (success=True/False) in task-N/videos/;
@@ -28,10 +30,12 @@ import json
 import math
 import re
 import sys
+from pathlib import Path
 
 BUCKET_RE = re.compile(r"^vla-sim-results-(?P<stack>.+)-(?P<region>[a-z]{2}-[a-z]+-\d)-(?P<acct>\d{12})$")
 KV_RE = re.compile(r"^([A-Za-z_][\w]*): ?(.*)$", re.M)
 RUN_RE = re.compile(r"^\d{4}-\d{2}-\d{2}-\d{4}$")
+DOCS_RESULTS = Path(__file__).resolve().parent / "docs" / "results.md"
 
 
 def wilson(k, n, z=1.96):
@@ -206,12 +210,27 @@ def main(argv=None):
     p.add_argument("--all-runs", action="store_true", help="every run, not just the latest per bucket")
     p.add_argument("--csv", help="write the aggregated table as CSV")
     p.add_argument("--json", help="write per-task rows and the aggregate as JSON")
+    m = p.add_argument_group("matrix (leaderboard.py)", "target x benchmark matrix: latest comparable run per "
+                             "cell, k/n, Wilson 95% CI, estimated cost and time per run, latency when recorded")
+    m.add_argument("--matrix", action="store_true", help="print the matrix instead of the per-run table "
+                   "(--csv / --json then write one row per cell)")
+    m.add_argument("--write-docs", nargs="?", const=str(DOCS_RESULTS), metavar="PATH",
+                   help="also replace the leaderboard block of PATH (default docs/results.md) with the matrix")
+    m.add_argument("--all-conditions", action="store_true", help="add one row per non-baseline stack condition "
+                   "(default: baseline conditions S0 / - / <Benchmark>/<setting> only)")
+    m.add_argument("--condition", help="only this condition (exact label), one row per target")
+    m.add_argument("--pool-hours", type=float, default=6.0, help="pool shards (other stacks, same condition and "
+                   "fingerprint) started within this many hours of the latest run (default 6; 0 = no pooling)")
+    m.add_argument("--no-cost", action="store_true", help="skip the cost / time / latency table (fewer S3 reads)")
     a = p.parse_args(argv)
     try:
         import boto3
     except ImportError:
         print("vlasim results: boto3 is not installed — run `python vlasim.py init` first.", file=sys.stderr)
         return 2
+    if a.matrix or a.write_docs:
+        import leaderboard
+        return leaderboard.run(a, boto3)
     rows = collect(a, boto3)
     if not rows:
         print("No results found (no vla-sim-results-* bucket with a RUN_ID/task-N/ prefix).")

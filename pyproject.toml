@@ -40,7 +40,7 @@ ignore = ["E501"]
 "assets/**/*.py" = ["E402", "I001"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["targets", "generate", "results", "deploy", "destroy", "vlasim", "gallery"]
+known-first-party = ["targets", "generate", "results", "leaderboard", "deploy", "destroy", "vlasim", "gallery"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -345,20 +345,21 @@ uv pip install --python "${VENV_PY}" --constraint /tmp/{{ vla }}_constraints.txt
     uv pip install --python "${VENV_PY}" --constraint /tmp/{{ vla }}_constraints.txt --no-build-isolation -e . ) \
     2>&1 | tee -a /tmp/{{ vla }}_curobo_build.log || die "CuRobo build failed (see /tmp/{{ vla }}_curobo_build.log)"
 
-# NVIDIA Warp (CuRobo's kernels): the PyPI wheel of warp-lang 1.18.0 is built for CUDA 13 and needs a 13.0
-# driver; the DLAMI ships driver 570 (CUDA 12.8), so Warp sees no CUDA device and CuRobo dies with
-# `IndexError: list index out of range` in warp.from_torch (first lingbot-vla2 GPU run). Swap in the
-# same version's CUDA 12 build from the Warp GitHub release, pinned by sha256.
-WARP_WHL=/tmp/warp_lang-1.18.0+cu12-py3-none-manylinux_2_28_x86_64.whl
+# NVIDIA Warp (CuRobo's kernels), pinned to 1.9.1. Two problems with the version the resolver picks (1.18.0):
+# its PyPI wheel is built for CUDA 13 and needs a 13.0 driver (the DLAMI has 570 = CUDA 12.8, so Warp sees no
+# device and CuRobo dies in warp.from_torch), and 1.18 dropped the public `warp.torch` module that CuRobo
+# v0.7.8 calls (`wp.torch.device_from_torch`). 1.9.1 is the last release whose PyPI wheel is a CUDA 12.8
+# build and still has `warp.torch` (first two RoboTwin GPU runs failed on these in turn).
+WARP_WHL=/tmp/warp_lang-1.9.1-py3-none-manylinux_2_28_x86_64.whl
 curl -fsSL --retry 3 -o "${WARP_WHL}" \
-    "https://github.com/NVIDIA/warp/releases/download/v1.18.0/warp_lang-1.18.0%2Bcu12-py3-none-manylinux_2_28_x86_64.whl" \
-    || die "Warp cu12 wheel download failed"
-echo "6dda3c163dde4edaa7d46ade9fff3ddb1126ee7b147d9d890cd38cc70dafd656  ${WARP_WHL}" | sha256sum -c - \
-    || die "Warp cu12 wheel sha256 mismatch"
-uv pip install --python "${VENV_PY}" --no-deps --reinstall "${WARP_WHL}" 2>&1 | tee /tmp/{{ vla }}_warp_cu12.log \
-    || die "Warp cu12 wheel install failed"
-"${VENV_PY}" -c "import warp as wp; wp.init(); assert wp.get_cuda_device_count() > 0, 'Warp sees no CUDA device'; print('warp', wp.__version__, 'cuda devices', wp.get_cuda_device_count())" \
-    2>&1 | tee -a /tmp/{{ vla }}_warp_cu12.log || die "Warp cu12 build sees no CUDA device (see /tmp/{{ vla }}_warp_cu12.log)"
+    "https://files.pythonhosted.org/packages/py3/w/warp-lang/warp_lang-1.9.1-py3-none-manylinux_2_28_x86_64.whl" \
+    || die "Warp 1.9.1 wheel download failed"
+echo "2211e0cd9332ca44193801285cd1293c0b7580932da8da32e18d70b832adac12  ${WARP_WHL}" | sha256sum -c - \
+    || die "Warp 1.9.1 wheel sha256 mismatch"
+uv pip install --python "${VENV_PY}" --no-deps --reinstall "${WARP_WHL}" 2>&1 | tee /tmp/{{ vla }}_warp.log \
+    || die "Warp 1.9.1 install failed"
+"${VENV_PY}" -c "import warp as wp, warp.torch; wp.init(); assert wp.get_cuda_device_count() > 0, 'Warp sees no CUDA device'; assert hasattr(wp.torch, 'device_from_torch'); print('warp', wp.__version__, 'cuda devices', wp.get_cuda_device_count())" \
+    2>&1 | tee -a /tmp/{{ vla }}_warp.log || die "Warp check failed (see /tmp/{{ vla }}_warp.log)"
 
 NUMPY_NOW=$("${VENV_PY}" -c 'import numpy; print(numpy.__version__)')
 [ "${NUMPY_NOW}" = "${NUMPY_LOCKED}" ] || die "numpy moved ${NUMPY_LOCKED} -> ${NUMPY_NOW} while installing RoboTwin deps"

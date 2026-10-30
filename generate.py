@@ -15,6 +15,8 @@ Usage:
     python generate.py --vla lap         [--config simulator-config.yaml] [--dry-run]
     python generate.py --vla rldx        [--config simulator-config.yaml] [--dry-run]
     python generate.py --vla rldx-simpler [--config simulator-config.yaml] [--dry-run]
+    python generate.py --vla rldx-bridge [--config simulator-config.yaml] [--dry-run]
+    python generate.py --vla gr00t-bridge [--config simulator-config.yaml] [--dry-run]
     python generate.py --vla rldx-gr1    [--config simulator-config.yaml] [--dry-run]
     python generate.py --vla rldx-kitchen [--config simulator-config.yaml] [--dry-run]
     python generate.py --vla openarm-isaac [--config simulator-config.yaml] [--dry-run]
@@ -136,8 +138,58 @@ def _build_gr00t_ctx(config: dict, resolved_grpc: str, model_id: str) -> dict:
     return ctx
 
 
-def generate_gr00t(config: dict, resolved_grpc: str, resolved_vpc: str, dry_run: bool) -> str:
-    ctx = _build_gr00t_ctx(config, resolved_grpc, "gr00t")
+_HF_PATTERN_RE = re.compile(r"^[A-Za-z0-9_.*/\-]+$")
+
+
+def _gr00t_sim_ctx(config: dict, vla: str) -> dict:
+    """Simulator parameterisation of gr00t-userdata.sh.j2 (rldx pattern: one template, branched by sim_id).
+
+    `gr00t` (LIBERO) sets none of these keys and renders byte-identically to the pre-parameterisation
+    template. `gr00t-bridge` sets sim_id: simpler — the SimplerEnv WidowX/Bridge rollout venv, the Vulkan
+    loader SAPIEN needs, and a checkpoint download that skips the optimizer/RNG states.
+    log_prefix = vla so the CloudWatch log group matches the stack's /${vla}/* IAM grant.
+    """
+    model = config.get("model", {})
+    tasks = config.get("tasks", [])
+    sim_id = model.get("sim_id", "libero")
+    if sim_id not in ("libero", "simpler"):
+        print(f"[error] models/{vla}.yaml: model.sim_id must be libero or simpler, got {sim_id!r}", file=sys.stderr)
+        sys.exit(1)
+    patterns = list(model.get("hf_ignore_patterns") or [])
+    bad = [x for x in patterns if not _HF_PATTERN_RE.match(str(x))]
+    if bad:
+        print(f"[error] models/{vla}.yaml: model.hf_ignore_patterns has unsafe entries: {bad}", file=sys.stderr)
+        sys.exit(1)
+    pins = (str(model.get("sim_extra_deps", "")) + " " + str(model.get("sim_protect_pins", ""))).split()
+    bad = [x for x in pins if not re.fullmatch(r"[A-Za-z0-9_.\-]+(\[[A-Za-z0-9_,\-]+\])?(==|<|>=)[A-Za-z0-9_.+\-]+", x)]
+    if bad:
+        print(f"[error] models/{vla}.yaml: sim_extra_deps / sim_protect_pins entries must be name==version: {bad}",
+              file=sys.stderr)
+        sys.exit(1)
+    first_env = str(tasks[0].get("env_name", "")) if tasks else ""
+    if sim_id == "simpler" and not re.fullmatch(r"simpler_env_(google|widowx)/[a-z0-9_]+", first_env):
+        print(f"[error] models/{vla}.yaml: SimplerEnv tasks need env_name simpler_env_(google|widowx)/<task>, "
+              f"got {first_env!r}", file=sys.stderr)
+        sys.exit(1)
+    return {
+        "log_prefix": vla,
+        "sim_id": sim_id,
+        "needs_vulkan": bool(model.get("needs_vulkan", False)),
+        "sim_extra_deps": str(model.get("sim_extra_deps", "")).strip(),
+        "first_env_name": first_env,
+        "hf_ignore_patterns": "[" + ", ".join(repr(str(x)) for x in patterns) + "]" if patterns else "",
+        "robot_label": _shell_safe(model.get("robot_label", ""), "robot_label"),
+        "sim_label": _shell_safe(model.get("sim_label", ""), "sim_label"),
+    }
+
+
+def generate_gr00t(config: dict, resolved_grpc: str, resolved_vpc: str, dry_run: bool, vla: str = "gr00t") -> str:
+    """GR00T N1.7 x {LIBERO (gr00t) | SimplerEnv WidowX/Bridge (gr00t-bridge)} — shared gr00t-userdata.sh.j2."""
+    ctx = _build_gr00t_ctx(config, resolved_grpc, vla)
+    ctx.update(_gr00t_sim_ctx(config, vla))
+    if ctx["sim_id"] != "libero" and resolved_grpc:
+        print(f"[error] {vla}: bridge mode (remote gRPC inference) is LIBERO-only.", file=sys.stderr)
+        sys.exit(1)
     env = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)), keep_trailing_newline=True)  # nosec B701 - shell script template, autoescape not applicable
     return env.get_template("gr00t-userdata.sh.j2").render(**ctx)
 
@@ -289,6 +341,9 @@ def generate_rldx(config: dict, dry_run: bool, vla: str = "rldx") -> str:
     tasks_json = _tasks_json_for_bash(tasks)
     deployment = config.get("deployment", {})
     model = config.get("model", {})
+    if model.get("simpler_robot", "google") not in ("google", "widowx"):
+        print(f"[error] models/{vla}.yaml: model.simpler_robot must be google or widowx", file=sys.stderr)
+        sys.exit(1)
 
     ctx = {
         "tasks_json": tasks_json,
@@ -327,6 +382,9 @@ def generate_rldx(config: dict, dry_run: bool, vla: str = "rldx") -> str:
         "sim_needs_policy_fix": bool(
             model.get("sim_needs_policy_fix", model.get("sim_id", "libero") == "simpler")
         ),
+        # SimplerEnv robot for the FIX 6/7 adapter: "google" (Fractal, quaternion state — the default, so
+        # rldx-simpler renders byte-identically) or "widowx" (Bridge, euler state + pad, rldx-bridge).
+        "simpler_robot": model.get("simpler_robot", "google"),
         # FIX 5 — non-LIBERO sims whose external_dependencies/<sim> gitlink is absent at the pin
         # (SimplerEnv) must be pre-cloned --recursive so the setup script's already-populated
         # fallback runs. Empty for LIBERO (vendored dir present) → template skips the pre-clone.
@@ -906,8 +964,8 @@ def main():
 
     if args.judge_target:
         rendered = generate_flora_judge(config, args.dry_run, judge=args.judge_target)
-    elif args.vla == "gr00t":
-        rendered = generate_gr00t(config, args.resolved_grpc, args.resolved_vpc, args.dry_run)
+    elif args.vla in ("gr00t", "gr00t-bridge"):
+        rendered = generate_gr00t(config, args.resolved_grpc, args.resolved_vpc, args.dry_run, vla=args.vla)
     elif args.vla == "gr00t-gr1":
         rendered = generate_gr00t_gr1(config, args.resolved_grpc, args.resolved_vpc, args.dry_run)
     elif args.vla == "gr00t-g1":
@@ -917,7 +975,7 @@ def main():
         rendered = generate_openvla_oft(config, args.libero_suite, args.dry_run)
     elif args.vla == "lap":
         rendered = generate_lap(config, args.resolved_nlb, args.dry_run)
-    elif args.vla in ("rldx", "rldx-simpler", "rldx-gr1", "rldx-kitchen"):
+    elif args.vla in ("rldx", "rldx-simpler", "rldx-bridge", "rldx-gr1", "rldx-kitchen"):
         rendered = generate_rldx(config, args.dry_run, vla=args.vla)
     elif args.vla == "openarm-isaac":
         rendered = generate_openarm_isaac(config, args.dry_run)

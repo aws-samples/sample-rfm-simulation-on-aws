@@ -34,6 +34,11 @@ LP_COMMIT=$(git -C "${LIBERO_PLUS_DIR}" rev-parse HEAD)
 [ "${LP_COMMIT}" = "{{ lp.repo_commit }}" ] || die "LIBERO-Plus commit mismatch: expected {{ lp.repo_commit }}, got ${LP_COMMIT}"
 log "  LIBERO-Plus commit: ${LP_COMMIT}"
 LP_PKG="${LIBERO_PLUS_DIR}/libero/libero"
+# NumPy 2 compat: the fork's sensor-noise (fog) perturbation uses `np.float_`, removed in NumPy 2.0, so every
+# noise variant died in env.reset() on the LeRobot (numpy 2) env. Rewrite the alias to np.float64 (same dtype
+# on NumPy 1.x, so the conda / numpy<2 path is unaffected).
+grep -rlE 'np\.float_\b' --include='*.py' "${LIBERO_PLUS_DIR}/libero" | xargs -r sed -i -E 's/np\.float_\b/np.float64/g'
+! grep -rqE 'np\.float_\b' --include='*.py' "${LIBERO_PLUS_DIR}/libero" || die "LIBERO-Plus: np.float_ rewrite failed"
 
 log "[{{ lp_step }}] LIBERO-Plus runtime pins: {{ lp.pip_pins }}"
 {{ lp_pip }} {{ lp.pip_pins }} 2>&1 | tee /tmp/{{ lp_log }}_lp_pip.log \

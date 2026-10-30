@@ -41,7 +41,10 @@ model:
   needs_vulkan: true
   # FIX S1: rollout_policy.py imports gr00t.policy -> model code. setup_SimplerEnv.sh at this pin
   # installs gr00t --no-deps without these; list = upstream 9c7e746 setup_SimplerEnv.sh additions.
-  sim_extra_deps: "pandas==2.2.3 dm-tree==0.1.9 einops==0.8.1 albumentations==1.4.18 diffusers==0.35.1 scipy==1.15.3"
+  # msgpack / msgpack-numpy / pyzmq: gr00t.policy.server_client (PolicyClient, imported lazily by
+  # rollout_policy) needs them; pins = Isaac-GR00T pyproject.toml at the same commit. First run without
+  # them died with ModuleNotFoundError: msgpack_numpy on every task.
+  sim_extra_deps: "pandas==2.2.3 dm-tree==0.1.9 einops==0.8.1 albumentations==1.4.18 diffusers==0.35.1 scipy==1.15.3 msgpack==1.1.0 msgpack-numpy==0.4.8 pyzmq==27.0.1"
   # Pins setup_SimplerEnv.sh sets that FIX S1 must not move (gymnasium / numpy / cv2 / transformers).
   sim_protect_pins: "gymnasium==0.29.1 numpy==1.26.4 opencv-python-headless==4.10.0.84 transformers==4.57.3"
 

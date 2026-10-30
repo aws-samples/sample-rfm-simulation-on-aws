@@ -313,6 +313,7 @@ log "[3/6] Verifying SimplerEnv venv (rollout_policy imports + gym.make ${FIRST_
 import sys
 import gymnasium as gym
 import gr00t.eval.rollout_policy  # noqa: F401  (import chain the rollout client needs)
+import gr00t.policy.server_client  # noqa: F401  (PolicyClient: imported lazily by rollout_policy)
 from gr00t.eval.sim.SimplerEnv.simpler_env import register_simpler_envs
 register_simpler_envs()
 env = gym.make(sys.argv[1])

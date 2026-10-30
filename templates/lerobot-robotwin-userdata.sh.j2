@@ -483,7 +483,9 @@ export RFM_PLAN_SEED={{ first_seed }}
 # SAPIEN Vulkan cameras, CuRobo planners and the assets all have to work. Lazily imported modules are
 # exactly where earlier first runs died, hence the explicit list instead of `import lerobot`.
 log "[5/8] Verifying the full eval chain (imports + one RoboTwin reset on GPU)..."
-( cd "${ROBOTWIN_DIR}" && "${VENV_PY}" - << 'VERIFYEOF' ) 2>&1 | tee /tmp/{{ vla }}_import_check.log \
+# Unbuffered + faulthandler: a native crash (SAPIEN / mplib / CuRobo) otherwise loses every buffered line and
+# leaves only "Segmentation fault" (first lingbot-vla2 run with a working Warp).
+( cd "${ROBOTWIN_DIR}" && PYTHONUNBUFFERED=1 PYTHONFAULTHANDLER=1 "${VENV_PY}" - << 'VERIFYEOF' ) 2>&1 | tee /tmp/{{ vla }}_import_check.log \
     || die "eval-chain verify failed (see /tmp/{{ vla }}_import_check.log)"
 import importlib, json, os
 import numpy as np

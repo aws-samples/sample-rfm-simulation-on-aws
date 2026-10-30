@@ -64,14 +64,14 @@ Instance = the first entry of `instance.preferred` (the AZ selector may fall bac
 | `robolab-cosmos3` (`nano`) | `g6e.12xlarge` | estimate ~5-8 h (2 shards; Nano ~4 s per inference call on the leaderboard) | ~52-84 |
 | `robolab-cosmos3` (`edge-full`) / `robolab-pi05` (`full`) | `g6e.48xlarge` | estimate ~6-9 h (8 shards over RoboLab-120 × 10; RoboLab quotes ~40 GPU hours for 120 tasks) | ~180-270 |
 | `robolab-pi05` (`subset`, default) | `g6e.2xlarge` | measured ~1.4 h (2026-10-30, ap-northeast-2) | ~9-12 |
-| `smolvla-robotwin` (default: 5 tasks × 5 ep, clean) | `g6.2xlarge` | estimate ~1.5-2 h (not run yet: ~60-90 min setup incl. CuRobo build and 4 GB assets + episode loop ≤ 0.5 h at 0.15 s/step) | ~1.47-1.96 |
-| `lingbot-vla2` (default: 5 tasks × 5 ep, clean) | `g6e.2xlarge` | estimate ~1.75-2.5 h (not run yet: as above + 25.5 GB fp32 checkpoint) | ~3.92-5.61 |
+| `smolvla-robotwin` (default: 5 tasks × 5 ep, clean) | `g6.2xlarge` | measured ~55 min instance time (2026-10-30, ap-northeast-2: ~13 min setup incl. CuRobo build and 4 GB assets, ~41 min for 25 episodes = ~98 s per episode) | ~1.10 |
+| `lingbot-vla2` (default: 5 tasks × 5 ep, clean) | `g6e.2xlarge` | measured ~49 min instance time (2026-10-30, ap-northeast-2: ~23 min setup incl. the 25.5 GB fp32 checkpoint, ~25 min for 25 episodes = ~59 s per episode) | ~2.26 |
 | `smolvla-robotwin --robotwin-protocol clean` (49 tasks × 100 ep, 19 shards) | `g6.2xlarge` | estimate up to ~126 h of episode loop + ~1.25 h setup per shard ≈ 150 h (upper bound: every episode at its step limit) | up to ~147 |
 | `smolvla-robotwin --robotwin-protocol full` (clean + randomized, 47 shards) | `g6.2xlarge` | estimate up to ~252 h + ~1.5 h per shard ≈ 323 h | up to ~315 |
 | `lingbot-vla2 --robotwin-protocol full` (47 shards) | `g6e.2xlarge` | about the same hours as above (the simulator, not the policy, sets the pace) | up to ~723 |
 | `flora-judge` (post-run judge, `vlasim judge`) | `g7e.2xlarge` (measured on the `g6e.12xlarge` fallback, US$12.90/h in `ap-northeast-2`) | 13-15 min instance time measured for 10-47 episodes (+ ~10 min stack create/delete) | ~0.85-1.10 on `g7e.2xlarge`; ~2.80-3.25 measured on `g6e.12xlarge` |
 
-RoboTwin rows: prices checked 2026-10-30 (same API; `g5.4xlarge` and `g6.4xlarge` added). In `ap-northeast-2` the RoboTwin instances are US$1.20208 (`g6.2xlarge`), US$1.4903 (`g5.2xlarge`), US$1.62704 (`g6.4xlarge`), US$1.99691 (`g5.4xlarge`), US$2.75652 (`g6e.2xlarge`) and US$3.69355 (`g6e.4xlarge`) per hour. The 0.15 s per simulated step behind the episode-loop figures is a planning value, not a measurement; `deploy.py` uses it to size the shards, and the first measured run should replace it.
+RoboTwin rows: prices checked 2026-10-30 (same API; `g5.4xlarge` and `g6.4xlarge` added). In `ap-northeast-2` the RoboTwin instances are US$1.20208 (`g6.2xlarge`), US$1.4903 (`g5.2xlarge`), US$1.62704 (`g6.4xlarge`), US$1.99691 (`g5.4xlarge`), US$2.75652 (`g6e.2xlarge`) and US$3.69355 (`g6e.4xlarge`) per hour. The 0.15 s per simulated step behind the episode-loop figures of the official-protocol rows is a planning value; `deploy.py` uses it to size the shards. The first subset runs (2026-10-30) took ~59-98 s per episode including policy inference, which is below the step-limit upper bound the shard plan assumes, so the shard counts stay conservative. Measured rows cover the stack instance only (stack create/delete and NAT not included).
 
 ## Not included
 

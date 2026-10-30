@@ -152,8 +152,8 @@ Source: [`results/cells.csv`](https://github.com/byongwu/pai-same-policy-differe
 | `rldx-gr1` | gr1_unified/PnPMilkToMicrowaveClose (GR-1 bimanual + waist) | 58.7% 24-task avg (paper README) | validated 2026-06-25 — 0.20 (1/5 ep, eager, g5.2xlarge A10G 24GB, full `deploy.py` 1-shot smoke) |
 | `rldx-kitchen` | robocasa_panda_omron/OpenSingleDoor (PandaOmron mobile manip) | 70.6% 24-task avg (paper README) | 0.80 (4/5), validated 2026-06-26 (g6.2xlarge L4) |
 | `rldx-kitchen` | robocasa_panda_omron/OpenDrawer (PandaOmron mobile manip) | 70.6% 24-task avg (paper README) | 0.80 (4/5), validated 2026-06-26 (g6.2xlarge L4) |
-| `smolvla-robotwin` | RoboTwin2/clean, 5 tasks × 5 ep | — (not stated on the model card) | not run yet (STEP B) |
-| `lingbot-vla2` | RoboTwin2/clean, 5 tasks × 5 ep | 93.52% clean / 92.80% randomized, 50-task avg (upstream README) | not run yet (STEP B) |
+| `smolvla-robotwin` | RoboTwin2/clean, 5 tasks × 5 ep | — (not stated on the model card) | measured 2026-10-30 (`g6.2xlarge`, ap-northeast-2): **48.0% (12/25)**, CI 30-67%; beat_block_hammer 4/5, click_bell 5/5, handover_block 0/5, lift_pot 2/5, stamp_seal 1/5 |
+| `lingbot-vla2` | RoboTwin2/clean, 5 tasks × 5 ep | 93.52% clean / 92.80% randomized, 50-task avg (upstream README) | measured 2026-10-30 (`g6e.2xlarge`, ap-northeast-2): **80.0% (20/25)**, CI 61-91%; beat_block_hammer 3/5, click_bell 5/5, handover_block 5/5, lift_pot 3/5, stamp_seal 4/5 |
 
 ### RoboLab (`robolab-cosmos3`, `robolab-pi05`)
 
@@ -188,9 +188,9 @@ The leaderboard rows were produced with RoboLab v0.1.0-v0.2.0 builds; these targ
 
 | `--vla` | Setting | Published (50 tasks × 100 episodes) | Source | Measured on AWS |
 |---|---|---|---|---|
-| `lingbot-vla2` | clean | 93.52% | [Robbyant/lingbot-vla-v2 README](https://github.com/Robbyant/lingbot-vla-v2/blob/be969b8fd117fb70550c5d4bf4bc328211b5b1b6/README.md) (Muon post-training on clean + randomized data, upstream RoboTwin launcher, FP32), quoted in LeRobot `docs/source/lingbot_vla_v2.mdx` | pending |
+| `lingbot-vla2` | clean | 93.52% | [Robbyant/lingbot-vla-v2 README](https://github.com/Robbyant/lingbot-vla-v2/blob/be969b8fd117fb70550c5d4bf4bc328211b5b1b6/README.md) (Muon post-training on clean + randomized data, upstream RoboTwin launcher, FP32), quoted in LeRobot `docs/source/lingbot_vla_v2.mdx` | 5-task clean subset only: 80.0% (20/25, 2026-10-30, run 2026-10-30-1728); not the 50-task protocol |
 | `lingbot-vla2` | randomized | 92.80% | same | pending |
-| `smolvla-robotwin` | clean / randomized | none published (model card has no evaluation) | [`lerobot/smolvla_robotwin`](https://huggingface.co/lerobot/smolvla_robotwin) @eb55d3a7 | pending |
+| `smolvla-robotwin` | clean / randomized | none published (model card has no evaluation) | [`lerobot/smolvla_robotwin`](https://huggingface.co/lerobot/smolvla_robotwin) @eb55d3a7 | 5-task clean subset only: 48.0% (12/25, 2026-10-30, run 2026-10-30-1728) |
 
 For context, the same upstream table lists π0.5 at 82.74% (clean) / 76.76% (randomized) and LingBot-VLA 1.0 at 88.56% / 86.68%. The published numbers use RoboTwin's own evaluation script, which keeps only seeds the scripted expert solves; the LeRobot wrapper used here does not filter seeds, and the default run is a 5-task subset, so expect lower and noisier rates (5 tasks × 5 episodes = 25 episodes, a 95% interval about ±0.2 wide).
 

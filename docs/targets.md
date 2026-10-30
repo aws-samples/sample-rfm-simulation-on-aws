@@ -363,8 +363,8 @@ python vlasim.py deploy --vla openarm-isaac --email you@example.com
 python vlasim.py deploy --vla robolab-cosmos3 --email you@example.com   # Cosmos3-Edge-Policy-DROID
 python vlasim.py deploy --vla robolab-pi05 --email you@example.com      # pi0.5-DROID
 # RoboTwin 2.0 bimanual (LeRobot lerobot-eval; CuRobo planner is NON-COMMERCIAL, note 15)
-python vlasim.py deploy --vla smolvla-robotwin --email you@example.com   # 5 tasks x 5 ep, clean (estimate ~1.5-2 h)
-python vlasim.py deploy --vla lingbot-vla2 --email you@example.com       # LingBot-VLA 2.0, same subset, g6e
+python vlasim.py deploy --vla smolvla-robotwin --email you@example.com   # 5 tasks x 5 ep, clean (measured ~55 min, 48%)
+python vlasim.py deploy --vla lingbot-vla2 --email you@example.com       # LingBot-VLA 2.0, same subset, g6e (measured ~49 min, 80%)
 # Official protocol (49 tasks x 100 ep) in 12-hour shards; deploy.py prints N if the plan does not fit
 python vlasim.py deploy --vla smolvla-robotwin --robotwin-protocol clean --robotwin-shard 1/19 --email you@example.com
 

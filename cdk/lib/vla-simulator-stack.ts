@@ -112,6 +112,20 @@ function preferredFromYaml(vla: string, instanceCfg: any): string[] {
   return pref;
 }
 
+// Targets with a `variants:` block (robolab-*) select one with model.variant; that variant's `instance:`
+// keys (preferred list, EBS, creation timeout) override the top-level `instance:`. Same rule as
+// generate.resolve_variant(). Models without `variants:` are returned unchanged.
+export function resolveInstanceCfg(vla: string, modelConfig: any): any {
+  const base = modelConfig?.instance ?? {};
+  const variants = modelConfig?.variants;
+  if (!variants || typeof variants !== 'object') return base;
+  const name = String(modelConfig?.model?.variant ?? '').trim();
+  if (!Object.prototype.hasOwnProperty.call(variants, name)) {
+    throw new Error(`models/${vla}.yaml: model.variant "${name}" is not one of ${Object.keys(variants).join(', ')}`);
+  }
+  return { ...base, ...(variants[name]?.instance ?? {}) };
+}
+
 // Real2Sim user capture: models/<vla>.yaml input = {source: capture, capture_s3_uri: s3://bucket/key.zip}
 // -> "bucket/key.zip" (the one object the instance may read); undefined for any other input.
 export function captureObjectPath(vla: string, input: any): string | undefined {
@@ -136,7 +150,7 @@ export class VlaSimulatorStack extends cdk.Stack {
     const simConfig = yaml.load(fs.readFileSync(simConfigPath, 'utf8')) as any;
     const modelConfig = yaml.load(fs.readFileSync(modelConfigPath, 'utf8')) as any;
     const deployment = { ...simConfig.deployment, ...(modelConfig.deployment ?? {}) };
-    const instanceCfg = modelConfig.instance ?? {};
+    const instanceCfg = resolveInstanceCfg(vla, modelConfig);
 
     // CDK context takes precedence (injected by deploy.py)
     const notifyEmail: string = this.node.tryGetContext('notify_email') ?? deployment.notify_email;

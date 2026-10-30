@@ -21,6 +21,7 @@ Usage:
     python generate.py --vla openarm-lift-act [--config simulator-config.yaml] [--dry-run]
     python generate.py --vla molmoact2   [--config simulator-config.yaml] [--dry-run]
     python generate.py --vla real2sim    [--config simulator-config.yaml] [--dry-run]
+    python generate.py --vla robolab-cosmos3 [--dry-run]   # model.variant in the yaml: edge | nano | edge-full
     python generate.py --judge-target flora-judge [--dry-run]   # post-run judge (deploy.py --judge)
 """
 
@@ -787,6 +788,139 @@ def generate_real2sim(config: dict, dry_run: bool, vla: str = "real2sim") -> str
     return env.get_template("real2sim-userdata.sh.j2").render(**ctx)
 
 
+ROBOLAB_TARGETS = ("robolab-cosmos3", "robolab-pi05")
+_TASK_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]*$")
+_TOKEN_RE = re.compile(r"^[A-Za-z0-9_.=/:@+-]+$")
+_HEX40_RE = re.compile(r"^[0-9a-f]{40}$")
+
+
+def resolve_variant(config: dict, vla: str) -> tuple:
+    """(variant name, merged variant dict) for models with a ``variants:`` block selected by model.variant.
+    The same rule as resolveInstanceCfg() in cdk/lib/vla-simulator-stack.ts (the instance list comes from it)."""
+    variants = config.get("variants") or {}
+    name = str((config.get("model") or {}).get("variant", "")).strip()
+    if name not in variants:
+        print(f"[error] models/{vla}.yaml: model.variant {name!r} is not one of {sorted(variants)}", file=sys.stderr)
+        sys.exit(1)
+    return name, dict(variants[name] or {})
+
+
+def generate_robolab(config: dict, dry_run: bool, vla: str) -> str:
+    """NVIDIA RoboLab (Isaac Lab, DROID Franka) x a DROID policy server, both on one instance.
+
+    One shared template (robolab-userdata.sh.j2) for every policy backend (rldx pattern): `model.backend`
+    picks the server image and launch line (cosmos3 = NVIDIA/cosmos-framework action_policy_server_robolab,
+    pi05 = openpi serve_policy.py), `model.variant` picks checkpoint, protocol (task list x episodes),
+    shard layout and instance list. Embeds assets/robolab/robolab_report.py (stdlib) as base64."""
+    model = config.get("model", {})
+    ev = config.get("eval", {}) or {}
+
+    def fail(msg):
+        print(f"[error] models/{vla}.yaml: {msg}", file=sys.stderr)
+        sys.exit(1)
+
+    backend = model.get("backend")
+    if backend not in ("cosmos3", "pi05"):
+        fail("model.backend must be cosmos3 or pi05")
+    variant, var = resolve_variant(config, vla)
+    for key in ("robolab_repo", "robolab_commit", "isaac_lab_tag", "server_repo", "server_commit"):
+        if not model.get(key):
+            fail(f"model.{key} is required")
+    for key in ("robolab_commit", "server_commit"):
+        if not _HEX40_RE.match(str(model[key])):
+            fail(f"model.{key} must be a 40-hex commit")
+    protocols = config.get("protocols") or {}
+    proto = protocols.get(var.get("protocol"))
+    if not proto:
+        fail(f"variants.{variant}.protocol must name an entry of protocols: {sorted(protocols)}")
+    tasks = list(proto.get("tasks") or [])
+    bad = [t for t in tasks if not _TASK_RE.match(str(t))]
+    if bad:
+        fail(f"protocol task names must be RoboLab task class names: {bad}")
+    shards, per_shard = int(var.get("shards", 1)), int(var.get("gpus_per_shard", 1))
+    num_envs, num_runs = int(proto.get("num_envs", 1)), int(proto.get("num_runs", 1))
+    if not (1 <= shards <= 8 and per_shard in (1, 2) and num_envs >= 1 and num_runs >= 1):
+        fail("need 1 <= shards <= 8, gpus_per_shard 1 or 2, num_envs >= 1, num_runs >= 1")
+    instruction_type = str(ev.get("instruction_type", "default"))
+    video_mode = str(ev.get("video_mode", "all"))
+    if instruction_type not in ("default", "vague", "specific") or video_mode not in ("all", "viewport", "sensor", "none"):
+        fail("eval.instruction_type must be default|vague|specific and eval.video_mode all|viewport|sensor|none")
+
+    if backend == "cosmos3":
+        for key in ("hf_repo", "hf_model_revision"):
+            if not var.get(key):
+                fail(f"variants.{variant}.{key} is required")
+        if not _HEX40_RE.match(str(var["hf_model_revision"])):
+            fail(f"variants.{variant}.hf_model_revision must be a 40-hex commit")
+        for key in ("server_base_image", "server_cuda_version", "server_uv_groups"):
+            if not model.get(key):
+                fail(f"model.{key} is required for backend cosmos3")
+        checkpoint_ref = f"{var['hf_repo']}@{str(var['hf_model_revision'])[:8]}"
+        policy_label = var["hf_repo"].split("/")[-1]
+        client_script = "policies/cosmos3/run.py"
+    else:
+        for key in ("policy_config", "checkpoint_dir"):
+            if not var.get(key):
+                fail(f"variants.{variant}.{key} is required")
+        checkpoint_ref = var["checkpoint_dir"]
+        policy_label = f"pi0.5-DROID ({var['policy_config']})"
+        client_script = "policies/pi0_family/run.py"
+    tokens = [str(t) for t in (list(var.get("server_args") or []) + list(var.get("client_args") or [])
+                               + list(model.get("server_uv_groups") or []))]
+    tokens += [str(model[k]) for k in ("robolab_repo", "isaac_lab_tag", "server_repo", "server_base_image",
+                                       "server_cuda_version") if model.get(k)]
+    tokens += [str(var[k]) for k in ("hf_repo", "policy_config", "checkpoint_dir") if var.get(k)]
+    bad = [t for t in tokens if not _TOKEN_RE.match(t)]
+    if bad:
+        fail(f"unsafe characters in args / repos / images: {bad}")
+
+    asset = BASE_DIR / "assets" / "robolab" / "robolab_report.py"
+    ctx = {
+        "vla": vla,
+        "backend": backend,
+        "variant": variant,
+        "display_name": _shell_safe(model.get("display_name", vla), "display_name"),
+        "license": _shell_safe(model.get("license", "see models/" + vla + ".yaml"), "license"),
+        "policy_label": _shell_safe(policy_label, "policy_label"),
+        "checkpoint_ref": checkpoint_ref,
+        "robolab_repo": model["robolab_repo"],
+        "robolab_commit": model["robolab_commit"],
+        "isaac_lab_tag": model["isaac_lab_tag"],
+        "server_repo": model["server_repo"],
+        "server_commit": model["server_commit"],
+        "server_base_image": model.get("server_base_image", ""),
+        "server_cuda_version": model.get("server_cuda_version", ""),
+        "server_uv_groups": list(model.get("server_uv_groups") or []),
+        "min_driver_major": int(model.get("min_driver_major", 535)),
+        "hf_repo": var.get("hf_repo", ""),
+        "hf_model_revision": str(var.get("hf_model_revision", "")),
+        "server_args": [str(a) for a in var.get("server_args") or []],
+        "policy_config": var.get("policy_config", ""),
+        "checkpoint_dir": var.get("checkpoint_dir", ""),
+        "client_script": client_script,
+        "client_args": [str(a) for a in var.get("client_args") or []],
+        "label": _shell_safe(proto.get("label", "RoboLab/" + str(var.get("protocol"))), "protocol label"),
+        "description": _shell_safe(proto.get("description", ""), "protocol description"),
+        "leaderboard": _shell_safe(var.get("leaderboard", "see docs/results.md"), "leaderboard"),
+        "tasks": tasks,
+        "num_envs": num_envs,
+        "num_runs": num_runs,
+        "instruction_type": instruction_type,
+        "video_mode": video_mode,
+        "seed": int(ev.get("seed", 0)),
+        "max_videos_per_task": int(var.get("max_videos_per_task", ev.get("max_videos_per_task", 10))),
+        "shards": shards,
+        "gpus_per_shard": per_shard,
+        "eval_timeout_min": int(var.get("eval_timeout_min", 300)),
+        "server_warmup_timeout": int(var.get("server_warmup_timeout", 2700)),
+        "min_gpu_mib": int(var.get("min_gpu_mib", 44000)),
+        "min_host_mib": int(var.get("min_host_mib", 60000)),
+        "report_py_b64": base64.encodebytes(asset.read_bytes()).decode(),
+    }
+    env = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)), keep_trailing_newline=True)  # nosec B701 - shell script template
+    return env.get_template("robolab-userdata.sh.j2").render(**ctx)
+
+
 def _shell_safe(value: str, what: str) -> str:
     """Values pasted into double-quoted bash strings: no quotes, $, backticks or backslashes."""
     if any(c in str(value) for c in "\"'$`\\\n"):
@@ -935,6 +1069,8 @@ def main():
         rendered = generate_aspire(config, args.dry_run)
     elif args.vla == "real2sim":
         rendered = generate_real2sim(config, args.dry_run)
+    elif args.vla in ROBOLAB_TARGETS:
+        rendered = generate_robolab(config, args.dry_run, vla=args.vla)
     else:
         rendered = generate_pi(config, args.resolved_vpc, args.resolved_nlb, args.dry_run)
 

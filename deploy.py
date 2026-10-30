@@ -68,7 +68,8 @@ LEROBOT_LIBERO_STACKS = {
 LEROBOT_LIBERO_TARGETS = tuple(LEROBOT_LIBERO_STACKS)
 # Local-only targets with their own template (same CLI handling as the LeRobot family).
 OTHER_LOCAL_STACKS = {"vla-adapter": "VLA-Adapter-Demo", "cosmos-policy": "Cosmos-Policy-Demo", "aspire": "ASPIRE-Demo",
-                      "real2sim": "Real2Sim-Demo"}
+                      "real2sim": "Real2Sim-Demo", "robolab-cosmos3": "RoboLab-Cosmos3-Demo",
+                      "robolab-pi05": "RoboLab-Pi05-Demo"}
 
 RUN_RE = re.compile(r"^\d{4}-\d{2}-\d{2}-\d{4}$")  # RUN_ID=$(date '+%Y-%m-%d-%H%M') in every template
 VIDEO_KEY_RE = re.compile(r"^[^/]+/task-\d+/videos/[^/]+\.mp4$")
@@ -555,6 +556,10 @@ def main():
             print("  Estimated time: ~60-90 min for the pipe-proof cap (uv sync fork source ~20-30min + MolmoAct2-LIBERO ckpt ~22GB DL ~10min + fp32 LIBERO eval 2 tasks x 5 ep). Full suite (all 10 tasks x 50 ep) is MANY hours in fp32 — scale via models/molmoact2.yaml tasks.")
         elif args.vla == "real2sim":
             print("  Estimated time: ~12 min measured on g5.2xlarge (packages + two uv venvs + HOPE-Video download ~5min + splatfacto ~5min + segment + MuJoCo grasp replay ~2min), plus stack create/delete")
+        elif args.vla in ("robolab-cosmos3", "robolab-pi05"):
+            print("  Estimated time: ~4-6 h for the default 12-task subset (ECC-off reboot + RoboLab LFS assets ~6 GB + "
+                  "Isaac Lab / policy-server image builds ~45-75 min + checkpoint DL + 12 tasks x 5 episodes ~2-3 h); "
+                  "model.variant in models/<vla>.yaml selects nano / the full RoboLab-120 protocol (see docs/targets.md)")
         elif args.vla == "cosmos-policy":
             print("  Estimated time: ~60-120 min (docker build ~10-15min + uv sync ~10-20min + ckpt DL + LIBERO eval, 1 ep x 10 tasks)")
         elif args.vla in LEROBOT_LIBERO_TARGETS:

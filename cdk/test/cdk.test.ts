@@ -2,14 +2,14 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as cdk from 'aws-cdk-lib';
 import { Template } from 'aws-cdk-lib/assertions';
-import { captureObjectPath, VlaSimulatorStack } from '../lib/vla-simulator-stack';
+import { captureObjectPath, resolveInstanceCfg, VlaSimulatorStack } from '../lib/vla-simulator-stack';
 
 // The stack reads the rendered UserData from assets/userdata/<vla>.sh (gitignored, written by
 // generate.py / deploy.py). Seed a placeholder for any target that has not been rendered yet so
 // the tests run on a fresh checkout, and remove only the placeholders we created.
 const USERDATA_DIR = path.resolve(__dirname, '../../assets/userdata');
 const VLAS = ['gr00t', 'pi'];
-const SEED_VLAS = [...VLAS, 'openarm-lift-act', 'xvla', 'real2sim'];
+const SEED_VLAS = [...VLAS, 'openarm-lift-act', 'xvla', 'real2sim', 'robolab-cosmos3'];
 const seeded: string[] = [];
 
 beforeAll(() => {
@@ -87,6 +87,33 @@ test('yaml-driven targets launch their own preferred instance list', () => {
   Template.fromStack(stack).hasResourceProperties('AWS::CloudFormation::CustomResource', {
     InstanceTypes: 'g6.2xlarge,g5.2xlarge,g6.xlarge,g5.xlarge',
   });
+});
+
+// robolab-*: model.variant selects variants.<name>.instance (instance list, EBS, timeout) over instance.
+test('robolab-cosmos3 launches the instance list of its default variant', () => {
+  const app = new cdk.App({ context: { region: 'us-east-1', vla: 'robolab-cosmos3', notify_email: 'test@example.com' } });
+  const stack = new VlaSimulatorStack(app, 'RoboLab-Cosmos3-Demo', {
+    vla: 'robolab-cosmos3',
+    env: { account: '123456789012', region: 'us-east-1' },
+  });
+  const template = Template.fromStack(stack);
+  template.hasResourceProperties('AWS::CloudFormation::CustomResource', { InstanceTypes: 'g6e.2xlarge,g6e.4xlarge' });
+  template.hasResourceProperties('AWS::CloudFormation::WaitCondition', { Timeout: String(540 * 60) });
+  template.hasResourceProperties('AWS::S3::Bucket', { BucketName: 'vla-sim-results-robolab-cosmos3-demo-us-east-1-123456789012' });
+});
+
+test('resolveInstanceCfg merges the selected variant and rejects unknown ones', () => {
+  const cfg = {
+    model: { variant: 'nano' },
+    instance: { preferred: ['g6e.2xlarge'], ebs_gb: 600, creationpolicy_timeout: 'PT540M' },
+    variants: { edge: { instance: { preferred: ['g6e.2xlarge'] } }, nano: { instance: { preferred: ['g6e.12xlarge'], ebs_gb: 700 } } },
+  };
+  expect(resolveInstanceCfg('robolab-cosmos3', cfg)).toEqual({
+    preferred: ['g6e.12xlarge'], ebs_gb: 700, creationpolicy_timeout: 'PT540M',
+  });
+  expect(() => resolveInstanceCfg('robolab-cosmos3', { ...cfg, model: { variant: 'huge' } })).toThrow(/not one of edge, nano/);
+  const plain = { instance: { preferred: ['g6.xlarge'] } };
+  expect(resolveInstanceCfg('xvla', plain)).toBe(plain.instance);
 });
 
 // IAM hardening (audit A20/A21): PassRole is pinned to the instance role and to EC2, nothing passes

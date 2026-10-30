@@ -414,3 +414,8 @@ def test_matrix_no_results(monkeypatch, capsys):
     monkeypatch.setitem(sys.modules, "boto3", _FakeBoto3([]))
     assert results.main(["--matrix"]) == 0
     assert "No comparable results" in capsys.readouterr().out
+
+
+def test_policy_stack_keys_are_not_compared():
+    kvs = [{"stack_eval_args": "--policy.path=a", "stack_server": "86e1ee52", "stack_sapien": "3.0.0b1"}]
+    assert lb.fingerprint(kvs) == {"stack_sapien": "3.0.0b1"}

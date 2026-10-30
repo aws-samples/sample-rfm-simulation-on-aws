@@ -66,6 +66,9 @@ COLUMN_ORDER = ["LIBERO-Spatial", "LIBERO-Object", "LIBERO-Goal", "LIBERO-10", "
 
 # Keys that change what a success rate means. Cells in one column whose values differ are marked.
 COMPARE_KEYS_RE = re.compile(r"^(stack_.+|step_scale|random_init|replan_head|max_episode_steps)$")
+# Stack keys that name the policy side (its eval command line, its policy-server pin). They always differ
+# between two models on the same simulator, so they are not a comparability signal.
+POLICY_STACK_KEYS = {"stack_eval_args", "stack_server"}
 
 
 def suite_label(suite):
@@ -311,7 +314,7 @@ def collect_runs(args, boto3, s3=None, workers=16):
 def fingerprint(kvs):
     fp = {}
     for kv in kvs:
-        fp.update({k: v.strip() for k, v in kv.items() if COMPARE_KEYS_RE.match(k)})
+        fp.update({k: v.strip() for k, v in kv.items() if COMPARE_KEYS_RE.match(k) and k not in POLICY_STACK_KEYS})
     return fp
 
 

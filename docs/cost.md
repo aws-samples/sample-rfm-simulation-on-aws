@@ -56,10 +56,12 @@ Instance = the first entry of `instance.preferred` (the AZ selector may fall bac
 | `rldx-kitchen` | `g6.2xlarge` | ~25-35 min | ~0.41-0.57 |
 | `openarm-lift-act` | `g6.12xlarge` | not recorded | 4.6016 per hour |
 | `openarm-isaac` | `g6.12xlarge` | not recorded (creation timeout 240 min) | 4.6016 per hour |
-| `robolab-cosmos3` (`edge`, default) | `g6e.2xlarge` | estimate ~4-6 h (not run yet: ~1.5 h setup + 12 tasks × 5 episodes) | ~9-13 |
+| `smolvla --libero-variant plus` (70 episodes) | `g6.xlarge` | measured ~2 h in total (2026-10-30; the sensor-noise dimension alone ~80 min, CPU-bound fog at 360 px) | ~0.94-1.21, plus ~0.29 NAT processing for the 6.4 GB asset pack |
+| `openvla-oft --libero-suite spatial --libero-variant plus` (70 episodes) | `g6.xlarge` | measured ~1 h (2026-10-30) | ~1.61-2.01, plus ~0.29 NAT processing for the 6.4 GB asset pack |
+| `robolab-cosmos3` (`edge`, default) | `g6e.2xlarge` | measured ~1.9 h (2026-10-30, ap-northeast-2: ~35 min setup incl. a 30 GB server image build, ~75 min eval) | ~9-13 |
 | `robolab-cosmos3` (`nano`) | `g6e.12xlarge` | estimate ~5-8 h (2 shards; Nano ~4 s per inference call on the leaderboard) | ~52-84 |
 | `robolab-cosmos3` (`edge-full`) / `robolab-pi05` (`full`) | `g6e.48xlarge` | estimate ~6-9 h (8 shards over RoboLab-120 × 10; RoboLab quotes ~40 GPU hours for 120 tasks) | ~180-270 |
-| `robolab-pi05` (`subset`, default) | `g6e.2xlarge` | estimate ~4-5.5 h (not run yet) | ~9-12 |
+| `robolab-pi05` (`subset`, default) | `g6e.2xlarge` | measured ~1.4 h (2026-10-30, ap-northeast-2) | ~9-12 |
 | `flora-judge` (post-run judge, `vlasim judge`) | `g7e.2xlarge` (measured on the `g6e.12xlarge` fallback, US$12.90/h in `ap-northeast-2`) | 13-15 min instance time measured for 10-47 episodes (+ ~10 min stack create/delete) | ~0.85-1.10 on `g7e.2xlarge`; ~2.80-3.25 measured on `g6e.12xlarge` |
 
 ## Not included

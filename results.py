@@ -11,11 +11,19 @@ k/n successes and a 95% Wilson interval, so runs under different knobs
     python vlasim.py results --all-runs             # every run, not just the latest
     python vlasim.py results --vla openvla-oft --since 2026-10-19
     python vlasim.py results --csv out.csv --json out.json
+    python vlasim.py results --robustness           # LIBERO-Plus per-dimension drop vs the LIBERO baseline
 
 Episode count, in order of preference: n_episodes (+ n_success) in summary.txt;
 otherwise the per-episode videos (success=True/False) in task-N/videos/;
 otherwise the rate is shown without k/n. A task with no summary.txt is
 reported as "running/failed", never as 0.
+
+LIBERO-Plus sweeps (deploy --libero-variant plus) write one task per perturbation dimension with
+condition LIBERO-Plus/<dimension>, so they show up as one row per dimension. --robustness puts the
+latest sweep of each stack next to its LIBERO baseline (the latest run of the same stack and suite
+with the default condition) and prints the drop in percentage points:
+
+    python vlasim.py results --robustness --vla smolvla
 
 When a run was scored by the post-run judge (python vlasim.py judge --vla ...),
 <RUN_ID>/judge.json is read too and its agreement with the simulator's success
@@ -32,6 +40,8 @@ import sys
 BUCKET_RE = re.compile(r"^vla-sim-results-(?P<stack>.+)-(?P<region>[a-z]{2}-[a-z]+-\d)-(?P<acct>\d{12})$")
 KV_RE = re.compile(r"^([A-Za-z_][\w]*): ?(.*)$", re.M)
 RUN_RE = re.compile(r"^\d{4}-\d{2}-\d{2}-\d{4}$")
+PLUS_PREFIX = "LIBERO-Plus/"
+BASELINE_CONDITIONS = ("-", "S0")  # the default stack (no knob) of every target
 
 
 def wilson(k, n, z=1.96):
@@ -110,9 +120,12 @@ def task_row(s3, region, bucket, run, task_prefix):
     if rate is None and n:
         rate = k / n
     stack_fp = {x: v for x, v in kv.items() if x.startswith("stack_")}
-    return dict(run=run, task=task, status="done" if rate is not None else "no-rate",
-                suite=kv.get("suite") or kv.get("env_name") or kv.get("task_suite") or "-",
-                condition=(kv.get("condition") or "-").split()[0], k=k, n=n, rate=rate, stack=stack_fp)
+    row = dict(run=run, task=task, status="done" if rate is not None else "no-rate",
+               suite=kv.get("suite") or kv.get("env_name") or kv.get("task_suite") or "-",
+               condition=(kv.get("condition") or "-").split()[0], k=k, n=n, rate=rate, stack=stack_fp)
+    if kv.get("benchmark"):
+        row.update(benchmark=kv["benchmark"], perturbation=kv.get("perturbation", "-"))
+    return row
 
 
 def judge_summary(s3, region, bucket, run):
@@ -198,6 +211,63 @@ def aggregate(rows):
     return agg
 
 
+def _pool(rows):
+    k = sum(r["k"] or 0 for r in rows if r.get("n"))
+    n = sum(r["n"] for r in rows if r.get("n"))
+    return k, n
+
+
+def robustness(rows):
+    """LIBERO-Plus view: per (stack, region, suite), the latest LIBERO-Plus run split by perturbation
+    dimension, next to the latest baseline run (condition '-' or 'S0') of the same stack and suite.
+
+    Returns a list of dicts (one per dimension + one 'all' row per sweep). k/n are pooled episode
+    counts; drop_pp = (baseline rate - dimension rate) x 100. 'all' pools every dimension of the sweep:
+    with the same number of variants per dimension it equals the mean over dimensions.
+    """
+    done = [r for r in rows if r.get("status") == "done"]
+    groups = collections.OrderedDict()
+    for r in sorted(done, key=lambda x: (x["bucket_stack"], x["region"], x.get("suite", "-"), x["run"])):
+        groups.setdefault((r["bucket_stack"], r["region"], r.get("suite", "-")), []).append(r)
+    out = []
+    for (stack, region, suite), rs in groups.items():
+        plus = [r for r in rs if str(r.get("condition", "")).startswith(PLUS_PREFIX)]
+        if not plus:
+            continue
+        plus_run = max(r["run"] for r in plus)
+        plus = [r for r in plus if r["run"] == plus_run]
+        base = [r for r in rs if r.get("condition") in BASELINE_CONDITIONS]
+        base_run = max((r["run"] for r in base), default=None)
+        base = [r for r in base if r["run"] == base_run]
+        bk, bn = _pool(base)
+        brate = bk / bn if bn else None
+        dims = collections.OrderedDict()
+        for r in plus:
+            dims.setdefault(r["condition"][len(PLUS_PREFIX):], []).append(r)
+        for dim, drs in [*dims.items(), ("all", plus)]:
+            k, n = _pool(drs)
+            rate = k / n if n else None
+            lo, hi = wilson(k, n)
+            out.append(dict(
+                stack=stack, region=region, suite=suite, perturbation=dim, run=plus_run,
+                k_n=f"{k}/{n}" if n else "-", rate="" if rate is None else f"{rate:.2f}",
+                ci95="" if lo is None else f"{lo:.2f}-{hi:.2f}",
+                baseline="-" if brate is None else f"{brate:.2f} ({bk}/{bn})",
+                baseline_run=base_run or "-",
+                drop_pp="" if rate is None or brate is None else f"{(brate - rate) * 100:+.1f}"))
+    return out
+
+
+def _print_table(table, cols):
+    def cell(t, c):
+        v = str(t[c])
+        return v if len(v) <= 48 else v[:45] + "..."
+    width = {c: max(len(c), *(len(cell(t, c)) for t in table)) for c in cols}
+    print("  ".join(c.ljust(width[c]) for c in cols))
+    for t in table:
+        print("  ".join(cell(t, c).ljust(width[c]) for c in cols))
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(prog="vlasim results", description=__doc__.split("\n\n")[1])
     p.add_argument("--vla", help="only buckets whose stack name starts with this (e.g. openvla-oft)")
@@ -206,7 +276,12 @@ def main(argv=None):
     p.add_argument("--all-runs", action="store_true", help="every run, not just the latest per bucket")
     p.add_argument("--csv", help="write the aggregated table as CSV")
     p.add_argument("--json", help="write per-task rows and the aggregate as JSON")
+    p.add_argument("--robustness", action="store_true",
+                   help="LIBERO-Plus view: success per perturbation dimension of the latest sweep vs the latest "
+                        "LIBERO baseline of the same stack (reads every run; --since still applies)")
     a = p.parse_args(argv)
+    if a.robustness:
+        a.all_runs = True
     try:
         import boto3
     except ImportError:
@@ -215,6 +290,24 @@ def main(argv=None):
     rows = collect(a, boto3)
     if not rows:
         print("No results found (no vla-sim-results-* bucket with a RUN_ID/task-N/ prefix).")
+        return 0
+    if a.robustness:
+        table = robustness(rows)
+        if not table:
+            print("No LIBERO-Plus runs found (deploy with --libero-variant plus, then re-run).")
+            return 0
+        cols = ["stack", "region", "suite", "perturbation", "run", "k_n", "rate", "ci95", "baseline", "drop_pp"]
+        _print_table(table, cols)
+        print("\nbaseline = latest run of the same stack and suite with the default condition "
+              "(baseline_run in --csv / --json); drop_pp = baseline - rate, in percentage points.")
+        if a.csv:
+            with open(a.csv, "w", newline="") as f:
+                w = csv.DictWriter(f, fieldnames=cols + ["baseline_run"])
+                w.writeheader()
+                w.writerows(table)
+        if a.json:
+            with open(a.json, "w") as f:
+                json.dump(dict(rows=rows, robustness=table), f, indent=1, default=str)
         return 0
     agg = aggregate(rows)
     table = []
@@ -233,13 +326,7 @@ def main(argv=None):
                           tasks=g["tasks"], not_done=g["not_done"],
                           fingerprint=" ".join(f"{k}={v}" for k, v in sorted(g["stack"].items()))))
     cols = ["stack", "region", "run", "suite", "condition", "k_n", "rate", "ci95", "tasks", "not_done"]
-    def cell(t, c):
-        v = str(t[c])
-        return v if len(v) <= 48 else v[:45] + "..."
-    width = {c: max(len(c), *(len(cell(t, c)) for t in table)) for c in cols}
-    print("  ".join(c.ljust(width[c]) for c in cols))
-    for t in table:
-        print("  ".join(cell(t, c).ljust(width[c]) for c in cols))
+    _print_table(table, cols)
     fps = collections.OrderedDict()
     for t in table:
         if t["fingerprint"]:

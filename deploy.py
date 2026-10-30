@@ -46,9 +46,11 @@ import yaml
 from botocore.exceptions import ClientError
 
 import gallery
+import libero_plus
 from generate import (
     OFT_DEFAULT_SUITE,
     OFT_LIBERO_SUITES,
+    libero_plus_supported,
     normalise_libero_suite,
     oft_stack_name,
 )
@@ -272,8 +274,31 @@ def _maybe_import_orphan_bucket(
         print(f"[pre-check] {stack_name} is {status} (failed first create) — deleting it ...")
         cfn.delete_stack(StackName=stack_name)
         cfn.get_waiter("stack_delete_complete").wait(StackName=stack_name)
+    elif status in ("CREATE_COMPLETE", "UPDATE_COMPLETE", "UPDATE_ROLLBACK_COMPLETE"):
+        # A finished run leaves its stack behind (the instance terminates itself). Re-running the target
+        # would update that stack, and CloudFormation cannot update the run's WaitCondition
+        # ("Update to resource type AWS::CloudFormation::WaitCondition is not supported"). Delete the
+        # compute stack — the results bucket is RETAINed — and re-adopt the bucket below, which is what
+        # `destroy.py --keep-data` + deploy does. Refuse while the run's instance is still alive.
+        outputs = cfn.describe_stacks(StackName=stack_name)["Stacks"][0].get("Outputs", [])
+        instance_id = next((o["OutputValue"] for o in outputs if o["OutputKey"] == "InstanceId"), None)
+        if instance_id:
+            ec2 = boto3.client("ec2", region_name=region)
+            try:
+                reservations = ec2.describe_instances(InstanceIds=[instance_id])["Reservations"]
+                state = reservations[0]["Instances"][0]["State"]["Name"] if reservations else "terminated"
+            except ClientError:
+                state = "terminated"
+            if state not in ("terminated", "shutting-down"):
+                print(f"[pre-check] {stack_name}: the previous run's instance {instance_id} is still {state}.")
+                print("            Wait for it to finish (or stop it), then run deploy again.")
+                sys.exit(1)
+        print(f"[pre-check] {stack_name} is {status} from a previous run — deleting the compute stack "
+              "(results bucket and gallery are kept) ...")
+        cfn.delete_stack(StackName=stack_name)
+        cfn.get_waiter("stack_delete_complete").wait(StackName=stack_name)
     elif status is not None:
-        return  # Stack still exists
+        return  # Stack still exists (in progress or failed) — let cdk report it
 
     print(f"[pre-check] Orphan S3 bucket detected: {bucket_name}")
     print("[pre-check] Re-adopting via `cdk import` before deploy ...")
@@ -315,6 +340,17 @@ def main():
         "--libero-suite", default=OFT_DEFAULT_SUITE, choices=list(OFT_LIBERO_SUITES),
         help="openvla-oft only: LIBERO suite (default: 10 = LIBERO-Long; `long` aliases `10`)",
     )
+    parser.add_argument("--libero-variant", default="libero", choices=list(libero_plus.VARIANTS),
+                        help="LIBERO targets: `plus` = LIBERO-Plus robustness sweep (7 perturbation dimensions x N "
+                             "variants, 1 episode each) instead of the target's LIBERO tasks; same stack and results "
+                             "bucket, so `vlasim results --robustness` compares it with the LIBERO baseline. "
+                             "Settings: libero_plus in models/<vla>.yaml (default: libero)")
+    parser.add_argument("--perturb", metavar="LIST",
+                        help=f"--libero-variant plus: dimensions to sweep, comma-separated "
+                             f"({','.join(libero_plus.CATEGORIES)}) or all (default: libero_plus.perturb)")
+    parser.add_argument("--perturb-n", type=int, metavar="N",
+                        help="--libero-variant plus: variants per dimension (default: libero_plus.variants_per_category; "
+                             "0 = every variant, ~350 per dimension)")
     parser.add_argument("--no-gallery", action="store_true",
                         help="Do not publish videos to the video history gallery (CloudFront page linked from the "
                              "completion e-mail). Default: on (deployment.gallery in simulator-config.yaml).")
@@ -349,9 +385,32 @@ def main():
               "dict to dump).", file=sys.stderr)
         sys.exit(1)
 
+    plus = args.libero_variant == "plus"
+    if not plus and (args.perturb is not None or args.perturb_n is not None):
+        print("[error] --perturb / --perturb-n need --libero-variant plus.", file=sys.stderr)
+        sys.exit(1)
+    if plus and (args.judge or args.collect or args.bridge):
+        print("[error] --libero-variant plus cannot be combined with --judge, --collect or --bridge.", file=sys.stderr)
+        sys.exit(1)
+
     config = _load_config(args.vla)
     deployment = config.get("deployment", {})
     bridge_cfg = config.get("bridge", {})
+    plus_plan = None
+    if plus:
+        if not libero_plus_supported(args.vla, config):
+            print(f"[error] --libero-variant plus is not available for --vla {args.vla} (needs a libero_plus "
+                  "block in models/<vla>.yaml; see docs/targets.md#libero-plus-robustness-sweep).", file=sys.stderr)
+            sys.exit(1)
+        try:
+            suite_override = None
+            if args.vla == "openvla-oft":
+                suite_override = config["model"]["suites"][normalise_libero_suite(args.libero_suite)]["task_suite_name"]
+            plus_plan, _ = libero_plus.plan(config["libero_plus"], perturb=args.perturb, n=args.perturb_n,
+                                            suite=suite_override)
+        except ValueError as e:
+            print(f"[error] {e}", file=sys.stderr)
+            sys.exit(1)
 
     region = args.region or deployment["region"]
     email = args.email or deployment["notify_email"]
@@ -475,6 +534,10 @@ def main():
     print(f"[deploy] Stack:  {stack_name}")
     if args.vla == "openvla-oft":
         print(f"[deploy] Suite:  libero_{libero_suite}")
+    if plus_plan:
+        n_ep = libero_plus.episodes(plus_plan)
+        print(f"[deploy] LIBERO-Plus: {plus_plan['suite']}, {','.join(plus_plan['perturb'])} x "
+              f"{plus_plan['variants_per_category'] or 'all'} variants = {n_ep or 'all'} episodes")
     if vpc_id:
         print(f"[deploy] VPC:    {vpc_id}")
     print()
@@ -485,6 +548,16 @@ def main():
     if args.vla == "openvla-oft":
         oft_suite_args = ["--libero-suite", shlex.quote(libero_suite)]
     collect_args: list[str] = ["--collect"] if args.collect else []
+    plus_args: list[str] = []
+    plus_cdk_ctx: list[str] = []
+    if plus:
+        plus_args = ["--libero-variant", "plus"]
+        if args.perturb is not None:
+            plus_args += ["--perturb", ",".join(plus_plan["perturb"])]
+        if args.perturb_n is not None:
+            plus_args += ["--perturb-n", str(plus_plan["variants_per_category"])]
+        # Same stack + results bucket as the LIBERO run; the context only raises the timeout / EBS size.
+        plus_cdk_ctx = ["-c", "libero_variant=plus"]
     subprocess.run(  # nosec B603 - sys.executable is the current Python interpreter, not user input
         [
             sys.executable, "generate.py",
@@ -492,6 +565,7 @@ def main():
             "--output-dir", "assets/userdata",
             *oft_suite_args,
             *collect_args,
+            *plus_args,
             *generate_extra,
         ],
         cwd=str(BASE_DIR),
@@ -523,7 +597,7 @@ def main():
     _maybe_import_orphan_bucket(
         cdk_dir, stack_name, region, safe_email,
         shlex.quote(vpc_id) if vpc_id else "",
-        s3_results_prefix, [*extra_cdk_ctx, *gallery_ctx],
+        s3_results_prefix, [*extra_cdk_ctx, *gallery_ctx, *plus_cdk_ctx],
         cdk_out_dir=cdk_out_dir,
         vla=args.vla,
         libero_suite=libero_suite if args.vla == "openvla-oft" else "",
@@ -536,6 +610,10 @@ def main():
             print("  Estimated time: ~60 min (install ~20-30min + bridge eval ~30min)")
         else:
             print("  Estimated time: ~30-40 min (install ~10min + bridge eval ~20-30min)")
+    elif plus_plan:
+        n_ep = libero_plus.episodes(plus_plan)
+        print(f"  Estimated time: install as for LIBERO + LIBERO-Plus fork and {plus_plan['assets_bytes'] / 1e9:.1f} GB "
+              f"assets ~10 min + {n_ep or 'all'} episodes (~15-30 s each for SmolVLA, ~45 s for OpenVLA-OFT on L4)")
     else:
         if args.vla == "gr00t":
             print("  Estimated time: ~120 min (install ~30min + model download ~10min + sim ~80min)")
@@ -592,6 +670,7 @@ def main():
         "-c", f"notify_email={safe_email}",
         "-c", f"vla={args.vla}",
         *oft_cdk_ctx,
+        *plus_cdk_ctx,
         "--require-approval", "never",
         "--output", cdk_out_dir,
         *extra_cdk_ctx,
@@ -617,6 +696,8 @@ def main():
         print(f"  Video history (all your runs, by model): {gallery_info['url']}")
         print("  Password: python vlasim.py gallery")
     vla_safe = shlex.quote(args.vla)
+    if plus_plan:
+        print(f"  Robustness table (after the run): python vlasim.py results --robustness --vla {stack_name.lower()}")
     if args.vla == "openvla-oft" and libero_suite != OFT_DEFAULT_SUITE:
         print(f"  To clean up: python destroy.py --vla {vla_safe} --libero-suite {shlex.quote(libero_suite)}")
     else:

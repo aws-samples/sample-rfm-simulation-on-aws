@@ -98,6 +98,20 @@ tasks:
       description: "LIBERO-10 long-horizon (10 tasks × 5 trials)"
       # Full paper: num_trials_per_task=50 (500 trials total) takes >10h on single GPU.
 
+# LIBERO-Plus robustness sweep (off unless deployed with --libero-variant plus; see docs/targets.md).
+# The sweep runs on the suite (and checkpoint) picked with --libero-suite, e.g.
+#   python vlasim.py deploy --vla openvla-oft --libero-suite spatial --libero-variant plus
+# (the default suite 10 works too, but LIBERO-Long episodes are ~2x longer). The fork replaces LIBERO
+# in the conda env; run_libero_eval.py is patched to loop over the selected variant ids only
+# (assets/libero-plus/oft_task_ids_patch.py), one trial each.
+libero_plus:
+  perturb: [camera, robot, language, light, background, noise, layout]
+  variants_per_category: 10        # 7 x 10 variants x 1 trial = 70 episodes (~50-60 min of eval on L4)
+  seed: 7
+  pip_pins: "Wand==0.6.13 scikit-image==0.24.0"   # extra_requirements.txt of the fork (py3.10, numpy<2)
+  creationpolicy_timeout: PT240M   # install ~35 + ckpt ~10 + assets 6.4 GB ~10 + eval ~60 + buffer
+  ebs_gb: 270
+
 # Bridge mode not supported in initial version.
 # OpenVLA-OFT client/server split would require a separate policy-server image — deferred.
 bridge:

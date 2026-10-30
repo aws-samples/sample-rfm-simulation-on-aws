@@ -135,6 +135,8 @@ Stack names, robots, per-target notes, deploy and cleanup commands: [docs/target
 
 **Post-run judge (optional).** `python vlasim.py judge --vla <target> [--run RUN_ID]` scores every rollout video of a finished run with NVIDIA Flora-Rewarder (outcome score 1 to 5, success = score >= 4) on a `g7e.2xlarge` and writes `judge.json` / `judge.txt` next to the run; `vlasim results` then shows its agreement with the simulator's success flag. Flora-Rewarder is **non-commercial** (research only). Details: [docs/targets.md](docs/targets.md#post-run-judge-flora-rewarder).
 
+**Robustness sweep (optional, LIBERO-Plus).** `python vlasim.py deploy --vla smolvla --libero-variant plus` (also `openvla-oft --libero-suite spatial`) runs the same checkpoint on [LIBERO-Plus](https://github.com/sylvestf/LIBERO-plus) (arXiv 2510.13626), a LIBERO fork with seven perturbation dimensions (camera, robot initial state, language, light, background, sensor noise, object layout). Default: LIBERO-Spatial, 10 seeded variants per dimension, 1 episode each = 70 episodes, about 70-90 min on a `g6.xlarge` for `smolvla` (estimate). Each dimension is one row `LIBERO-Plus/<dimension>` in `vlasim results`; `python vlasim.py results --robustness --vla smolvla` prints the drop against the latest LIBERO run of the same stack. Without the flag nothing changes. The fork's code declares no license (research / evaluation use); it and its 6.4 GB asset pack are downloaded at run time. Details: [targets](docs/targets.md#libero-plus-robustness-sweep), [results](docs/results.md#libero-plus-robustness).
+
 > **A success rate belongs to the stack that produced it.** Episode count, init states, step cap and action-chunk execution all move the number; compare runs only when they match. See [Expected Results](docs/results.md#expected-results) for the same-stack baseline.
 
 ## Documentation
@@ -172,6 +174,7 @@ It orchestrates third-party models, datasets and simulators that are downloaded 
 - **ASPIRE** tools (`aspire`): SAM3 (Meta SAM License, gated) and Contact-GraspNet (NVIDIA, **non-commercial**).
 - **FastWAM** checkpoint (`fastwam`): no license stated; research / evaluation only.
 - **HOPE-Video** dataset (`real2sim` default input): CC BY-NC-SA 4.0, **non-commercial**; downloaded at run time, and the videos / meshes derived from it inherit that license.
+- **LIBERO-Plus** (`--libero-variant plus`, the optional robustness sweep): the fork's code repository declares no license; its asset pack is MIT on the Hugging Face dataset card. Research / evaluation use; both are downloaded at run time.
 - **RoboLab assets** (`robolab-cosmos3`, `robolab-pi05`): the scenes, objects and robot models bundled with RoboLab are mostly CC BY-NC-SA 4.0, **non-commercial** (RoboLab's code is Apache-2.0; the Cosmos3 weights are OpenMDW-1.1, commercial use allowed).
 - **Flora-Rewarder** (`flora-judge`, the optional post-run judge): NVIDIA OneWay Noncommercial License, **non-commercial**; research and development only.
 

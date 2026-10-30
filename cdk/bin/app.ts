@@ -20,6 +20,7 @@
  *   npx cdk deploy MolmoAct2-Demo              -c region=us-west-2 -c vla=molmoact2
  *   npx cdk deploy XVLA-Demo                   -c region=us-east-1 -c vla=xvla
  *   npx cdk deploy Real2Sim-Demo               -c region=ap-northeast-2 -c vla=real2sim
+ *   npx cdk deploy SmolVLA-Demo                -c region=us-east-1 -c vla=smolvla -c libero_variant=plus
  *   npx cdk deploy RoboLab-Cosmos3-Demo        -c region=us-east-1 -c vla=robolab-cosmos3
  */
 
@@ -50,6 +51,13 @@ if (vla === 'openvla-oft' && !OFT_SUITES.includes(rawSuite as typeof OFT_SUITES[
   );
 }
 const liberoSuite = vla === 'openvla-oft' ? normaliseSuite(rawSuite) : '';
+
+// LIBERO-Plus robustness sweep (deploy.py --libero-variant plus): same stack and results bucket as the LIBERO
+// run; the stack only takes the timeout / EBS size from models/<vla>.yaml libero_plus. Absent = LIBERO.
+const liberoVariant: string = app.node.tryGetContext('libero_variant') ?? 'libero';
+if (!['libero', 'plus'].includes(liberoVariant)) {
+  throw new Error(`Invalid libero_variant "${liberoVariant}". Supported: libero, plus.`);
+}
 
 const suiteCap = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1);
 const oftStackName = (suite: string): string =>
@@ -120,6 +128,7 @@ const descriptionMap: Record<string, string> = {
 const stack = new VlaSimulatorStack(app, stackName, {
   vla,
   liberoSuite,
+  liberoVariant,
   env: {
     account: process.env.CDK_DEFAULT_ACCOUNT,
     region,

@@ -32,6 +32,8 @@ export interface VlaSimulatorStackProps extends cdk.StackProps {
   vla: string;
   /** OpenVLA-OFT only: selected LIBERO suite (spatial | object | goal | 10). */
   liberoSuite?: string;
+  /** LIBERO targets: "plus" = LIBERO-Plus sweep (models/<vla>.yaml libero_plus); default "libero". */
+  liberoVariant?: string;
 }
 
 /**
@@ -142,7 +144,7 @@ export class VlaSimulatorStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: VlaSimulatorStackProps) {
     super(scope, id, props);
 
-    const { vla, liberoSuite } = props;
+    const { vla, liberoSuite, liberoVariant } = props;
 
     // ── Load config ──────────────────────────────────────────────
     const simConfigPath = path.resolve(__dirname, '../../simulator-config.yaml');
@@ -150,7 +152,17 @@ export class VlaSimulatorStack extends cdk.Stack {
     const simConfig = yaml.load(fs.readFileSync(simConfigPath, 'utf8')) as any;
     const modelConfig = yaml.load(fs.readFileSync(modelConfigPath, 'utf8')) as any;
     const deployment = { ...simConfig.deployment, ...(modelConfig.deployment ?? {}) };
-    const instanceCfg = resolveInstanceCfg(vla, modelConfig);
+    // --libero-variant plus: libero_plus.creationpolicy_timeout / ebs_gb override instance.* (the fork's
+    // 6.4 GB asset pack and the sweep need more disk and time). Absent → the LIBERO stack, unchanged.
+    const plusCfg = liberoVariant === 'plus' ? modelConfig.libero_plus : undefined;
+    if (liberoVariant === 'plus' && !plusCfg) {
+      throw new Error(`libero_variant=plus needs a libero_plus block in models/${vla}.yaml`);
+    }
+    const instanceCfg = {
+      ...(resolveInstanceCfg(vla, modelConfig) ?? {}),
+      ...(plusCfg?.creationpolicy_timeout ? { creationpolicy_timeout: plusCfg.creationpolicy_timeout } : {}),
+      ...(plusCfg?.ebs_gb ? { ebs_gb: plusCfg.ebs_gb } : {}),
+    };
 
     // CDK context takes precedence (injected by deploy.py)
     const notifyEmail: string = this.node.tryGetContext('notify_email') ?? deployment.notify_email;

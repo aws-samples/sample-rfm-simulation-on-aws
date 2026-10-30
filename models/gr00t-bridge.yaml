@@ -1,0 +1,111 @@
+# GR00T N1.7 x SimplerEnv WidowX/Bridge (visual matching) configuration
+# Checkpoint: https://huggingface.co/nvidia/GR00T-N1.7-SimplerEnv-Bridge
+# Recipe:     Isaac-GR00T examples/SimplerEnv/README.md "Bridge (WidowX) Evaluation"
+#             server: run_gr00t_server.py --model-path nvidia/GR00T-N1.7-SimplerEnv-Bridge
+#                     --embodiment-tag SIMPLER_ENV_WIDOWX --use-sim-policy-wrapper
+#             client: gr00t/eval/sim/SimplerEnv/simpler_uv/.venv/bin/python gr00t/eval/rollout_policy.py
+#                     --max-episode-steps 300 --env-name simpler_env_widowx/<task> --n-action-steps 4 --n-envs 5
+# Reported:   N1.7 Bridge average 62.3% over 7 WidowX tasks, 100 episodes each (same README, table added
+#             at the commit pinned below). The 4 standard Bridge tasks run here: spoon on towel 78.0%,
+#             carrot on plate 58.0%, stack cube 48.0%, eggplant in basket 53.0% (4-task mean 59.3%).
+#
+# CLI:   python deploy.py --vla gr00t-bridge [--email YOUR@EMAIL.COM]
+#
+# Same template as the `gr00t` LIBERO target (templates/gr00t-userdata.sh.j2, branched by sim_id):
+# GR00T ZeroMQ policy server in the repo venv + SimplerEnv rollout client in its own py3.10 venv.
+#
+# LICENSE: checkpoint = NVIDIA Open Model License ("ready for commercial/non-commercial use", HF card);
+#   Isaac-GR00T code Apache-2.0; SimplerEnv (squarefk fork) MIT; ManiSkill2_real2sim Apache-2.0.
+#   nvidia/Cosmos-Reason2-2B (backbone, gated) needs the HF token in SSM /vla-simulator/hf-token.
+#   Everything is downloaded at runtime; nothing is vendored.
+
+model:
+  id: gr00t-bridge
+  version: "N1.7-SimplerEnv-Bridge"
+  hf_repo: "nvidia/GR00T-N1.7-SimplerEnv-Bridge"
+  # HF API sha of main (lastModified 2026-04-20). 35.7 GB in total, of which 28.8 GB are DeepSpeed
+  # optimizer shards (global_step32000/) and RNG states: inference needs neither, so they are skipped.
+  hf_model_revision: "940134b3c2948ccfdf8e7393f2d2ca869dc42833"
+  hf_ignore_patterns: ["global_step*/*", "rng_state_*.pth"]
+  # Isaac-GR00T 65cc4a1 (2026-06-11, "Update SimplerEnv Metrics for current seed evaluation") is the
+  # commit that published the N1.7 Bridge numbers above, and the N1.7 server pin of gr00t-g1. Still
+  # requires-python ==3.10 (later commits move to 3.12, which breaks setup_SimplerEnv.sh until 9c7e746).
+  # At this pin external_dependencies/SimplerEnv = squarefk/SimplerEnv@8a2d286c, whose nested
+  # ManiSkill2_real2sim = youliangtan/ManiSkill2_real2sim@c2a9e87c (both read via git ls-tree).
+  isaac_groot_commit: "65cc4a192e6d084650d97747308b6a8deb790722"
+  uv_version: "0.11.6"
+
+  # ── SimplerEnv parameterisation (consumed by generate._gr00t_sim_ctx) ──
+  sim_id: simpler
+  # SAPIEN renders via Vulkan; the DLAMI ships the NVIDIA driver but not libvulkan.so.1 (same as rldx-simpler).
+  needs_vulkan: true
+  # FIX S1: rollout_policy.py imports gr00t.policy -> model code. setup_SimplerEnv.sh at this pin
+  # installs gr00t --no-deps without these; list = upstream 9c7e746 setup_SimplerEnv.sh additions.
+  sim_extra_deps: "pandas==2.2.3 dm-tree==0.1.9 einops==0.8.1 albumentations==1.4.18 diffusers==0.35.1 scipy==1.15.3"
+  # Pins setup_SimplerEnv.sh sets that FIX S1 must not move (gymnasium / numpy / cv2 / transformers).
+  sim_protect_pins: "gymnasium==0.29.1 numpy==1.26.4 opencv-python-headless==4.10.0.84 transformers==4.57.3"
+
+  # Result-card labels (S3 per-video context txt).
+  robot_label: "WidowX 250 (SimplerEnv Bridge, SIMPLER_ENV_WIDOWX embodiment)"
+  sim_label: "SimplerEnv visual matching (ManiSkill2_real2sim + SAPIEN, Vulkan headless)"
+
+instance:
+  # 3B policy (~7 GB bf16 weights) + SAPIEN renderer on one GPU: a single 24 GB L4/A10G is enough.
+  # .2xlarge first for 32 GB host RAM (two venvs + SAPIEN), single-GPU .xlarge as capacity fallback.
+  preferred: [g6.2xlarge, g5.2xlarge, g6.xlarge, g5.xlarge]
+  ebs_gb: 200          # Isaac-GR00T + server venv + SimplerEnv venv + 6.9 GB ckpt + 4.9 GB backbone
+  ebs_gb_bridge: 200   # bridge mode not supported — same value
+  creationpolicy_timeout: PT180M  # install ~30-40 min + DL ~10 min + 4 server loads + 40 episodes
+
+# SimplerEnv WidowX/Bridge visual-matching tasks (the 4 tasks every Bridge results table reports).
+# env_name = the simpler_env_widowx/<task> ids that register_simpler_envs() registers at the pin.
+# n_episodes per task; upstream reports 100 per task — raise for a full benchmark run.
+tasks:
+  - suite: simpler_bridge
+    env_name: simpler_env_widowx/widowx_spoon_on_towel
+    embodiment: SIMPLER_ENV_WIDOWX
+    n_episodes: 10
+    n_envs: 1
+    max_episode_steps: 300
+    replan: 4            # rollout_policy.py --n-action-steps 4 (README Bridge recipe)
+    seed: 42
+    video_fps: 10
+    video_crf: 22
+    steps_per_render: 1
+  - suite: simpler_bridge
+    env_name: simpler_env_widowx/widowx_carrot_on_plate
+    embodiment: SIMPLER_ENV_WIDOWX
+    n_episodes: 10
+    n_envs: 1
+    max_episode_steps: 300
+    replan: 4
+    seed: 42
+    video_fps: 10
+    video_crf: 22
+    steps_per_render: 1
+  - suite: simpler_bridge
+    env_name: simpler_env_widowx/widowx_stack_cube
+    embodiment: SIMPLER_ENV_WIDOWX
+    n_episodes: 10
+    n_envs: 1
+    max_episode_steps: 300
+    replan: 4
+    seed: 42
+    video_fps: 10
+    video_crf: 22
+    steps_per_render: 1
+  - suite: simpler_bridge
+    env_name: simpler_env_widowx/widowx_put_eggplant_in_basket
+    embodiment: SIMPLER_ENV_WIDOWX
+    n_episodes: 10
+    n_envs: 1
+    max_episode_steps: 300
+    replan: 4
+    seed: 42
+    video_fps: 10
+    video_crf: 22
+    steps_per_render: 1
+
+# Bridge mode (remote gRPC inference) is LIBERO-only in this template — local mode only.
+bridge:
+  enabled: false

@@ -42,6 +42,7 @@ BASE_DIR = Path(__file__).parent
 
 STACK_NAMES = {
     "gr00t": "GR00T-Demo",
+    "gr00t-bridge": "GR00T-Bridge-Demo",
     "gr00t-gr1": "GR00T-GR1-Demo",
     "gr00t-g1": "GR00T-G1-Demo",
     "pi": "Pi-Demo",

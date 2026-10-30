@@ -14,8 +14,9 @@
 set -euo pipefail
 
 ISAAC_GROOT_DIR=/home/ubuntu/Isaac-GR00T
-VENV="${ISAAC_GROOT_DIR}/gr00t/eval/sim/LIBERO/libero_uv/.venv"   # LIBERO rollout venv
-SERVER_VENV="${ISAAC_GROOT_DIR}/.venv"                              # GR00T server venv (set to .venv after uv sync)
+{% if sim_id == 'simpler' %}VENV="${ISAAC_GROOT_DIR}/gr00t/eval/sim/SimplerEnv/simpler_uv/.venv"   # SimplerEnv rollout venv
+{% else %}VENV="${ISAAC_GROOT_DIR}/gr00t/eval/sim/LIBERO/libero_uv/.venv"   # LIBERO rollout venv
+{% endif %}SERVER_VENV="${ISAAC_GROOT_DIR}/.venv"                              # GR00T server venv (set to .venv after uv sync)
 VIDEO_BASE_DIR=/tmp/gr00t-videos
 RUN_ID=$(date '+%Y-%m-%d-%H%M')
 BRIDGE_DIR=/tmp/gr00t_bridge
@@ -132,7 +133,7 @@ done
 # ── [1.5/6] CloudWatch Logs agent setup ──────────────────────────
 log "[1.5/6] Setting up CloudWatch Logs agent..."
 # DLAMI (Ubuntu 22.04) has amazon-cloudwatch-agent pre-installed
-CW_LOG_GROUP="/gr00t/userdata"
+CW_LOG_GROUP="/{{ log_prefix }}/userdata"
 if [ -f /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl ]; then
     cat > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json << 'CWEOF'
 {
@@ -142,7 +143,7 @@ if [ -f /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl ]; then
         "collect_list": [
           {
             "file_path": "/var/log/gr00t-userdata.log",
-            "log_group_name": "/gr00t/userdata",
+            "log_group_name": "/{{ log_prefix }}/userdata",
             "log_stream_name": "{instance_id}",
             "timezone": "UTC"
           }
@@ -169,7 +170,63 @@ log "[2/6] Checking GPU driver..."
 # If nvidia-smi fails, warn and continue (EGL headless rendering will be attempted).
 nvidia-smi -L 2>&1 | tee /tmp/gr00t_nvidia.log \
     || log "[warn] nvidia-smi failed — verify DLAMI is being used (continuing with EGL headless)"
-
+{% if needs_vulkan %}# ── [2.5/6] FIX 8: Vulkan loader + NVIDIA ICD ({{ sim_id }} renders via SAPIEN) ──
+# The DLAMI ships the NVIDIA driver (libGLX_nvidia.so.0) but NOT the Vulkan loader,
+# so SAPIEN's `import sapien.core` dies with `ImportError: libvulkan.so.1`. LIBERO/MuJoCo
+# sims skip this block (needs_vulkan empty). Same block as templates/rldx-userdata.sh.j2 FIX 8. Source of truth (verified, not guessed):
+# simpler-env/ManiSkill2_real2sim/docker/{Dockerfile,nvidia_icd.json,nvidia_layers.json}.
+log "[2.5/6] FIX 8: installing Vulkan loader + NVIDIA ICD ({{ sim_id }} needs SAPIEN/Vulkan)..."
+APT_RETRY=0
+until apt-get install -y --no-install-recommends -o DPkg::Lock::Timeout=300 \
+    libvulkan1 vulkan-tools \
+    2>&1 | tee /tmp/gr00t_fix8_vulkan.log; do
+    APT_RETRY=$((APT_RETRY + 1))
+    [ $APT_RETRY -ge 3 ] && die "FIX 8: libvulkan1 install failed after 3 retries"
+    log "[warn] FIX 8 apt install failed (attempt $APT_RETRY), retrying in 30s..."
+    sleep 30
+done
+# ICD: tell the loader where the NVIDIA driver's Vulkan entry point is (api_version per
+# the verified ManiSkill2_real2sim docker asset; libGLX_nvidia.so.0 = DLAMI-preinstalled).
+mkdir -p /usr/share/vulkan/icd.d /etc/vulkan/implicit_layer.d
+cat > /usr/share/vulkan/icd.d/nvidia_icd.json << 'VKICDEOF'
+{
+    "file_format_version" : "1.0.0",
+    "ICD": {
+        "library_path": "libGLX_nvidia.so.0",
+        "api_version" : "1.2.155"
+    }
+}
+VKICDEOF
+cat > /etc/vulkan/implicit_layer.d/nvidia_layers.json << 'VKLAYEREOF'
+{
+    "file_format_version" : "1.0.0",
+    "layer": {
+        "name": "VK_LAYER_NV_optimus",
+        "type": "INSTANCE",
+        "library_path": "libGLX_nvidia.so.0",
+        "api_version" : "1.2.155",
+        "implementation_version" : "1",
+        "description" : "NVIDIA Optimus layer",
+        "functions": {
+            "vkGetInstanceProcAddr": "vk_optimusGetInstanceProcAddr",
+            "vkGetDeviceProcAddr": "vk_optimusGetDeviceProcAddr"
+        },
+        "enable_environment": {
+            "__NV_PRIME_RENDER_OFFLOAD": "1"
+        },
+        "disable_environment": {
+            "DISABLE_LAYER_NV_OPTIMUS_1": ""
+        }
+    }
+}
+VKLAYEREOF
+# Sanity-probe the Vulkan device (non-fatal: SAPIEN can still fall back to EGL/CPU; the
+# real gate is setup_SimplerEnv.sh's own gym.make sanity check in [3/6]).
+vulkaninfo --summary 2>&1 | grep -iE "deviceName|driverName|apiVersion" | head -5 \
+    | tee -a /tmp/gr00t_fix8_vulkan.log \
+    || log "[warn] vulkaninfo probe inconclusive — relying on the [3/6] setup sanity check"
+log "  FIX 8 applied — Vulkan loader + NVIDIA ICD installed"
+{% endif %}
 # ── [3/6] uv install + Isaac-GR00T setup ──────────────────────────
 log "[3/6] Installing uv (pinned: {{ uv_version if uv_version else 'latest' }})..."
 if ! command -v uv &>/dev/null; then
@@ -202,6 +259,68 @@ if [ ! -d "${ISAAC_GROOT_DIR}" ]; then
 else
     log "Isaac-GR00T already exists, skipping clone"
 fi
+
+{% if sim_id == 'simpler' -%}
+log "[3/6] Installing SimplerEnv sim environment (ManiSkill2_real2sim + SAPIEN, 10-20 min)..."
+cd "${ISAAC_GROOT_DIR}"
+
+# setup_SimplerEnv.sh runs uv with the default cache under $HOME; root's cloud-init shell may
+# leave it unset (set -u failure). Same guard as the LIBERO branch.
+export HOME="${HOME:-/root}"
+
+# external_dependencies/SimplerEnv is a committed gitlink at this pin (squarefk/SimplerEnv fork,
+# with ManiSkill2_real2sim as its own nested submodule). setup_SimplerEnv.sh runs
+# `git submodule update --init --recursive` on it itself; doing it here first makes a clone
+# failure show up as its own log line instead of deep inside the setup trace.
+log "  [3/6] git submodule update --init --recursive external_dependencies/SimplerEnv ..."
+git submodule update --init --recursive external_dependencies/SimplerEnv \
+    2>&1 | tee /tmp/gr00t_submodule.log \
+    || { tail -50 /tmp/gr00t_submodule.log | while IFS= read -r line; do log "  [submodule] $line"; done; die "SimplerEnv submodule init failed"; }
+[ -d external_dependencies/SimplerEnv/ManiSkill2_real2sim ] \
+    || die "SimplerEnv submodule has no ManiSkill2_real2sim (nested submodule not populated)"
+log "  [3/6] SimplerEnv submodule OK: $(git -C external_dependencies/SimplerEnv rev-parse --short HEAD)"
+
+# setup_SimplerEnv.sh: py3.10 uv venv at gr00t/eval/sim/SimplerEnv/simpler_uv/.venv, editable
+# ManiSkill2_real2sim + SimplerEnv, gr00t (--no-deps), then a gym.make + reset sanity check on a
+# simpler_env_google task (needs the Vulkan loader from [2.5/6]).
+log "  [3/6] Running setup_SimplerEnv.sh (uv venv + deps + sanity) ..."
+bash gr00t/eval/sim/SimplerEnv/setup_SimplerEnv.sh \
+    2>&1 | tee /tmp/gr00t_setup.log | tee -a /var/log/gr00t-userdata.log \
+    || { log "  [setup ERROR] setup_SimplerEnv.sh failed — last 50 lines:"; \
+         tail -50 /tmp/gr00t_setup.log | while IFS= read -r line; do log "  [setup] $line"; done; \
+         die "setup_SimplerEnv.sh failed"; }
+log "  [3/6] setup_SimplerEnv.sh complete"
+{%- if sim_extra_deps %}
+
+# FIX S1 — rollout-client deps missing from the SimplerEnv venv. setup_SimplerEnv.sh installs gr00t
+# with --no-deps and a short dependency list; its sanity check imports only simpler_env, but
+# rollout_policy.py imports gr00t.policy, whose model code needs more (the LIBERO setup script at
+# the same pin installs pandas / dm_tree / einops / albumentations for the same reason). Upstream
+# added this exact list to setup_SimplerEnv.sh later (Isaac-GR00T 9c7e746, 2026-07-08). Installed
+# together with the venv's own pins so the resolver cannot move them.
+log "[3/6] FIX S1: installing rollout-client deps into the SimplerEnv venv..."
+uv pip install --python "${VENV}/bin/python" {{ sim_extra_deps }} {{ sim_protect_pins }} \
+    2>&1 | tee /tmp/gr00t_fix_s1.log \
+    || die "FIX S1: SimplerEnv venv dep install failed (see /tmp/gr00t_fix_s1.log)"
+{%- endif %}
+
+# Verify the rollout client end to end before any GPU time is spent on the model: the full
+# rollout_policy import chain + register + gym.make/reset of the first task's env.
+FIRST_ENV='{{ first_env_name }}'
+log "[3/6] Verifying SimplerEnv venv (rollout_policy imports + gym.make ${FIRST_ENV})..."
+"${VENV}/bin/python" - "${FIRST_ENV}" <<'GR00T_SIMPLER_VERIFY_EOF' 2>&1 | tee /tmp/gr00t_simpler_verify.log \
+    || die "SimplerEnv venv verify failed (see /tmp/gr00t_simpler_verify.log)"
+import sys
+import gymnasium as gym
+import gr00t.eval.rollout_policy  # noqa: F401  (import chain the rollout client needs)
+from gr00t.eval.sim.SimplerEnv.simpler_env import register_simpler_envs
+register_simpler_envs()
+env = gym.make(sys.argv[1])
+obs, _ = env.reset()
+print("verify OK:", sys.argv[1], sorted(k for k in obs if k.startswith(("video.", "state."))))
+env.close()
+GR00T_SIMPLER_VERIFY_EOF
+{%- else -%}
 
 log "[3/6] Installing LIBERO sim environment (10-20 min)..."
 cd "${ISAAC_GROOT_DIR}"
@@ -259,6 +378,7 @@ bash gr00t/eval/sim/LIBERO/setup_libero.sh \
          tail -50 /tmp/gr00t_setup.log | while IFS= read -r line; do log "  [setup] $line"; done; \
          die "setup_libero.sh failed"; }
 log "  [3/6] setup_libero.sh complete"
+{%- endif %}
 
 # ── [3.1/6] GR00T inference server venv (separate from LIBERO rollout venv) ──
 # run_gr00t_server.py requires gr00t core deps from pyproject.toml.
@@ -434,7 +554,7 @@ log "  Model path (subfolder): ${HF_MODEL_PATH}"
 HF_MODEL_PATH=$(hf_dl_guard "checkpoint download" /tmp/gr00t_hf_download.log \
     -- "${SERVER_VENV}/bin/python" -c "
 from huggingface_hub import snapshot_download
-path = snapshot_download('{{ hf_repo }}', revision='{{ hf_model_revision }}')
+path = snapshot_download('{{ hf_repo }}', revision='{{ hf_model_revision }}'{% if hf_ignore_patterns %}, ignore_patterns={{ hf_ignore_patterns }}{% endif %})
 print(path)
 " 2>&1 | tail -1) \
     || die "HuggingFace model download failed (repo: {{ hf_repo }}, revision: {{ hf_model_revision[:8] }}) — see /tmp/gr00t_hf_download.log"
@@ -484,6 +604,14 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
     K_REPLAN=$(echo "$TASK" | jq -r '.replan // empty')
     K_ARGS=()
     [ -n "${K_REPLAN}" ] && K_ARGS+=( --n-action-steps "${K_REPLAN}" )
+{%- if sim_id == 'simpler' %}
+    # SimplerEnv: optional per-task seed (rollout_policy.py --seed: seeds the Python/NumPy/torch RNGs;
+    # the WidowX env wrapper at the gr00t-bridge pin ignores reset seeds) and the
+    # benchmark label carried into summary.txt (results.py groups by `suite`).
+    K_SEED=$(echo "$TASK" | jq -r '.seed // empty')
+    [ -n "${K_SEED}" ] && K_ARGS+=( --seed "${K_SEED}" )
+    SUITE=$(echo "$TASK" | jq -r '.suite // empty')
+{%- endif %}
     log "  stack condition=${K_COND} replan=${K_REPLAN:-default} max_episode_steps=${MAX_STEPS}"
 
     VIDEO_DIR="${VIDEO_BASE_DIR}/task-${TASK_IDX}"
@@ -571,6 +699,10 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
     # Write summary.txt
     {
         echo "env_name: ${ENV_NAME}"
+{%- if sim_id == 'simpler' %}
+        echo "suite: ${SUITE}"
+        echo "seed: ${K_SEED:-none}"
+{%- endif %}
         echo "success_rate: ${SR}"
         echo "n_episodes: ${N_EPISODES}"
         echo "n_success: ${N_SUCCESS}"
@@ -579,7 +711,12 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
         echo "replan: ${K_REPLAN:-default}"
         echo "max_episode_steps: ${MAX_STEPS}"
         echo "stack_isaac_groot_commit: $(git -C "${ISAAC_GROOT_DIR}" rev-parse HEAD 2>/dev/null || echo unknown)"
+{%- if sim_id == 'simpler' %}
+        echo "stack_sapien: $("${VENV}/bin/python" -c 'import sapien; print(sapien.__version__)' 2>/dev/null || echo unknown)"
+        echo "stack_simplerenv_commit: $(git -C "${ISAAC_GROOT_DIR}/external_dependencies/SimplerEnv" rev-parse HEAD 2>/dev/null || echo unknown)"
+{%- else %}
         echo "stack_mujoco: $("${VENV}/bin/python" -c 'import mujoco; print(mujoco.__version__)' 2>/dev/null || echo unknown)"
+{%- endif %}
     } > "/tmp/gr00t_task${TASK_IDX}_summary.txt"
 
     # Stop ZMQ server / bridge
@@ -607,8 +744,14 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
             echo "--- Environment ---"
             printf "Task:       %s\n"  "${TASK_NAME}"
             printf "Gym ID:     %s\n"  "${ENV_NAME}"
+{%- if sim_id == 'simpler' %}
+            printf "Suite:      %s\n"  "${SUITE}"
+            printf "Sim:        {{ sim_label }}\n"
+            printf "Robot:      {{ robot_label }}\n"
+{%- else %}
             printf "Suite:      robocasa-gr1-tabletop-tasks\n"
             printf "Robot:      NVIDIA Fourier GR1 (%s)\n" "${ROBOT_TAG}"
+{%- endif %}
             echo ""
             echo "--- Model ---"
             printf "Model:      {{ hf_repo }}{% if hf_subfolder %}/{{ hf_subfolder }}{% endif %} (rev: {{ hf_model_revision[:8] if hf_model_revision else 'unpinned' }})\n"

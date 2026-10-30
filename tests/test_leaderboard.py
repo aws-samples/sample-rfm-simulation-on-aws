@@ -41,6 +41,9 @@ def ts(run, minutes):
     ("robolab", "RoboLab/subset12", "RoboLab/subset12"),
     ("-", "RoboLab/subset12", "RoboLab/subset12"),
     ("beat_block_hammer", "RoboTwin2/demo_clean", "RoboTwin2/demo_clean"),
+    ("RoboTwin2/clean", "subset", "RoboTwin2/clean (subset)"),
+    ("RoboTwin2/randomized", "randomized", "RoboTwin2/randomized"),
+    ("RoboTwin2/clean", "S2a", "RoboTwin2"),
     ("simpler_bridge", "S0", "SimplerEnv-Bridge"),
     ("simpler_env_widowx/widowx_spoon_on_towel", "-", "SimplerEnv-Bridge"),
     ("libero_sim/LIVING_ROOM_SCENE2_put_both", "-", "LIBERO scenes (GR00T)"),
@@ -59,6 +62,14 @@ def test_benchmark_label(suite, condition, label):
 ])
 def test_is_baseline(condition, baseline):
     assert lb.is_baseline(condition) is baseline
+
+
+@pytest.mark.parametrize("condition,suite,baseline", [
+    ("subset", "RoboTwin2/clean", True), ("full", "RoboTwin2/randomized", True),
+    ("subset", "libero_spatial", False), ("clean", None, False),
+])
+def test_is_baseline_protocol(condition, suite, baseline):
+    assert lb.is_baseline(condition, suite) is baseline
 
 
 def test_column_order_known_first():

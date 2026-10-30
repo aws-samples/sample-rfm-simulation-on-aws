@@ -57,6 +57,9 @@ SUITE_LABELS = {
 BENCH_COND_RE = re.compile(r"^(?P<bench>[A-Z][A-Za-z0-9.+_-]*)/(?P<setting>\S+)$")
 # Stack conditions that mean "the upstream / official evaluation stack".
 BASELINE_CONDITIONS = {"", "-", "s0", "none", "default", "baseline", "official"}
+# RoboTwin targets write the benchmark into `suite` (RoboTwin2/clean) and the protocol into `condition`.
+# These protocol names are baseline runs when the suite itself is <Benchmark>/<setting>.
+PROTOCOL_CONDITIONS = {"subset", "clean", "randomized", "full"}
 # Column order: known benchmarks first, everything else alphabetically after them.
 COLUMN_ORDER = ["LIBERO-Spatial", "LIBERO-Object", "LIBERO-Goal", "LIBERO-10", "LIBERO-90", "LIBERO-Plus",
                 "LIBERO scenes", "SimplerEnv", "RoboCasa", "GR1", "G1", "RoboLab", "RoboTwin"]
@@ -75,6 +78,9 @@ def benchmark_label(suite, condition):
     lbl = suite_label(suite)
     m = BENCH_COND_RE.match((condition or "").strip())
     if not m:
+        s = (suite or "").strip()
+        if BENCH_COND_RE.match(s) and (condition or "").strip().lower() in PROTOCOL_CONDITIONS:
+            return f"{s} (subset)" if condition.strip().lower() == "subset" else s  # RoboTwin2/clean (subset)
         return lbl
     bench = f"{m.group('bench')}/{m.group('setting')}"
     if m.group("bench").upper().startswith("LIBERO") and lbl.startswith("LIBERO-"):
@@ -82,8 +88,10 @@ def benchmark_label(suite, condition):
     return bench
 
 
-def is_baseline(condition):
+def is_baseline(condition, suite=None):
     c = (condition or "").strip()
+    if c.lower() in PROTOCOL_CONDITIONS and BENCH_COND_RE.match((suite or "").strip()):
+        return True
     return c.lower() in BASELINE_CONDITIONS or bool(BENCH_COND_RE.match(c))
 
 
@@ -329,7 +337,7 @@ def run_groups(run, targets=None):
         suites = sorted(set(g["suites"]))
         suite = suites[0] if len(suites) == 1 else f"{suites[0].split('/', 1)[0]}/* ({len(suites)})"
         out.append(dict(g, suite=suite, condition=cond, run=run, target=target_of(run["stack"], model, targets),
-                        column=col, baseline=is_baseline(cond), fp=fingerprint(g["kvs"])))
+                        column=col, baseline=is_baseline(cond, suites[0]), fp=fingerprint(g["kvs"])))
     return out
 
 

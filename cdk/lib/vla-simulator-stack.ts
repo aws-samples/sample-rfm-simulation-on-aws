@@ -114,6 +114,20 @@ function preferredFromYaml(vla: string, instanceCfg: any): string[] {
   return pref;
 }
 
+// Targets with a `variants:` block (robolab-*) select one with model.variant; that variant's `instance:`
+// keys (preferred list, EBS, creation timeout) override the top-level `instance:`. Same rule as
+// generate.resolve_variant(). Models without `variants:` are returned unchanged.
+export function resolveInstanceCfg(vla: string, modelConfig: any): any {
+  const base = modelConfig?.instance ?? {};
+  const variants = modelConfig?.variants;
+  if (!variants || typeof variants !== 'object') return base;
+  const name = String(modelConfig?.model?.variant ?? '').trim();
+  if (!Object.prototype.hasOwnProperty.call(variants, name)) {
+    throw new Error(`models/${vla}.yaml: model.variant "${name}" is not one of ${Object.keys(variants).join(', ')}`);
+  }
+  return { ...base, ...(variants[name]?.instance ?? {}) };
+}
+
 // Real2Sim user capture: models/<vla>.yaml input = {source: capture, capture_s3_uri: s3://bucket/key.zip}
 // -> "bucket/key.zip" (the one object the instance may read); undefined for any other input.
 export function captureObjectPath(vla: string, input: any): string | undefined {
@@ -145,7 +159,7 @@ export class VlaSimulatorStack extends cdk.Stack {
       throw new Error(`libero_variant=plus needs a libero_plus block in models/${vla}.yaml`);
     }
     const instanceCfg = {
-      ...(modelConfig.instance ?? {}),
+      ...(resolveInstanceCfg(vla, modelConfig) ?? {}),
       ...(plusCfg?.creationpolicy_timeout ? { creationpolicy_timeout: plusCfg.creationpolicy_timeout } : {}),
       ...(plusCfg?.ebs_gb ? { ebs_gb: plusCfg.ebs_gb } : {}),
     };

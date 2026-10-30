@@ -160,7 +160,12 @@ def _model_preferred(vla):
     try:
         import yaml  # noqa: PLC0415
         cfg = yaml.safe_load(text) or {}
-        pref = (cfg.get("instance", {}) or {}).get("preferred")
+        inst = dict(cfg.get("instance", {}) or {})
+        # models with a variants: block (robolab-*): model.variant's instance keys win, as in the CDK stack
+        variant = (cfg.get("variants") or {}).get(str((cfg.get("model") or {}).get("variant", "")))
+        if isinstance(variant, dict):
+            inst.update(variant.get("instance") or {})
+        pref = inst.get("preferred")
         if pref:
             return list(pref)
     except Exception:  # nosec B110 - regex fallback below

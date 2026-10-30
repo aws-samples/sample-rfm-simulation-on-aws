@@ -269,6 +269,20 @@ Source: [`results/cells.csv`](https://github.com/byongwu/pai-same-policy-differe
 | `rldx-kitchen` | robocasa_panda_omron/OpenSingleDoor (PandaOmron mobile manip) | 70.6% 24-task avg (paper README) | 0.80 (4/5), validated 2026-06-26 (g6.2xlarge L4) |
 | `rldx-kitchen` | robocasa_panda_omron/OpenDrawer (PandaOmron mobile manip) | 70.6% 24-task avg (paper README) | 0.80 (4/5), validated 2026-06-26 (g6.2xlarge L4) |
 
+### RoboLab (`robolab-cosmos3`, `robolab-pi05`)
+
+Reference numbers are from the public [RoboLab leaderboard](https://research.nvidia.com/labs/srl/projects/robolab/leaderboard.html) (`static/data/leaderboard.json` v76, generated 2026-10-23): RoboLab-120, 10 episodes per task, default instructions, success rate with a 95% Clopper-Pearson interval, Isaac Lab 2.2.0 / Isaac Sim 5.0.0. The measured column is filled by the first AWS run (STEP B). The default 12-task subset is **not** comparable to these rows; only the `edge-full` / `full` variants run the same protocol.
+
+| `--vla` (variant) | Protocol | Leaderboard (RoboLab-120) | Measured on AWS |
+|---|---|---|---|
+| `robolab-cosmos3` (`edge`, `edge-full`) | subset12 / RoboLab-120 | Cosmos3-Edge-Policy 22.9% (275/1200, CI 20.6-25.4; L40, 9.2 GB; RoboLab `454152dd`, 2026-07-11) | subset12, `edge`: 31.7% (19/60), 2026-10-30, `g6e.2xlarge`, RoboLab `9cce00ca` |
+| `robolab-cosmos3` (`nano`) | subset12 | Cosmos3-Nano-Policy 36.8% (441/1200, CI 34.0-39.5; L40, 40 GB; RoboLab `88976795`, 2026-05-22) | not run yet |
+| `robolab-pi05` (`subset`, `full`) | subset12 / RoboLab-120 | π0.5 28.0% (336/1200, CI 25.5-30.6; L40S; RoboLab `09545754`, 2026-05-09) | subset12: 40.0% (24/60), 2026-10-30, `g6e.2xlarge`, RoboLab `9cce00ca` |
+
+The 12-task subset is not the leaderboard protocol, so read the two measured rows against each other rather than against RoboLab-120: on the same subset, instance and RoboLab pin, π0.5-DROID (40.0%) leads Cosmos3-Edge-Policy (31.7%), the same order as on the leaderboard (28.0% vs 22.9%). With 60 episodes each the two 95% intervals overlap.
+
+The leaderboard rows were produced with RoboLab v0.1.0-v0.2.0 builds; these targets pin `9cce00ca` (v0.3.2), and RoboLab notes that contact dynamics differ across simulator versions, so expect small shifts even on the full protocol.
+
 **Validated results (us-east-1, g6.12xlarge / g5.xlarge / g6.xlarge):**
 - GR00T N1.7: KITCHEN_SCENE3 = 1.0 (5/5), KITCHEN_SCENE4 = 1.0 (3/3)
 - GR00T N1.6 + GR1: PosttrainPnP = 0.8 (4/5), PnPCanToDrawer = 0.0 (pre-trained model limitation)

@@ -1,0 +1,56 @@
+# LingBot-VLA 2.0 (Robbyant) on RoboTwin 2.0 — Qwen3-VL-4B backbone + sparse-MoE Qwen2 action expert
+# (flow matching, 55-D canonical state/action space). Its only public simulation checkpoint is RoboTwin 2.0.
+# Shared template: lerobot-robotwin-userdata.sh.j2. License: Apache-2.0 (code and weights), public.
+# Eval recipe: LeRobot docs/source/lingbot_vla_v2.mdx + the lerobot/lingbot_vla_v2_robotwin card:
+#   --rename_map head/left/right_camera -> cam_high / cam_left_wrist / cam_right_wrist, fp32 (checkpoint default).
+# Reported (upstream README, quoted by the LeRobot doc; 50 tasks x 100 ep, upstream RoboTwin launcher,
+#   not this port): clean 93.52%, randomized 92.80%.
+# Footprint: 6B parameters in fp32 = 25.5 GB of weights → one 48 GB L40S (g6e). The doc's speed table:
+#   ~614 ms per 50-action chunk (fp32, eager, RTX PRO 6000).
+model:
+  id: lingbot-vla2
+  display_name: "LingBot-VLA 2.0 RoboTwin"
+  policy_desc: "LingBot-VLA 2.0 (Robbyant, Qwen3-VL-4B + sparse-MoE action expert, flow matching), RoboTwin 2.0 checkpoint"
+  license: "Apache-2.0 (code and weights)"
+  hf_repo: "lerobot/lingbot_vla_v2_robotwin"
+  hf_model_revision: "54f79a4b6e9166bda91b5010088097ff3191bca2"   # 2026-10-09, upstream global_step_50000
+  lerobot_repo: "https://github.com/huggingface/lerobot.git"
+  lerobot_commit: "552777b7c384e8e71a02303da39583f9a2653760"     # main 2026-10-30 (lingbot_vla_v2 since 8cd02c15)
+  python_version: "3.12"
+  uv_extras: [lingbot_vla_v2, dataset, evaluation]   # dataset: pyarrow/datasets (lerobot-eval imports them); evaluation: av
+  policy_module: lingbot_vla_v2
+  policy_args: []
+  env_args: []
+  rename_map:
+    observation.images.head_camera: observation.images.cam_high
+    observation.images.left_camera: observation.images.cam_left_wrist
+    observation.images.right_camera: observation.images.cam_right_wrist
+  # The processor loads the Qwen3-VL tokenizer + image processor from config.tokenizer_path.
+  extra_hf_repos:
+    - repo: "Qwen/Qwen3-VL-4B-Instruct"
+      revision: "ebb281ec70b05090aa6165b016eac8ec08e71b17"
+      patterns: ["*.json", "*.jinja", "*.txt"]
+      why: "Qwen3-VL tokenizer / image processor (config.tokenizer_path), config files only; Apache-2.0"
+
+instance:
+  # fp32 25.5 GB weights + activations → single GPU >= 40 GB; 64 GiB host RAM for the safetensors load
+  # (g6e.xlarge's 32 GiB is the molmoact2 thrash case). Same list as lingbot-va / fastwam.
+  preferred: [g6e.2xlarge, g6e.4xlarge]
+  ebs_gb: 250
+  creationpolicy_timeout:
+    subset: PT360M
+    clean: PT720M
+    randomized: PT720M
+    full: PT720M
+  min_gpu_mib: 40000
+  min_host_mib: 49000
+
+tasks:
+  - setting: clean
+    robotwin_tasks: [beat_block_hammer, click_bell, handover_block, lift_pot, stamp_seal]
+    n_episodes: 5
+    seed: 100000
+    description: "RoboTwin 2.0 clean pipe-proof (LingBot-VLA 2.0, 5 tasks x 5 ep)"
+
+bridge:
+  enabled: false

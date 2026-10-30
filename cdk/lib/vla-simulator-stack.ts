@@ -204,11 +204,18 @@ export class VlaSimulatorStack extends cdk.Stack {
       : (instanceCfg.ebs_gb ?? 200);
 
     // CreationPolicy timeout from model config. For openvla-oft this is a suite-keyed
-    // map (PT120M for short-horizon, PT240M for LIBERO-10); for others it's a scalar.
+    // map (PT120M for short-horizon, PT240M for LIBERO-10); the RoboTwin targets key it by
+    // --robotwin-protocol (context robotwin_protocol, default subset); for others it's a scalar.
     const rawTimeout: string | Record<string, string> = instanceCfg.creationpolicy_timeout ?? 'PT180M';
     let creationTimeout: string;
     if (typeof rawTimeout === 'string') {
       creationTimeout = rawTimeout;
+    } else if (rawTimeout['subset'] !== undefined) {
+      const protocol: string = (this.node.tryGetContext('robotwin_protocol') as string | undefined) || 'subset';
+      if (rawTimeout[protocol] === undefined) {
+        throw new Error(`models/${vla}.yaml: instance.creationpolicy_timeout has no "${protocol}" entry (robotwin_protocol)`);
+      }
+      creationTimeout = rawTimeout[protocol];
     } else {
       const suiteKey = liberoSuite || '10';
       creationTimeout = rawTimeout[suiteKey] ?? rawTimeout['10'] ?? 'PT180M';

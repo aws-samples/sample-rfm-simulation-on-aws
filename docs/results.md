@@ -69,14 +69,16 @@ smolvla-demo  us-east-1  libero_spatial  camera        ...
 smolvla-demo  us-east-1  libero_spatial  all           ...
 ```
 
-_Format only: no sweep has been measured on this harness yet._ With 10 variants per dimension the 95% interval of one dimension is roughly ±0.3 wide; use `--perturb-n 50` (350 episodes) when the differences between dimensions matter.
+With 10 variants per dimension the 95% interval of one dimension is roughly ±0.3 wide; use `--perturb-n 50` (350 episodes) when the differences between dimensions matter.
 
 ### Measured on this harness
 
 | `--vla` | Suite | Camera | Robot | Language | Light | Background | Noise | Layout | All | LIBERO baseline |
 |---|---|---|---|---|---|---|---|---|---|---|
-| `smolvla` | libero_spatial, 10 variants x 1 ep | pending | pending | pending | pending | pending | pending | pending | pending | 0.80 (8/10, 2 tasks x 5 ep, 2026-10-14) |
-| `openvla-oft --libero-suite spatial` | libero_spatial, 10 variants x 1 ep | pending | pending | pending | pending | pending | pending | pending | pending | 0.92 (46/50, 2026-06-01) |
+| `smolvla` | libero_spatial, 10 variants x 1 ep (2026-10-30, `g6.xlarge`) | 0.20 | 0.00 | 0.10 | 0.70 | 0.50 | 0.00 | 0.20 | 0.24 (17/70) | 0.80 (8/10, 2 tasks x 5 ep, 2026-10-14) |
+| `openvla-oft --libero-suite spatial` | libero_spatial, 10 variants x 1 ep (2026-10-30, `g6.xlarge`) | 1.00 | 0.30 | 0.90 | 1.00 | 1.00 | 1.00 | 0.90 | 0.87 (61/70) | 0.92 (46/50, 2026-06-01) |
+
+Both sweeps ran in ap-northeast-2 on 2026-10-30 with the default plan (seeded draw of 10 variants per dimension). With 10 variants per dimension, a single cell is a coarse signal; the pattern is what to read: OpenVLA-OFT keeps its LIBERO-Spatial skill under every dimension except the robot initial state, while SmolVLA drops on almost all of them. The sensor-noise dimension is CPU-bound on the LeRobot target (the fork recomputes its fog map in Python on every frame at 360 px): about 1.8 s per step, ~80 min for 10 episodes, against ~3 min for the other dimensions.
 
 ### Reported in the LIBERO-Plus paper
 

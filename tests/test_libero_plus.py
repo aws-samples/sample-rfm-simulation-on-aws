@@ -112,7 +112,7 @@ def _gen(tmp_path, *args):
 
 
 @pytest.mark.parametrize("vla,extra", [("smolvla", []), ("openvla-oft", ["--libero-suite", "spatial"]), ("pi", []),
-                                       ("xvla", []), ("fastwam", [])])
+                                       ("xvla", []), ("fastwam", []), ("gr00t", [])])
 def test_plus_render(vla, extra, tmp_path):
     pytest.importorskip("jinja2")
     out = _gen(tmp_path, "--vla", vla, *extra, "--libero-variant", "plus", "--perturb", "camera,light", "--perturb-n", "3")
@@ -125,6 +125,10 @@ def test_plus_render(vla, extra, tmp_path):
     if vla in ("smolvla", "xvla", "fastwam"):
         assert "--env.type=libero_plus" in text and "uv run --active --no-sync lerobot-eval" in text
         assert all(t["n_episodes"] == 1 for t in tasks)
+    elif vla == "gr00t":
+        assert 'libero_sim/${LP_NAME}' in text and "LP_SETUP_EOF" in text and "LIBERO-PLUS VERIFY OK" in text
+        assert "NEEDED = 'libero_spatial'" in text  # checkpoint subfolder follows the sweep suite
+        assert all(t["n_episodes"] == 1 and t["embodiment"] == "LIBERO_PANDA" for t in tasks)
     elif vla == "pi":
         assert "pi_lp_task_ids_patch.py" in text and "requirements.openpi.txt" in text
         assert 'rm -rf "${OPENPI_DIR}/third_party/libero"' in text and "lp_verify.py" in text
@@ -148,6 +152,7 @@ def test_explicit_libero_variant_is_the_default_render(tmp_path):
 @pytest.mark.parametrize("args", [
     ["--vla", "lap", "--libero-variant", "plus"],                # no switch in this template
     ["--vla", "molmoact2", "--libero-variant", "plus"],          # no switch in this template
+    ["--vla", "gr00t-bridge", "--libero-variant", "plus"],       # SimplerEnv, not LIBERO
     ["--vla", "smolvla", "--libero-variant", "plus", "--perturb", "fog"],
     ["--vla", "smolvla", "--perturb", "camera"],                 # --perturb without plus
 ])

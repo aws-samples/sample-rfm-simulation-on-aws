@@ -82,7 +82,7 @@ def oft_stack_name(suite: str) -> str:
 
 # --libero-variant plus: targets whose template carries the LIBERO-Plus switch (each also needs a
 # `libero_plus:` block in models/<id>.yaml). See libero_plus.py and docs/targets.md.
-LIBERO_PLUS_TEMPLATE_TARGETS = ("openvla-oft", "xvla", "smolvla", "lingbot-va", "fastwam", "pi")
+LIBERO_PLUS_TEMPLATE_TARGETS = ("openvla-oft", "xvla", "smolvla", "lingbot-va", "fastwam", "pi", "gr00t")
 
 
 def libero_plus_supported(vla: str, config: dict) -> bool:
@@ -243,10 +243,29 @@ def _gr00t_sim_ctx(config: dict, vla: str) -> dict:
     }
 
 
-def generate_gr00t(config: dict, resolved_grpc: str, resolved_vpc: str, dry_run: bool, vla: str = "gr00t") -> str:
+def generate_gr00t(config: dict, resolved_grpc: str, resolved_vpc: str, dry_run: bool, vla: str = "gr00t",
+                   plus: tuple = None) -> str:
     """GR00T N1.7 x {LIBERO (gr00t) | SimplerEnv WidowX/Bridge (gr00t-bridge)} — shared gr00t-userdata.sh.j2."""
+    lp_ctx = None
+    if plus is not None:
+        # --libero-variant plus: one task entry per perturbation dimension; the variant ids are picked on the
+        # instance and each variant runs as its own gym id. The checkpoint subfolder follows the sweep suite
+        # (nvidia/GR00T-N1.7-LIBERO ships libero_spatial / _object / _goal / _10).
+        lp_ctx, lp_tasks = _libero_plus_ctx(config, vla, *plus)
+        if lp_ctx["hf_repo"] or resolved_grpc:
+            print(f"[error] models/{vla}.yaml: libero_plus.hf_repo / bridge mode are not supported for gr00t.",
+                  file=sys.stderr)
+            sys.exit(1)
+        t0 = config["tasks"][0]
+        keep = {k: t0[k] for k in ("embodiment", "n_envs", "video_fps", "video_crf", "steps_per_render") if k in t0}
+        steps = int(config["libero_plus"].get("max_episode_steps", t0.get("max_episode_steps", 720)))
+        config = {**config, "tasks": [dict(t, env_name=f"libero_plus/{t['perturbation']}", **keep,
+                                           n_episodes=lp_ctx["episodes_per_variant"], max_episode_steps=steps)
+                                      for t in lp_tasks],
+                  "model": {**config["model"], "hf_subfolder": lp_ctx["suite"]}}
     ctx = _build_gr00t_ctx(config, resolved_grpc, vla)
     ctx.update(_gr00t_sim_ctx(config, vla))
+    ctx["libero_plus"] = lp_ctx
     if ctx["sim_id"] != "libero" and resolved_grpc:
         print(f"[error] {vla}: bridge mode (remote gRPC inference) is LIBERO-only.", file=sys.stderr)
         sys.exit(1)
@@ -1310,7 +1329,7 @@ def main():
     if args.judge_target:
         rendered = generate_flora_judge(config, args.dry_run, judge=args.judge_target)
     elif args.vla in ("gr00t", "gr00t-bridge"):
-        rendered = generate_gr00t(config, args.resolved_grpc, args.resolved_vpc, args.dry_run, vla=args.vla)
+        rendered = generate_gr00t(config, args.resolved_grpc, args.resolved_vpc, args.dry_run, vla=args.vla, plus=plus)
     elif args.vla == "gr00t-gr1":
         rendered = generate_gr00t_gr1(config, args.resolved_grpc, args.resolved_vpc, args.dry_run)
     elif args.vla == "gr00t-g1":

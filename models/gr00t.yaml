@@ -55,3 +55,22 @@ tasks:
 bridge:
   remote_grpc_endpoint: "ssm:/vla-hub/gr00t/n1-7/grpc-endpoint"  # auto-resolved from SSM
   vpc_id: "ssm:/vla-hub/vpc-id"                                   # auto-resolved from SSM
+
+# LIBERO-Plus robustness sweep (off unless deployed with --libero-variant plus; see docs/targets.md).
+# The fork replaces external_dependencies/LIBERO before setup_libero.sh builds the rollout venv (Python 3.10);
+# the checkpoint subfolder follows `suite` (the LIBERO run above uses libero_10 scenes, so run a libero_10
+# baseline with the same subfolder, or compare against the published per-suite numbers). Each variant is its
+# own registered gym id, one rollout_policy.py call per variant against one policy server per dimension.
+# GR00T's LIBERO env resets without the saved init states (as in the LIBERO run), so the robot / layout
+# dimensions perturb through the BDDL scene and the fork's env wrapper only.
+libero_plus:
+  suite: libero_spatial
+  perturb: [camera, robot, language, light, background, noise, layout]
+  variants_per_category: 10        # 7 x 10 variants x 1 episode = 70 episodes
+  seed: 7
+  max_episode_steps: 720           # same cap as the validated LIBERO tasks above
+  # After FIX 14's mujoco pin: the fork needs robosuite 1.4.1; wand / scikit-image for its perturbations
+  # (last Python 3.10 scikit-image line); numpy / mujoco restated so nothing above can move them.
+  pip_pins: "robosuite==1.4.1 Wand==0.6.13 scikit-image==0.25.2 numpy==1.26.4 mujoco==3.3.1"
+  creationpolicy_timeout: PT300M   # install ~40 + assets ~10 + 7 x (server load ~6 + 10 variants x ~1.5) + buffer
+  ebs_gb: 430                      # + 6.4 GB zip and its extracted asset tree

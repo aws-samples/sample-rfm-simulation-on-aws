@@ -1,5 +1,7 @@
 /**
- * RFM-Gallery — shared video history gallery (one per account + region)
+ * RFM-Gallery — shared video history gallery (one per account: its CloudFront OAC and KeyValueStore
+ * names are account-global, so a second region fails with AlreadyExists; deploy.py stops before that,
+ * deploy other regions with --no-gallery)
  *
  * Resources: private S3 bucket + CloudFront distribution (OAC) + CloudFront KeyValueStore +
  *            CloudFront Function (viewer-request, HTTP Basic auth against the KVS)

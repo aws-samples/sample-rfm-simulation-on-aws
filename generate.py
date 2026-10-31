@@ -25,6 +25,7 @@ Usage:
     python generate.py --vla real2sim    [--config simulator-config.yaml] [--dry-run]
     python generate.py --vla robolab-cosmos3 [--dry-run]   # model.variant in the yaml: edge | nano | edge-full
     python generate.py --vla smolvla-robotwin [--robotwin-protocol subset|clean|randomized|full] [--robotwin-shard K/N]
+    python generate.py --vla rlinf-oft-libero [--rl-profile smoke|full] [--rl-steps N] [--rl-eval-run RUN_ID]
     python generate.py --judge-target flora-judge [--dry-run]   # post-run judge (deploy.py --judge)
 """
 
@@ -1330,6 +1331,104 @@ def generate_flora_judge(config: dict, dry_run: bool, judge: str = "flora-judge"
     return env.get_template(f"{judge}-userdata.sh.j2").render(**ctx)
 
 
+# RLinf evaluate -> RL -> re-evaluate targets (templates/rlinf-userdata.sh.j2). Profiles: models/<vla>.yaml profiles.
+RLINF_TARGETS = ("rlinf-oft-libero",)
+RL_PROFILES = ("smoke", "full")
+_HYDRA_OVERRIDE_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_.]*=[A-Za-z0-9_.,:/\[\]\-]+$")
+
+
+def rl_profile_cfg(config: dict, vla: str, profile: str) -> dict:
+    """The profile block of models/<vla>.yaml with its instance keys merged over the top-level instance."""
+    profiles = config.get("profiles") or {}
+    if profile not in profiles:
+        print(f"[error] models/{vla}.yaml: no profile '{profile}' (available: {', '.join(profiles)})", file=sys.stderr)
+        sys.exit(1)
+    prof = dict(profiles[profile])
+    prof["instance"] = {**(config.get("instance") or {}), **(prof.get("instance") or {})}
+    return prof
+
+
+def generate_rlinf(config: dict, dry_run: bool, vla: str, profile: str = "smoke", steps=None, eval_run: str = "") -> str:
+    """RLinf (Apache-2.0) RL post-training: baseline eval of the SFT checkpoint, N GRPO steps, eval of the RL
+    checkpoint with the same eval config and env count, results.json / summary.txt. Runs in RLinf's own Docker
+    image (pinned by digest) with the RLinf checkout (pinned commit) mounted; see models/<vla>.yaml."""
+    model = config.get("model", {})
+
+    def fail(msg):
+        print(f"[error] models/{vla}.yaml: {msg}", file=sys.stderr)
+        sys.exit(1)
+
+    for key in ("rlinf_repo", "rlinf_commit", "docker_image", "docker_digest", "switch_env", "suite", "suites"):
+        if not model.get(key):
+            fail(f"model.{key} is required")
+    if not re.fullmatch(r"[0-9a-f]{40}", str(model["rlinf_commit"])):
+        fail("model.rlinf_commit must be a 40-hex commit")
+    if not re.fullmatch(r"sha256:[0-9a-f]{64}", str(model["docker_digest"])):
+        fail("model.docker_digest must be sha256:<64 hex>")
+    suite = str(model["suite"])
+    scfg = (model.get("suites") or {}).get(suite)
+    if not scfg:
+        fail(f"model.suites has no '{suite}' entry")
+    for key in ("task_suite_name", "train_config", "eval_config", "hf_repo", "hf_model_revision"):
+        if not scfg.get(key):
+            fail(f"model.suites.{suite}.{key} is required")
+    if not re.fullmatch(r"[0-9a-f]{40}", str(scfg["hf_model_revision"])):
+        fail(f"model.suites.{suite}.hf_model_revision must be a 40-hex commit")
+    pins = str(model.get("sim_protect_pins", "")).split()
+    if not pins or any(not _PIN_RE.match(x) for x in pins):
+        fail(f"model.sim_protect_pins must be name==version entries: {pins}")
+    mujoco_version = next((x.split("==", 1)[1] for x in pins if x.lower().startswith("mujoco==")), "")
+    prof = rl_profile_cfg(config, vla, profile)
+    rl_steps = int(steps if steps is not None else prof.get("steps", 0))
+    if rl_steps < 1:
+        fail(f"profiles.{profile}.steps (or --rl-steps) must be >= 1")
+    overrides = [str(o) for o in (prof.get("overrides") or [])]
+    eval_overrides = [str(o) for o in (prof.get("eval_overrides") or [])]
+    bad = [o for o in overrides + eval_overrides if not _HYDRA_OVERRIDE_RE.match(o)]
+    if bad:
+        fail(f"profiles.{profile}: overrides must be key=value hydra overrides without quotes or spaces: {bad}")
+    if eval_run and not re.fullmatch(r"\d{4}-\d{2}-\d{2}-\d{4}", eval_run):
+        print(f"[error] --rl-eval-run must look like YYYY-MM-DD-HHMM, got {eval_run!r}", file=sys.stderr)
+        sys.exit(1)
+    inst = prof["instance"]
+    ctx = {
+        "vla": vla,
+        "deployment": config.get("deployment", {}),
+        "display_name": _shell_safe(model.get("display_name", vla), "display_name"),
+        "rlinf_repo": _shell_safe(model["rlinf_repo"], "rlinf_repo"),
+        "rlinf_commit": model["rlinf_commit"],
+        "docker_image": _shell_safe(model["docker_image"], "docker_image"),
+        "docker_digest": model["docker_digest"],
+        "switch_env": _shell_safe(model["switch_env"], "switch_env"),
+        "sim_protect_pins": " ".join(pins),
+        "mujoco_version": mujoco_version,
+        "task_suite_name": _shell_safe(scfg["task_suite_name"], "task_suite_name"),
+        "train_config": _shell_safe(scfg["train_config"], "train_config"),
+        "eval_config": _shell_safe(scfg["eval_config"], "eval_config"),
+        "hf_repo": _shell_safe(scfg["hf_repo"], "hf_repo"),
+        "hf_model_revision": scfg["hf_model_revision"],
+        "published_sft": float(scfg.get("published_sft", 0) or 0),
+        "published_rl": float(scfg.get("published_rl", 0) or 0),
+        "profile": profile,
+        "rl_steps": rl_steps,
+        "steps_overridden": steps is not None,
+        "save_interval": int(prof.get("save_interval") or min(25, rl_steps)),
+        "eval_num_envs": int(prof.get("eval_num_envs", 500)),
+        "overrides": overrides,
+        "eval_overrides": eval_overrides,
+        "early_signal": bool(prof.get("early_signal", False)),
+        "max_wall_hours": int(prof.get("max_wall_hours", 12)),
+        "eval_run": eval_run,
+        "min_gpus": int(inst.get("min_gpus", 1)),
+        "min_gpu_mib": int(inst.get("min_gpu_mib", 0)),
+        "min_host_mib": int(inst.get("min_host_mib", 0)),
+        "max_videos_per_phase": int(model.get("max_videos_per_phase", 20)),
+        "report_py_b64": base64.encodebytes((BASE_DIR / "assets" / "rlinf" / "rlinf_report.py").read_bytes()).decode(),
+    }
+    env = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)), keep_trailing_newline=True)  # nosec B701 - shell script template
+    return env.get_template("rlinf-userdata.sh.j2").render(**ctx)
+
+
 def generate_pi(config: dict, resolved_vpc: str, resolved_nlb: str, dry_run: bool, plus: tuple = None,
                 r2s: tuple = None, r2s_suite: str = None) -> str:
     """r2s = (run uri, conditions, trials) for --libero-objects real2sim, else None."""
@@ -1426,6 +1525,13 @@ def main():
                              "randomized / full = the official 49 tasks x 100 episodes (full = both settings)")
     parser.add_argument("--robotwin-shard", default="", metavar="K/N",
                         help="RoboTwin targets: keep every N-th (setting, task) unit starting at K (1-based)")
+    parser.add_argument("--rl-profile", default="smoke", choices=list(RL_PROFILES),
+                        help="rlinf-oft-libero: smoke = 1 GPU, LoRA, a few GRPO steps; full = 8 GPU, recipe defaults "
+                             "(models/<vla>.yaml profiles)")
+    parser.add_argument("--rl-steps", type=int, default=None, metavar="N",
+                        help="rlinf-oft-libero: GRPO steps (default: the profile's steps)")
+    parser.add_argument("--rl-eval-run", default="", metavar="RUN_ID",
+                        help="rlinf-oft-libero: skip training and evaluate the RL checkpoint saved by run RUN_ID")
     parser.add_argument("--collect", action="store_true",
                         help="gr00t-g1: trajectory COLLECTION mode (success-only obs/action HDF5 for "
                              "N1.7 G1 adapter FT) instead of the default rollout/video mode.")
@@ -1438,6 +1544,9 @@ def main():
 
     if (args.robotwin_protocol != "subset" or args.robotwin_shard) and args.vla not in LEROBOT_ROBOTWIN_TARGETS:
         parser.error(f"--robotwin-protocol / --robotwin-shard apply to {', '.join(LEROBOT_ROBOTWIN_TARGETS)} only")
+
+    if (args.rl_profile != "smoke" or args.rl_steps is not None or args.rl_eval_run) and args.vla not in RLINF_TARGETS:
+        parser.error(f"--rl-profile / --rl-steps / --rl-eval-run apply to {', '.join(RLINF_TARGETS)} only")
 
     name = args.judge_target or args.vla
     config = _load_merged_config(config_path, name)
@@ -1509,6 +1618,9 @@ def main():
         rendered = generate_real2sim(config, args.dry_run)
     elif args.vla in ROBOLAB_TARGETS:
         rendered = generate_robolab(config, args.dry_run, vla=args.vla)
+    elif args.vla in RLINF_TARGETS:
+        rendered = generate_rlinf(config, args.dry_run, vla=args.vla, profile=args.rl_profile, steps=args.rl_steps,
+                                  eval_run=args.rl_eval_run)
     else:
         rendered = generate_pi(config, args.resolved_vpc, args.resolved_nlb, args.dry_run, plus=plus,
                                r2s=r2s, r2s_suite=args.r2s_suite)

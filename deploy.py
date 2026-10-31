@@ -16,6 +16,8 @@ Usage:
   python deploy.py --vla gr00t-gr1 --bridge # GR00T-GR1 bridge mode (your endpoint must serve N1.6)
   python deploy.py --vla pi    --bridge     # π0.5  bridge mode (bring-your-own gRPC endpoint, experimental)
   python deploy.py --vla smolvla --no-gallery  # without the video history gallery
+  python deploy.py --vla rlinf-oft-libero   # RLinf: baseline eval -> GRPO -> re-eval (smoke: 1 GPU, ~2-4 h)
+  python deploy.py --vla rlinf-oft-libero --rl-profile full   # 8 GPU, recipe defaults
   python deploy.py --judge --vla smolvla    # score the latest smolvla run's videos with Flora-Rewarder
   python deploy.py --judge --vla smolvla --run 2026-10-20-0130   # ... a given run
 
@@ -76,7 +78,10 @@ LEROBOT_LIBERO_TARGETS = tuple(LEROBOT_LIBERO_STACKS)
 # Local-only targets with their own template (same CLI handling as the LeRobot family).
 OTHER_LOCAL_STACKS = {"vla-adapter": "VLA-Adapter-Demo", "cosmos-policy": "Cosmos-Policy-Demo", "aspire": "ASPIRE-Demo",
                       "real2sim": "Real2Sim-Demo", "robolab-cosmos3": "RoboLab-Cosmos3-Demo",
-                      "robolab-pi05": "RoboLab-Pi05-Demo"}
+                      "robolab-pi05": "RoboLab-Pi05-Demo", "rlinf-oft-libero": "RLinf-OFT-LIBERO-Demo"}
+# RLinf RL post-training targets (evaluate -> GRPO -> re-evaluate); --rl-profile picks models/<vla>.yaml profiles.
+RLINF_TARGETS = ("rlinf-oft-libero",)
+RL_PROFILES = ("smoke", "full")
 
 # Upstream-LeRobot × RoboTwin 2.0 targets (shared lerobot-robotwin template) → CDK stack names.
 # Keep in sync with generate.LEROBOT_ROBOTWIN_TARGETS and cdk/bin/app.ts (tests/test_targets_parity.py checks).
@@ -422,6 +427,15 @@ def main():
     parser.add_argument("--robotwin-shard", default="", metavar="K/N",
                         help="RoboTwin targets: run every N-th (setting, task) unit starting at K (1-based); "
                              "deploy K = 1..N one after the other (same stack, one RUN_ID each)")
+    parser.add_argument("--rl-profile", default="smoke", choices=list(RL_PROFILES),
+                        help="rlinf-oft-libero: smoke = 1 GPU, LoRA, a few GRPO steps (~2-4 h); full = 8 GPU, recipe "
+                             "defaults, the stack completes after the baseline eval and training continues up to "
+                             "profiles.full.max_wall_hours (models/<vla>.yaml)")
+    parser.add_argument("--rl-steps", type=int, metavar="N",
+                        help="rlinf-oft-libero: GRPO steps (default: the profile's steps)")
+    parser.add_argument("--rl-eval-run", metavar="RUN_ID",
+                        help="rlinf-oft-libero: no training; evaluate the RL checkpoint that run RUN_ID of this stack "
+                             "saved to the results bucket (baseline + RL eval, same protocol)")
     parser.add_argument("--no-gallery", action="store_true",
                         help="Do not publish videos to the video history gallery (CloudFront page linked from the "
                              "completion e-mail). Default: on (deployment.gallery in simulator-config.yaml).")
@@ -464,6 +478,20 @@ def main():
         print("[error] --libero-variant plus cannot be combined with --judge, --collect or --bridge.", file=sys.stderr)
         sys.exit(1)
 
+    rl_flags = args.rl_profile != "smoke" or args.rl_steps is not None or args.rl_eval_run
+    if rl_flags and args.vla not in RLINF_TARGETS:
+        print(f"[error] --rl-profile / --rl-steps / --rl-eval-run apply to {', '.join(RLINF_TARGETS)} only.",
+              file=sys.stderr)
+        sys.exit(1)
+    if args.rl_steps is not None and args.rl_steps < 1:
+        print("[error] --rl-steps must be >= 1.", file=sys.stderr)
+        sys.exit(1)
+    if args.rl_eval_run and not RUN_RE.match(args.rl_eval_run):
+        print(f"[error] --rl-eval-run must look like YYYY-MM-DD-HHMM, got {args.rl_eval_run!r}", file=sys.stderr)
+        sys.exit(1)
+    if args.rl_eval_run and args.rl_steps is not None:
+        print("[error] --rl-eval-run evaluates an existing checkpoint; --rl-steps does not apply.", file=sys.stderr)
+        sys.exit(1)
     r2s = args.libero_objects == "real2sim"
     if not r2s and any(x is not None for x in (args.real2sim_run, args.r2s_conditions, args.r2s_trials, args.r2s_suite)):
         print("[error] --real2sim-run / --r2s-* need --libero-objects real2sim.", file=sys.stderr)
@@ -621,6 +649,14 @@ def main():
         stack_name = LEROBOT_LIBERO_STACKS[args.vla]
     elif args.vla in OTHER_LOCAL_STACKS:
         stack_name = OTHER_LOCAL_STACKS[args.vla]
+        if args.vla in RLINF_TARGETS:
+            generate_extra += ["--rl-profile", args.rl_profile]
+            if args.rl_steps is not None:
+                generate_extra += ["--rl-steps", str(int(args.rl_steps))]
+            if args.rl_eval_run:
+                generate_extra += ["--rl-eval-run", args.rl_eval_run]
+            # Selects profiles.<profile>.instance (instance list, EBS, WaitCondition timeout); same stack + bucket.
+            extra_cdk_ctx += ["-c", f"rl_profile={args.rl_profile}"]
     elif args.vla in LEROBOT_ROBOTWIN_STACKS:
         stack_name = LEROBOT_ROBOTWIN_STACKS[args.vla]
         generate_extra += ["--robotwin-protocol", args.robotwin_protocol]
@@ -782,6 +818,19 @@ def main():
             print("  Estimated time: ~4-6 h for the default 12-task subset (ECC-off reboot + RoboLab LFS assets ~6 GB + "
                   "Isaac Lab / policy-server image builds ~45-75 min + checkpoint DL + 12 tasks x 5 episodes ~2-3 h); "
                   "model.variant in models/<vla>.yaml selects nano / the full RoboLab-120 protocol (see docs/targets.md)")
+        elif args.vla in RLINF_TARGETS:
+            prof = (config.get("profiles") or {}).get(args.rl_profile) or {}
+            steps = args.rl_steps or prof.get("steps")
+            if args.rl_eval_run:
+                print(f"  Estimated time: ~2-3 h (image pull ~15 min + verify + SFT ckpt ~10 min + two evals of "
+                      f"{prof.get('eval_num_envs')} episodes); RL checkpoint of run {args.rl_eval_run}")
+            elif prof.get("early_signal"):
+                print(f"  Estimated time: the stack completes after setup + baseline eval (~1.5-3 h); {steps} GRPO steps, "
+                      f"the RL eval and the report follow by e-mail (cap {prof.get('max_wall_hours')} h, then the "
+                      "instance terminates itself). Time per step is not published; first runs measure it.")
+            else:
+                print(f"  Estimated time: ~2-4 h (image pull ~15 min + verify + SFT ckpt ~10 min + baseline eval + "
+                      f"{steps} GRPO steps + RL eval); not measured yet")
         elif args.vla == "cosmos-policy":
             print("  Estimated time: ~60-120 min (docker build ~10-15min + uv sync ~10-20min + ckpt DL + LIBERO eval, 1 ep x 10 tasks)")
         elif args.vla in LEROBOT_ROBOTWIN_TARGETS:

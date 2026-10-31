@@ -1,0 +1,131 @@
+# RLinf RL post-training of OpenVLA-OFT on LIBERO: evaluate -> improve with RL (GRPO) -> re-evaluate
+# Repo:   https://github.com/RLinf/RLinf (Apache-2.0), papers arXiv 2509.15965 (RLinf) and 2510.06710 (RLinf-VLA)
+# Recipe: examples/embodiment/config/libero_<suite>_grpo_openvlaoft.yaml (OpenVLA-OFT on LIBERO is GRPO-only upstream)
+#
+# CLI:    python deploy.py --vla rlinf-oft-libero                         # smoke profile (1 GPU, LoRA, few steps)
+#         python deploy.py --vla rlinf-oft-libero --rl-profile full       # 8 GPU, recipe defaults (full-parameter)
+#         python deploy.py --vla rlinf-oft-libero --rl-steps 20           # override the profile's step count
+#         python deploy.py --vla rlinf-oft-libero --rl-eval-run RUN_ID    # no training: re-evaluate the RL checkpoint
+#                                                                         # an earlier run of this stack saved to S3
+#
+# One run = (a) eval of the SFT checkpoint, (b) N GRPO steps, (c) eval of the RL checkpoint with the SAME eval
+# config, env count and seed as (a), (d) summary.txt / results.json with before/after success and Wilson intervals.
+# task-0 = baseline (condition `baseline`), task-1 = RL (condition `rl-grpo-<N>steps`), so `vlasim results`
+# prints two rows and `--matrix` shows `rlinf-oft-libero` and `rlinf-oft-libero [rl-grpo-<N>steps]`.
+
+model:
+  id: rlinf-oft-libero
+  display_name: "RLinf GRPO x OpenVLA-OFT"
+  license: "RLinf Apache-2.0; SFT checkpoint MIT; LIBERO MIT"
+
+  # RLinf release v0.4 (git ls-remote https://github.com/RLinf/RLinf refs/tags/v0.4, checked 2026-10-31).
+  # The code is cloned at this commit on the host and mounted at /workspace/RLinf in the image (RLinf docs layout).
+  rlinf_repo: "https://github.com/RLinf/RLinf.git"
+  rlinf_commit: "2348ece3df113874671478be1360ae3115b346e3"
+  # RLinf's own image for this release (Docker Hub rlinf/rlinf, tag agentic-rlinf0.4-maniskill_libero, amd64,
+  # 17.6 GB compressed, CUDA 12.8.1 + Ubuntu 22.04, venvs selected with `source switch_env <model>`). Pulled by digest.
+  docker_image: "rlinf/rlinf:agentic-rlinf0.4-maniskill_libero"
+  docker_digest: "sha256:b5563d95f681478555c4af63ca988b19d1a113306dbdee15a79fff47d320b5cb"
+  switch_env: "openvla-oft"
+
+  # Renderer pin applied inside the image's venv before the verify step. rlinf-libero allows mujoco<3.4; 3.3.3
+  # changed LIBERO rendering and 3.4.0 breaks libero_spatial task 5 init states. The RLinf maintainers advise 3.3.2
+  # (RLinf issue #1375). Word-split into pip as name==version entries.
+  sim_protect_pins: "mujoco==3.3.2"
+
+  # Suite of the run. libero_goal: SFT baseline well below 100% and an upstream eval config exists.
+  suite: goal
+  suites:
+    goal:
+      task_suite_name: libero_goal
+      train_config: libero_goal_grpo_openvlaoft
+      eval_config: libero_goal_openvlaoft_eval
+      # One-trajectory SFT checkpoint the RLinf recipe starts from (MIT, ~15 GB, full weights).
+      hf_repo: "Haozhan72/Openvla-oft-SFT-libero-goal-traj1"
+      hf_model_revision: "d20e1d447dfd87c0daa121b0739e2a379f7fe334"
+      # Published numbers (RLinf model card RLinf/RLinf-OpenVLAOFT-GRPO-LIBERO-goal @222f7df4, 500 episodes):
+      published_sft: 0.4940
+      published_rl: 0.9396
+    "10":
+      task_suite_name: libero_10
+      train_config: libero_10_grpo_openvlaoft
+      eval_config: libero_10_openvlaoft_eval
+      hf_repo: "Haozhan72/Openvla-oft-SFT-libero10-traj1"
+      hf_model_revision: "679a2cc1504b905e6cd954a46c80a9408a8ba3e0"
+      published_sft: 0.1492
+      published_rl: 0.9093
+    object:
+      task_suite_name: libero_object
+      train_config: libero_object_grpo_openvlaoft
+      eval_config: libero_object_openvlaoft_eval
+      hf_repo: "Haozhan72/Openvla-oft-SFT-libero-object-traj1"
+      hf_model_revision: "62e5a8daba3f619c993f23b248ae04b0d9677bb5"
+      published_sft: 0.2883
+      published_rl: 0.9768
+
+  # Eval protocol shared by the baseline and the RL eval: the upstream eval config plus these overrides.
+  # The upstream config samples (do_sample True, temperature 1.6) like the RL rollouts; the model card's SFT row
+  # was measured greedy, so a sampled SFT baseline here is not the card's number (see docs/results.md).
+  max_videos_per_phase: 20
+
+# Profiles: CDK context rl_profile (deploy.py --rl-profile). Each profile's instance keys override `instance`.
+profiles:
+  smoke:
+    # 1 GPU: LoRA on the 7B policy (full-parameter AdamW states do not fit one GPU), 8 envs = one GRPO group,
+    # 2 rollout epochs, 5 steps. Proves the pipe (install, verify, eval, train, checkpoint, re-eval, report);
+    # the success gain of 5 LoRA steps is not expected to be meaningful.
+    steps: 5
+    # 20 of the 500 fixed reset states (same states for both evals). Every eval env is a live LIBERO
+    # renderer on the one GPU (~0.44 GB each) next to the 7B policy, whose activations grow with the env batch:
+    # 100 envs and then 40 envs both hit CUDA OOM on the 44 GB L40S (40 envs: policy 25.8 GB + renderers ~18 GB).
+    eval_num_envs: 20
+    overrides:
+      - env.train.total_num_envs=8
+      - env.train.rollout_epoch=2
+      - actor.micro_batch_size=8
+      - actor.global_batch_size=1024
+      - actor.model.is_lora=True
+      - actor.model.lora_rank=32
+      # no rollout.model.is_lora here: the train config's rollout.model has no such key (hydra rejects the
+      # override) and the rollout worker builds its model from OmegaConf.merge(actor.model, rollout.model).
+    # Applied to BOTH evals (protocol stays identical): the RL checkpoint carries LoRA weights, and an untrained
+    # LoRA adapter (B = 0) leaves the SFT baseline unchanged.
+    eval_overrides:
+      - rollout.model.is_lora=True
+      - rollout.model.lora_rank=32
+    early_signal: false           # the whole run fits the WaitCondition
+    max_wall_hours: 6
+    instance:
+      preferred: [g6e.8xlarge, g6e.4xlarge, g6e.16xlarge, p5.4xlarge]
+      ebs_gb: 500
+      creationpolicy_timeout: PT300M
+      min_gpus: 1
+      min_gpu_mib: 44000
+      min_host_mib: 120000
+  full:
+    # 8 GPU, recipe defaults (full-parameter FSDP, 64 envs, rollout_epoch 16). Steps per hour are not published;
+    # the run signals the stack after the verify + baseline stage and keeps going (max_wall_hours cap, then
+    # the instance terminates itself), because 100 recipe steps do not fit the 12 h WaitCondition maximum.
+    steps: 100
+    eval_num_envs: 500            # the upstream eval protocol (10 tasks x 50 init states)
+    overrides: []
+    early_signal: true
+    max_wall_hours: 40
+    # 80 GB GPUs only: the 500 eval envs are 62.5 renderers per GPU next to a policy copy, and one 44 GB L40S
+    # already ran out of memory at 40 eval envs in the smoke profile (2026-10-31), so 48 GB g6e.48xlarge is out.
+    instance:
+      preferred: [p5.48xlarge, p4de.24xlarge, p5en.48xlarge]
+      ebs_gb: 1500
+      creationpolicy_timeout: PT240M  # verify + baseline eval only (early_signal)
+      min_gpus: 8
+      min_gpu_mib: 79000
+      min_host_mib: 900000
+
+# Top-level instance = the default (smoke) profile, read by vlasim doctor's quota check.
+instance:
+  preferred: [g6e.8xlarge, g6e.4xlarge, g6e.16xlarge, p5.4xlarge]
+  ebs_gb: 500
+  creationpolicy_timeout: PT300M
+
+bridge:
+  enabled: false

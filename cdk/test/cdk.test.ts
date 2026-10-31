@@ -95,6 +95,43 @@ test('resolveInstanceCfg merges the selected variant and rejects unknown ones', 
   expect(resolveInstanceCfg('xvla', plain)).toBe(plain.instance);
 });
 
+// rlinf-*: CDK context rl_profile selects profiles.<name>.instance (instance list, EBS, WaitCondition timeout).
+describe('rlinf-oft-libero', () => {
+  const synth = (rlProfile?: string, region = 'us-east-1') => {
+    const context: Record<string, string> = { region, vla: 'rlinf-oft-libero', notify_email: 'test@example.com' };
+    if (rlProfile) context.rl_profile = rlProfile;
+    const app = new cdk.App({ context });
+    const stack = new VlaSimulatorStack(app, 'RLinf-OFT-LIBERO-Demo', {
+      vla: 'rlinf-oft-libero', env: { account: '123456789012', region },
+    });
+    return Template.fromStack(stack);
+  };
+
+  test.each([
+    [undefined, 'g6e.8xlarge,g6e.4xlarge,g6e.16xlarge,p5.4xlarge', 300, 500],
+    ['smoke', 'g6e.8xlarge,g6e.4xlarge,g6e.16xlarge,p5.4xlarge', 300, 500],
+    ['full', 'p5.48xlarge,p4de.24xlarge,p5en.48xlarge', 240, 1500],
+  ])('rl_profile=%s launches its instance list, timeout and EBS', (profile, types, minutes, ebs) => {
+    const template = synth(profile);
+    template.hasResourceProperties('AWS::CloudFormation::CustomResource', { InstanceTypes: types, EbsGb: String(ebs) });
+    template.hasResourceProperties('AWS::CloudFormation::WaitCondition', { Timeout: String(minutes * 60) });
+  });
+
+  test('the role can read back saved RL checkpoints only under */rl/*', () => {
+    const json = JSON.stringify(synth('full', 'ap-northeast-2').toJSON());
+    expect(json).toContain('/*/rl/*');
+    expect(json).toContain('"s3:prefix":["*/rl/*"]');
+    // 63-char limit: the bucket name drops -demo in ap-northeast-2.
+    expect(json).toContain('vla-sim-results-rlinf-oft-libero-ap-northeast-2-123456789012');
+  });
+
+  test('unknown profiles and rl_profile on other targets are rejected', () => {
+    expect(() => synth('huge')).toThrow(/rl_profile "huge" is not one of smoke, full/);
+    expect(() => resolveInstanceCfg('xvla', { instance: { preferred: ['g6.xlarge'] } }, 'full'))
+      .toThrow(/has none/);
+  });
+});
+
 // SimplerEnv WidowX/Bridge targets: single-GPU list from their yaml (not gr00t's 12xlarge), and the
 // CloudWatch log grant follows the target id, matching the /<vla>/userdata group the template writes.
 test.each([

@@ -28,6 +28,32 @@ deploy.py
 - **Local mode** — model runs directly on the EC2 instance (default)
 - **Bridge mode** (experimental) — EC2 runs the simulation env; model inference is forwarded to a gRPC inference endpoint you provide (see [bridge-mode.md](bridge-mode.md))
 
+## RL post-training loop (`rlinf-oft-libero`)
+
+The RLinf target runs the whole "evaluate -> improve with RL -> re-evaluate" loop on one instance, inside RLinf's own Docker image (actor, rollout and LIBERO env workers colocated on all GPUs by Ray):
+
+```
+deploy.py --vla rlinf-oft-libero [--rl-profile smoke|full] [--rl-steps N] [--rl-eval-run RUN_ID]
+  │   (generate.py renders the profile's overrides; CDK context rl_profile picks instance list, EBS, timeout)
+  ▼
+EC2 (1 GPU smoke / 8 GPU full) ── docker run rlinf/rlinf@sha256:... (RLinf v0.4 mounted at /workspace/RLinf)
+  │
+  ├─ [verify]  GPU / VRAM / RAM floors · full import chain · LIBERO reset + EGL frame · hydra --cfg job
+  ├─ [ckpt]    SFT checkpoint @ pinned revision (Hugging Face)
+  ├─ (a) eval SFT ─────────────► s3://<bucket>/<RUN_ID>/task-0/  summary.txt (condition baseline), videos
+  │        │  full profile: WaitCondition signalled here (stack completes; training goes on)
+  ├─ (b) GRPO train N steps ───► s3://<bucket>/<RUN_ID>/rl/  training_curve.csv, tensorboard/,
+  │        │                         checkpoints/global_step_<N>/, checkpoint.json
+  │        │  (wall-clock cap: stop, keep the latest saved step)
+  ├─ (c) eval RL ckpt, same protocol ► s3://<bucket>/<RUN_ID>/task-1/  summary.txt (condition rl-grpo-<N>steps)
+  └─ (d) report ───────────────► s3://<bucket>/<RUN_ID>/results.json, summary.txt (before / after, Wilson, delta)
+                                   SNS e-mail · gallery videos · self-terminate
+
+deploy.py --vla rlinf-oft-libero --rl-eval-run RUN_ID   reads <RUN_ID>/rl/checkpoint.json back and runs (a) + (c) only
+```
+
+`vlasim results` reads `task-0` and `task-1` as two rows of one run; `vlasim results --matrix` shows them as `rlinf-oft-libero` and `rlinf-oft-libero [rl-grpo-<N>steps]`. Details: [targets note 16](targets.md#note-16-rl-post-training-with-rlinf-rlinf-oft-libero).
+
 ## Project structure
 
 ```
@@ -66,6 +92,7 @@ sample-rfm-simulation-on-aws/
 │   ├── openarm-isaac.yaml    # OpenArm bimanual π0.5 pipe proof (Isaac Lab, experimental)
 │   ├── robolab-cosmos3.yaml  # NVIDIA RoboLab x Cosmos3-Policy-DROID (variants: edge, nano, edge-full)
 │   ├── robolab-pi05.yaml     # NVIDIA RoboLab x π0.5-DROID (variants: subset, full)
+│   ├── rlinf-oft-libero.yaml # RLinf GRPO RL post-training of OpenVLA-OFT on LIBERO (profiles: smoke, full)
 │   └── flora-judge.yaml      # post-run judge: NVIDIA Flora-Rewarder outcome score (not a --vla target)
 ├── templates/                # Jinja2 UserData templates (17)
 │   ├── gr00t-userdata.sh.j2             # shared: gr00t (LIBERO), gr00t-bridge (SimplerEnv), by sim_id
@@ -84,6 +111,7 @@ sample-rfm-simulation-on-aws/
 │   ├── openarm-lift-act-userdata.sh.j2  # Isaac Lab container, scripted ACT collection
 │   ├── openarm-isaac-userdata.sh.j2     # Isaac Lab container, bimanual π0.5 eval
 │   ├── robolab-userdata.sh.j2           # shared: robolab-cosmos3, robolab-pi05 (policy server + Isaac Sim per GPU)
+│   ├── rlinf-userdata.sh.j2             # RLinf image by digest: eval SFT -> GRPO -> eval RL checkpoint
 │   ├── flora-judge-userdata.sh.j2       # post-run judge: vLLM + NVIDIA batch_utils terminal reward
 │   └── _gallery-sns.sh.j2               # included: "Video history" block of the SNS message
 ├── assets/
@@ -98,6 +126,7 @@ sample-rfm-simulation-on-aws/
 │   ├── openarm-isaac/        # bimanual env overlay + LeRobot rollout driver
 │   ├── real2sim/             # capture prep, splat -> metres, segmentation, grasp replay, report
 │   ├── robolab/              # robolab_report.py: shard outputs -> summary.txt, robolab_results.json, videos
+│   ├── rlinf/                # rlinf_report.py: eval logs -> before/after summary.txt, results.json, training curve
 │   └── flora-judge/          # flora_judge.py: videos -> episodes, scores -> judge.json (stdlib)
 ├── cdk/
 │   ├── bin/app.ts            # CDK app: one stack per --vla target

@@ -25,6 +25,12 @@ Prices are **us-east-1 Linux On-Demand, checked 2026-10-22** with the AWS Price 
 | `g7e.2xlarge` | 1 × RTX PRO 6000 Blackwell 96 GB | 8 | 64 GiB | 3.36312 |
 | `g7e.4xlarge` | 1 × RTX PRO 6000 Blackwell 96 GB | 16 | 128 GiB | 3.99816 |
 | `p5.4xlarge` | 1 × H100 80 GB | 16 | 256 GiB | 6.88 |
+| `g6e.8xlarge` | 1 × L40S 48 GB | 32 | 256 GiB | 4.52856 |
+| `g6e.16xlarge` | 1 × L40S 48 GB | 64 | 512 GiB | 7.57719 |
+| `p4d.24xlarge` | 8 × A100 40 GB | 96 | 1152 GiB | 21.957642 |
+| `p4de.24xlarge` | 8 × A100 80 GB | 96 | 1152 GiB | 27.44705 |
+| `p5.48xlarge` | 8 × H100 80 GB | 192 | 2048 GiB | 55.04 |
+| `p5en.48xlarge` | 8 × H200 141 GB | 192 | 2048 GiB | 63.296 |
 
 The `g6e.12xlarge`, `g7e` and `p5.4xlarge` rows were checked on 2026-10-28 (same API); they are used by the post-run judge and the RoboLab `nano` variant. `g6e.24xlarge` / `g6e.48xlarge` were checked on 2026-10-30 (RoboLab variants). In `ap-northeast-2`, `g7e.2xlarge` is US$4.13478, `g6e.2xlarge` US$2.75652, `g6e.12xlarge` US$12.90014 and `g6e.48xlarge` US$37.04468 per hour.
 
@@ -71,9 +77,28 @@ Instance = the first entry of `instance.preferred` (the AZ selector may fall bac
 | `smolvla-robotwin --robotwin-protocol clean` (49 tasks × 100 ep, 19 shards) | `g6.2xlarge` | estimate up to ~126 h of episode loop + ~1.25 h setup per shard ≈ 150 h (upper bound: every episode at its step limit) | up to ~147 |
 | `smolvla-robotwin --robotwin-protocol full` (clean + randomized, 47 shards) | `g6.2xlarge` | estimate up to ~252 h + ~1.5 h per shard ≈ 323 h | up to ~315 |
 | `lingbot-vla2 --robotwin-protocol full` (47 shards) | `g6e.2xlarge` | about the same hours as above (the simulator, not the policy, sets the pace) | up to ~723 |
+| `rlinf-oft-libero` (`smoke`, default / `--rl-profile full`) | `g6e.8xlarge` / `p5.48xlarge` | estimate ~2-4 h / ~12-28 h (capped at 6 h / 40 h) | ~9-18 / ~660-1,540; see [RL post-training](#rl-post-training-rlinf-oft-libero) |
 | `flora-judge` (post-run judge, `vlasim judge`) | `g7e.2xlarge` (measured on the `g6e.12xlarge` fallback, US$12.90/h in `ap-northeast-2`) | 13-15 min instance time measured for 10-47 episodes (+ ~10 min stack create/delete) | ~0.85-1.10 on `g7e.2xlarge`; ~2.80-3.25 measured on `g6e.12xlarge` |
 
 RoboTwin rows: prices checked 2026-10-30 (same API; `g5.4xlarge` and `g6.4xlarge` added). In `ap-northeast-2` the RoboTwin instances are US$1.20208 (`g6.2xlarge`), US$1.4903 (`g5.2xlarge`), US$1.62704 (`g6.4xlarge`), US$1.99691 (`g5.4xlarge`), US$2.75652 (`g6e.2xlarge`) and US$3.69355 (`g6e.4xlarge`) per hour. The 0.15 s per simulated step behind the episode-loop figures of the official-protocol rows is a planning value; `deploy.py` uses it to size the shards. The first subset runs (2026-10-30) took ~59-98 s per episode including policy inference, which is below the step-limit upper bound the shard plan assumes, so the shard counts stay conservative. Measured rows cover the stack instance only (stack create/delete and NAT not included).
+
+## RL post-training (`rlinf-oft-libero`)
+
+Prices: AWS Price List API, Linux On-Demand, shared tenancy, checked **2026-10-31** (the six rows added above). Runtimes are **estimates** except the measured `smoke` row: RLinf publishes no time per GRPO step for this recipe. The `smoke` run (2026-10-31) measured 355-521 s per LoRA step on one L40S with 16 trajectories; the first `full` run measures the 8-GPU step. Assumptions: setup (17.6 GB image, 15 GB SFT checkpoint, verify) ~30-45 min; one eval of 100 episodes ~20-40 min and of 500 episodes ~45-90 min; `full` training ~6-15 min per step on 8 × H100, extrapolated from an RLinf user report (4 × A100 80 GB, 2 rollout epochs: ~90 h projected for 1000 steps) to 16 rollout epochs on twice the GPUs; L40S and A100 assumed ~2-3 × slower than H100.
+
+| Profile | Instance | us-east-1 USD/h | ap-northeast-2 USD/h | Estimated runtime | Approx. EC2 cost us-east-1 / ap-northeast-2 (USD) | At the wall-clock cap |
+|---|---|---:|---:|---|---:|---:|
+| `smoke` (1 GPU, 5 LoRA steps) | `g6e.8xlarge` | 4.52856 | 5.56762 | **56 min measured** (2026-10-31, ap-northeast-2) | ~4.2 / **~5.2 measured** | 6 h: ~27 / ~33 |
+| `smoke` fallback | `g6e.4xlarge` (16 vCPU: 8 envs fit) | 3.00424 | 3.69355 | ~2-4 h | ~6-12 / ~7-15 | 6 h: ~18 / ~22 |
+| `full` (8 GPU, 100 steps) | `p5.48xlarge` | 55.04 | 75.9552 | ~12-28 h | ~660-1,540 / ~910-2,130 | 40 h: ~2,200 / ~3,040 |
+| `full` fallback | `p4de.24xlarge` | 27.44705 | not offered | likely reaches the cap | ~1,100 / — | 40 h: ~1,100 / — |
+| `full` fallback | `p5en.48xlarge` | 63.296 | 87.34848 | ~10-25 h | ~630-1,580 / ~870-2,180 | 40 h: ~2,530 / ~3,490 |
+
+The most one `full` deploy can cost is bounded by the wall-clock cap (`profiles.full.max_wall_hours`, 40 h; the instance terminates itself) plus setup: about US$3,500 on the most expensive fallback in `ap-northeast-2`. `--rl-steps` and `max_wall_hours` scale it linearly; `--rl-eval-run` costs two evals only (~2-3 h).
+
+**Capacity** (EC2 `DescribeInstanceTypeOfferings`, 2026-10-31). `ap-northeast-2`: `g6e.4xlarge` / `8xlarge` / `16xlarge` / `48xlarge` in AZs a and b; `p5.48xlarge` and `p5en.48xlarge` in AZ a only; `p4d.24xlarge` in b and d; `p4de.24xlarge` and `p5.4xlarge` not offered. `us-east-1`: all of them. `p5` / `p5en` On-Demand capacity is often unavailable without an On-Demand Capacity Reservation or EC2 Capacity Blocks for ML, which `deploy.py` does not use; the AZ selector then falls through to the next type and fails if none has capacity (`g6e.48xlarge` was dropped from the list after the smoke runs ran a 44 GB L40S out of memory at 40 eval envs), so plan `full` in `us-east-1`, where `p4de.24xlarge` is offered. P instances count against the separate quota *Running On-Demand P instances* (`vlasim doctor` checks the G and VR quota only); `full` needs 192 vCPU of either. `p4d.24xlarge` (40 GB GPUs) is not in the list: RLinf users report out-of-memory on 40 GB GPUs for smaller configs.
+
+**Not in the table:** EBS 1500 GB gp3 for `full` (~US$0.16 per hour), NAT processing for ~33 GB of downloads plus the checkpoint upload (LoRA for `smoke`; the full-parameter DCP shards with optimizer state for `full`, on the order of 100 GB, about US$5 at US$0.045 per GB), and S3 storage of the saved checkpoints (delete `<RUN_ID>/rl/checkpoints/` when you no longer need them).
 
 ## Not included
 

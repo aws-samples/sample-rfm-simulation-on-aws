@@ -60,6 +60,10 @@ BASELINE_CONDITIONS = {"", "-", "s0", "none", "default", "baseline", "official"}
 # RoboTwin targets write the benchmark into `suite` (RoboTwin2/clean) and the protocol into `condition`.
 # These protocol names are baseline runs when the suite itself is <Benchmark>/<setting>.
 PROTOCOL_CONDITIONS = {"subset", "clean", "randomized", "full"}
+# RL post-training runs (rlinf-* targets) write the SFT eval as condition `baseline` and the eval of the RL
+# checkpoint as `rl-<algo>-<N>steps`. The RL row is shown next to the baseline row by default (not only with
+# --all-conditions), as `<target> [rl-grpo-5steps]`.
+RL_CONDITION_RE = re.compile(r"^rl-[a-z0-9]+-\d+steps$")
 # Column order: known benchmarks first, everything else alphabetically after them.
 COLUMN_ORDER = ["LIBERO-Spatial", "LIBERO-Object", "LIBERO-Goal", "LIBERO-10", "LIBERO-90", "LIBERO-Plus", "LIBERO-R2S",
                 "LIBERO scenes", "SimplerEnv", "RoboCasa", "GR1", "G1", "RoboLab", "RoboTwin"]
@@ -368,7 +372,7 @@ def select_cells(runs, all_conditions=False, condition=None, pool_hours=6.0, tar
                 row = g["target"]
             elif g["baseline"]:
                 row = g["target"]
-            elif all_conditions:
+            elif all_conditions or RL_CONDITION_RE.match(g["condition"]):
                 row = f"{g['target']} [{g['condition']}]"
             else:
                 continue

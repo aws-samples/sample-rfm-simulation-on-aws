@@ -68,6 +68,7 @@ STACK_NAMES = {
     "robolab-pi05": "RoboLab-Pi05-Demo",
     "smolvla-robotwin": "SmolVLA-RoboTwin-Demo",
     "lingbot-vla2": "LingBot-VLA2-Demo",
+    "rlinf-oft-libero": "RLinf-OFT-LIBERO-Demo",
 }
 
 

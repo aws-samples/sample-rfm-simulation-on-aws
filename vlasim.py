@@ -86,6 +86,16 @@ RECOMMENDED_NODE_MAJOR = 20
 # 0 here, which is the classic cause of a mid-deploy InsufficientInstanceCapacity /
 # VcpuLimitExceeded failure — exactly what `doctor` exists to catch up front.
 GVR_ONDEMAND_QUOTA_CODE = "L-DB2E81BA"
+# P-family instances (p4d, p4de, p5, p5en, ...) count against a separate quota.
+P_ONDEMAND_QUOTA_CODE = "L-417A185B"
+_QUOTA_FAMILIES = {
+    "G/VR": (GVR_ONDEMAND_QUOTA_CODE, "Running On-Demand G and VR instances"),
+    "P": (P_ONDEMAND_QUOTA_CODE, "Running On-Demand P instances"),
+}
+
+
+def _quota_family(instance_type: str) -> str:
+    return "P" if instance_type.lower().startswith("p") else "G/VR"
 
 # vCPU by instance size suffix (covers every size used in models/*.yaml preferred lists).
 _SIZE_VCPU = {
@@ -151,8 +161,11 @@ def _read_config():
     return (grab("region"), grab("notify_email"))
 
 
-def _model_preferred(vla):
-    """Return the `instance.preferred` list from models/{vla}.yaml, best-effort."""
+def _model_preferred(vla, rl_profile=None):
+    """Return the `instance.preferred` list from models/{vla}.yaml, best-effort.
+
+    Models with a `profiles:` block (rlinf-*): the selected profile's instance keys win (default smoke),
+    as in the CDK stack (context rl_profile)."""
     model_path = BASE_DIR / "models" / f"{vla}.yaml"
     if not model_path.exists():
         return None
@@ -165,6 +178,9 @@ def _model_preferred(vla):
         variant = (cfg.get("variants") or {}).get(str((cfg.get("model") or {}).get("variant", "")))
         if isinstance(variant, dict):
             inst.update(variant.get("instance") or {})
+        profile = (cfg.get("profiles") or {}).get(rl_profile or "smoke")
+        if isinstance(profile, dict):
+            inst.update(profile.get("instance") or {})
         pref = inst.get("preferred")
         if pref:
             return list(pref)
@@ -185,7 +201,7 @@ def _run(cmd, **kwargs):
 
 # ───────────────────────────── doctor ──────────────────────────────────────
 
-def run_doctor(vla=None, region=None, email=None, quiet_header=False, bridge=False):
+def run_doctor(vla=None, region=None, email=None, quiet_header=False, bridge=False, rl_profile=None):
     """Run all prerequisite checks. Returns the number of FAILs (0 == ready)."""
     d = Doctor()
     if not quiet_header:
@@ -344,7 +360,7 @@ def run_doctor(vla=None, region=None, email=None, quiet_header=False, bridge=Fal
 
     # 13. GPU instance quota (best-effort — WARN only) ----------------------
     if account:
-        _check_gpu_quota(d, boto3, ClientError, BotoCoreError, region, vla)
+        _check_gpu_quota(d, boto3, ClientError, BotoCoreError, region, vla, rl_profile)
 
     # 14. HF token for gated models (per region) ----------------------------
     if account and vla in HF_TOKEN_TARGETS and not bridge:
@@ -383,45 +399,50 @@ def _check_hf_token(d, boto3, ClientError, BotoCoreError, region, vla):
         d.warn(f"could not verify HF token in SSM: {type(e).__name__}")
 
 
-def _check_gpu_quota(d, boto3, ClientError, BotoCoreError, region, vla):
-    """Compare the On-Demand G/VR vCPU quota against the smallest viable instance.
+def _check_gpu_quota(d, boto3, ClientError, BotoCoreError, region, vla, rl_profile=None):
+    """Compare the On-Demand vCPU quota of each instance family (G/VR, P) in the
+    target's preferred list against the smallest instance of that family.
 
     Always WARN-only: Service Quotas can be access-denied, and the AzSelector
     Lambda falls back across instance types/AZs at deploy time anyway. The goal is
     to surface an obvious 0-quota fresh account, not to gate the deploy.
     """
-    # Required vCPU = the smallest instance in the target's preferred list (the
-    # AzSelector can fall back to it), or a generic single-GPU 4 vCPU floor.
-    need = 4
-    detail = "a single-GPU instance"
+    # Required vCPU per family = the smallest instance of that family in the
+    # target's preferred list, or a generic single-GPU 4 vCPU G/VR floor.
+    needs = {"G/VR": (4, "a single-GPU instance")}
     if vla:
-        pref = _model_preferred(vla)
-        if pref:
-            vcpus = [v for v in (_instance_vcpu(i) for i in pref) if v]
-            if vcpus:
-                need = min(vcpus)
-                smallest = pref[vcpus.index(need)] if need in vcpus else pref[-1]
-                detail = f"{smallest} ({need} vCPU, smallest in {vla} preferred list)"
-    try:
-        sq = boto3.client("service-quotas", region_name=region)
-        resp = sq.get_service_quota(ServiceCode="ec2", QuotaCode=GVR_ONDEMAND_QUOTA_CODE)
-        limit = int(resp["Quota"]["Value"])
-        if limit <= 0:
-            d.warn(f"On-Demand G/VR vCPU quota is {limit} in {region} — cannot launch {detail}",
-                   "request a quota increase: Service Quotas > EC2 > "
-                   "'Running On-Demand G and VR instances'")
-        elif limit < need:
-            d.warn(f"On-Demand G/VR vCPU quota is {limit} in {region}, "
-                   f"but {detail} needs {need}",
-                   "request a quota increase (EC2 'Running On-Demand G and VR instances')")
-        else:
-            d.ok(f"On-Demand G/VR vCPU quota = {limit} in {region} (>= {need} for {detail})")
-    except ClientError as e:
-        code = e.response.get("Error", {}).get("Code", type(e).__name__)
-        d.warn(f"could not read G/VR vCPU quota ({code})",
-               "verify manually in the Service Quotas console (EC2)")
-    except BotoCoreError as e:
-        d.warn(f"could not read G/VR vCPU quota ({type(e).__name__})")
+        pref = _model_preferred(vla, rl_profile)
+        sized = [(i, _instance_vcpu(i)) for i in (pref or [])]
+        sized = [(i, v) for i, v in sized if v]
+        if sized:
+            needs = {}
+            for inst, vcpu in sized:
+                fam = _quota_family(inst)
+                if fam not in needs or vcpu < needs[fam][0]:
+                    needs[fam] = (vcpu, inst)
+            needs = {fam: (v, f"{inst} ({v} vCPU, smallest {fam} instance in {vla} preferred list)")
+                     for fam, (v, inst) in needs.items()}
+    sq = boto3.client("service-quotas", region_name=region)
+    for fam, (need, detail) in needs.items():
+        code, name = _QUOTA_FAMILIES[fam]
+        try:
+            resp = sq.get_service_quota(ServiceCode="ec2", QuotaCode=code)
+            limit = int(resp["Quota"]["Value"])
+            if limit <= 0:
+                d.warn(f"On-Demand {fam} vCPU quota is {limit} in {region} — cannot launch {detail}",
+                       f"request a quota increase: Service Quotas > EC2 > '{name}'")
+            elif limit < need:
+                d.warn(f"On-Demand {fam} vCPU quota is {limit} in {region}, "
+                       f"but {detail} needs {need}",
+                       f"request a quota increase (EC2 '{name}')")
+            else:
+                d.ok(f"On-Demand {fam} vCPU quota = {limit} in {region} (>= {need} for {detail})")
+        except ClientError as e:
+            err = e.response.get("Error", {}).get("Code", type(e).__name__)
+            d.warn(f"could not read {fam} vCPU quota ({err})",
+                   "verify manually in the Service Quotas console (EC2)")
+        except BotoCoreError as e:
+            d.warn(f"could not read {fam} vCPU quota ({type(e).__name__})")
 
 
 def _summary(d, vla):
@@ -592,8 +613,9 @@ def _peek_core_args(rest):
     p.add_argument("--vla")
     p.add_argument("--region", "-r")
     p.add_argument("--email", "-e")
+    p.add_argument("--rl-profile")
     known, _ = p.parse_known_args(rest)
-    return known.vla, known.region, known.email
+    return known.vla, known.region, known.email, known.rl_profile
 
 
 def run_deploy(rest):
@@ -604,12 +626,12 @@ def run_deploy(rest):
     skip_doctor = "--skip-doctor" in rest
     forward = [t for t in rest if t != "--skip-doctor"]
 
-    vla, region, email = _peek_core_args(forward)
+    vla, region, email, rl_profile = _peek_core_args(forward)
 
     if not skip_doctor:
         print("=== Preflight (vlasim doctor) ===")
         failures = run_doctor(vla=vla, region=region, email=email, quiet_header=True,
-                              bridge="--bridge" in forward)
+                              bridge="--bridge" in forward, rl_profile=rl_profile)
         print("=================================\n")
         if failures:
             print("[deploy] Preflight FAILED. Fix the [FAIL] items above, or re-run with "
@@ -631,7 +653,7 @@ def run_judge(rest):
     forward = [t for t in rest if t != "--skip-doctor"]
     if "--judge" not in forward:
         forward = ["--judge"] + forward
-    _, region, email = _peek_core_args(forward)
+    _, region, email, _ = _peek_core_args(forward)
     if not skip_doctor:
         print("=== Preflight (vlasim doctor, judge instance) ===")
         failures = run_doctor(vla=JUDGE_TARGETS[0], region=region, email=email, quiet_header=True)
@@ -698,8 +720,10 @@ def run_doctor_cli(rest):
                    help="Check quota/instance fit for a specific target")
     p.add_argument("--region", "-r", help="Override region (else from config)")
     p.add_argument("--email", "-e", help="Override email (else from config)")
+    p.add_argument("--rl-profile", choices=["smoke", "full"],
+                   help="rlinf-* targets: check the quota for this profile's instance list (default smoke)")
     args = p.parse_args(rest)
-    return 1 if run_doctor(vla=args.vla, region=args.region, email=args.email) else 0
+    return 1 if run_doctor(vla=args.vla, region=args.region, email=args.email, rl_profile=args.rl_profile) else 0
 
 
 # ───────────────────────────── dispatch ────────────────────────────────────

@@ -121,8 +121,22 @@ function preferredFromYaml(vla: string, instanceCfg: any): string[] {
 // Targets with a `variants:` block (robolab-*) select one with model.variant; that variant's `instance:`
 // keys (preferred list, EBS, creation timeout) override the top-level `instance:`. Same rule as
 // generate.resolve_variant(). Models without `variants:` are returned unchanged.
-export function resolveInstanceCfg(vla: string, modelConfig: any): any {
+//
+// Targets with a `profiles:` block (rlinf-*) select one with CDK context rl_profile (deploy.py --rl-profile,
+// default "smoke"); that profile's `instance:` keys override the top-level `instance:` the same way.
+export function resolveInstanceCfg(vla: string, modelConfig: any, rlProfile?: string): any {
   const base = modelConfig?.instance ?? {};
+  const profiles = modelConfig?.profiles;
+  if (profiles && typeof profiles === 'object') {
+    const name = String(rlProfile ?? '').trim() || 'smoke';
+    if (!Object.prototype.hasOwnProperty.call(profiles, name)) {
+      throw new Error(`models/${vla}.yaml: rl_profile "${name}" is not one of ${Object.keys(profiles).join(', ')}`);
+    }
+    return { ...base, ...(profiles[name]?.instance ?? {}) };
+  }
+  if (rlProfile) {
+    throw new Error(`rl_profile applies to targets with a profiles block in models/<vla>.yaml; ${vla} has none`);
+  }
   const variants = modelConfig?.variants;
   if (!variants || typeof variants !== 'object') return base;
   const name = String(modelConfig?.model?.variant ?? '').trim();
@@ -185,7 +199,7 @@ export class VlaSimulatorStack extends cdk.Stack {
     const r2sRun = r2sCfg ? real2simRunPrefix(real2simRun ?? '') : undefined;
     const knobCfg = plusCfg ?? r2sCfg;
     const instanceCfg = {
-      ...(resolveInstanceCfg(vla, modelConfig) ?? {}),
+      ...(resolveInstanceCfg(vla, modelConfig, this.node.tryGetContext('rl_profile') as string | undefined) ?? {}),
       ...(knobCfg?.creationpolicy_timeout ? { creationpolicy_timeout: knobCfg.creationpolicy_timeout } : {}),
       ...(knobCfg?.ebs_gb ? { ebs_gb: knobCfg.ebs_gb } : {}),
     };
@@ -408,6 +422,20 @@ export class VlaSimulatorStack extends cdk.Stack {
       role.addToPolicy(new iam.PolicyStatement({
         actions: ['s3:GetObject'],
         resources: [`arn:${cdk.Aws.PARTITION}:s3:::${captureObject}`],
+      }));
+    }
+
+    // RLinf targets (models/<vla>.yaml profiles): `deploy.py --rl-eval-run RUN_ID` reads back the RL checkpoint an
+    // earlier run of this stack saved under <RUN_ID>/rl/ in its own results bucket. Read only that prefix pattern.
+    if (modelConfig.profiles && typeof modelConfig.profiles === 'object') {
+      role.addToPolicy(new iam.PolicyStatement({
+        actions: ['s3:GetObject'],
+        resources: [`${bucket.bucketArn}/*/rl/*`],
+      }));
+      role.addToPolicy(new iam.PolicyStatement({
+        actions: ['s3:ListBucket'],
+        resources: [bucket.bucketArn],
+        conditions: { StringLike: { 's3:prefix': ['*/rl/*'] } },
       }));
     }
 
@@ -677,7 +705,7 @@ export class VlaSimulatorStack extends cdk.Stack {
     const roleLogicalId = `${vla.charAt(0).toUpperCase() + vla.slice(1)}InstanceRole`;
     acknowledge(role, [
       { id: 'AwsSolutions-IAM4', reason: 'AmazonSSMManagedInstanceCore enables SSM Session Manager for browser-based terminal access.', appliesTo: ['Policy::arn:<AWS::Partition>:iam::aws:policy/AmazonSSMManagedInstanceCore'] },
-      { id: 'AwsSolutions-IAM5', reason: 'Wildcard on results bucket objects required for dynamic output file names.', appliesTo: ['Resource::<ResultsBucketA95A2103.Arn>/*'] },
+      { id: 'AwsSolutions-IAM5', reason: 'Wildcard on results bucket objects required for dynamic output file names.', appliesTo: ['Resource::<ResultsBucketA95A2103.Arn>/*', 'Resource::<ResultsBucketA95A2103.Arn>/*/rl/*'] },
       { id: 'AwsSolutions-IAM5', reason: 'Self-termination: the instance ID is unknown at synth time; ec2:TerminateInstances is constrained by StringEquals on the StackName tag.', appliesTo: ['Resource::arn:<AWS::Partition>:ec2:<AWS::Region>:<AWS::AccountId>:instance/*'] },
       {
         id: 'AwsSolutions-IAM5',

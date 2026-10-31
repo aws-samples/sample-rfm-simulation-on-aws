@@ -461,6 +461,21 @@ log "[5/6] HF revision not pinned — run_libero_eval.py will download on demand
 cat > /tmp/lp_oft_task_ids_patch.py <<'LPPATCH_EOF'
 {{ libero_plus.oft_patch_py }}LPPATCH_EOF
 {%- endif %}
+{%- if libero_r2s %}
+{% with r2s=libero_r2s, r2s_step="5.5/6", r2s_log="oft", r2s_pkg="${LIBERO_DIR}/libero/libero" %}{% include "_libero-r2s-setup.sh.j2" %}{% endwith %}
+# Physics check before any GPU time is spent on the policy: each replaced object must rest where the stock one
+# rested on the task's first initial state (no renderer; EGL is only imported).
+r2s_check() {
+    log "[5.5/6] LIBERO-R2S: physics check of the swapped scenes (tasks ${R2S_TASK_IDS})..."
+    python "${R2S_WORK}/bin/check_scene.py" --suite {{ libero_r2s.suite }} --tasks "${R2S_TASK_IDS}" \
+        --dirs "stable_hope_objects{% for m in libero_r2s.modes %},stable_hope_objects_r2s_{{ m }}{% endfor %}" \
+        --objects "${R2S_OBJECTS}" --out "${R2S_WORK}/check.json" --unstable-out "${R2S_WORK}/unstable.txt" \
+        2>&1 | tee -a /tmp/oft_r2s_check.log
+    return "${PIPESTATUS[0]}"
+}
+r2s_stabilise
+R2S_CONDS=""
+{%- endif %}
 
 # Stack knobs (per-task fields in models/<id>.yaml; absent = upstream default). A success rate is only
 # comparable with the stack that produced it ("Same Policy, Different Numbers", AMLC 2026 workshop).
@@ -500,6 +515,16 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
     python3 /tmp/lp_oft_task_ids_patch.py "${OFT_DIR}/experiments/robot/libero/run_libero_eval.py" \
         || die "LIBERO-Plus task-loop patch failed (task ${TASK_IDX})"
     log "  LIBERO-Plus ${LP_KEY} (${LP_CAT}): ${LP_N} variants (0 = all), seed ${LP_SEED} → task ids ${LIBERO_PLUS_TASK_IDS}"
+{%- endif %}
+{%- if libero_r2s %}
+    # LIBERO-R2S: same task ids / init states / seed for every condition; only the HOPE asset directory changes.
+    R2S_COND=$(echo "$TASK" | jq -r '.r2s_condition')
+    R2S_ASSET_DIR=$(echo "$TASK" | jq -r '.r2s_dir')
+    python3 "${R2S_WORK}/bin/r2s_select.py" use "${R2S_HOPE_PY}" "${R2S_ASSET_DIR}" \
+        || die "LIBERO-R2S: selecting ${R2S_ASSET_DIR} failed (task ${TASK_IDX})"
+    python3 "${R2S_WORK}/bin/r2s_select.py" loop "${OFT_DIR}/experiments/robot/libero/run_libero_eval.py" "${R2S_TASK_IDS}" \
+        || die "LIBERO-R2S: task-loop patch failed (task ${TASK_IDX})"
+    log "  LIBERO-R2S condition ${R2S_COND}: assets ${R2S_ASSET_DIR}, task ids ${R2S_TASK_IDS}"
 {%- endif %}
     K_ARGS=""
     [ -n "${K_REPLAN}" ] && K_ARGS="${K_ARGS} --num_open_loop_steps ${K_REPLAN}"
@@ -589,6 +614,17 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
         echo "stack_libero_plus_commit: ${LP_COMMIT}"
         echo "stack_libero_plus_assets: {{ libero_plus.assets_repo }}@{{ libero_plus.assets_revision[:8] }}"
 {%- endif %}
+{%- if libero_r2s %}
+        read -r R2S_K R2S_N < <(python3 "${R2S_WORK}/bin/r2s_libero_report.py" count "${EVAL_LOG}" 2>/dev/null || echo "0 0")
+        echo "n_episodes: ${R2S_N}"
+        echo "n_success: ${R2S_K}"
+        echo "benchmark: libero_r2s"
+        echo "r2s_condition: ${R2S_COND}"
+        echo "r2s_task_ids: ${R2S_TASK_IDS}"
+        echo "r2s_objects: ${R2S_OBJECTS}"
+        echo "stack_r2s_assets: scale={{ libero_r2s.scale }} mass={{ libero_r2s.mass }}"
+        echo "stack_r2s_run: {{ libero_r2s.run_id }}"
+{%- endif %}
     } > "/tmp/oft_task${TASK_IDX}_summary.txt"
 
     # S3 upload (videos + logs + summary)
@@ -615,6 +651,9 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
             echo "--- Environment ---"
             printf "Suite:      %s\n"  "${SUITE}"
             printf "Task:       %s\n"  "${language_cmd}"
+{%- if libero_r2s %}
+            printf "Objects:    %s (LIBERO-R2S/%s: real2sim run %s)\n" "${R2S_ASSET_DIR}" "${R2S_COND}" "{{ libero_r2s.run_id }}"
+{%- endif %}
             printf "Robot:      Franka Panda 7-DOF (LIBERO)\n"
             echo ""
             echo "--- Model ---"
@@ -656,6 +695,12 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
 
     SUMMARY_ALL="${SUMMARY_ALL}
 [Task $((TASK_IDX+1))] ${SUITE} LIBERO-Plus/${LP_KEY} — success_rate=${SR} (${NUM_TRIALS} trial/variant × ${LP_N} variants)"
+{%- elif libero_r2s %}
+
+    cp "${EVAL_LOG}" "${R2S_WORK}/eval-${R2S_COND}.log" 2>/dev/null || true
+    R2S_CONDS="${R2S_CONDS} --cond ${R2S_COND}=${R2S_WORK}/eval-${R2S_COND}.log"
+    SUMMARY_ALL="${SUMMARY_ALL}
+[Task $((TASK_IDX+1))] ${SUITE} LIBERO-R2S/${R2S_COND} — success_rate=${SR} (${NUM_TRIALS} trials × tasks ${R2S_TASK_IDS})"
 {%- else %}
 
     SUMMARY_ALL="${SUMMARY_ALL}
@@ -673,6 +718,22 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
     fi
 done
 
+{%- if libero_r2s %}
+# LIBERO-R2S: public vs reconstructed objects, per condition and per object -> <run>/libero-r2s/
+log "[5.9/6] LIBERO-R2S: report..."
+# shellcheck disable=SC2086
+python3 "${R2S_WORK}/bin/r2s_libero_report.py" final --out "${R2S_WORK}/report" ${R2S_CONDS} \
+    --tasks "${R2S_WORK}/tasks.json" --objects "${R2S_WORK}/objects.json" --check "${R2S_WORK}/check.json" \
+    --suite {{ libero_r2s.suite }} --model "openvla-oft ({{ hf_repo }})" 2>&1 | tee /tmp/oft_r2s_report.log || log "[warn] LIBERO-R2S report failed"
+for f in report/results.json report/summary.txt objects.json tasks.json check.json; do
+    [ -f "${R2S_WORK}/${f}" ] && aws s3 cp "${R2S_WORK}/${f}" "s3://${S3_BUCKET}/${RUN_ID}/libero-r2s/$(basename "${f}")" \
+        --region "$REGION" --only-show-errors || true
+done
+SUMMARY_ALL="${SUMMARY_ALL}
+
+$(cat "${R2S_WORK}/report/summary.txt" 2>/dev/null)"
+{%- endif %}
+
 # ── [6/6] SNS notification + cfn-signal ──────────────────────────
 log "[6/6] Sending SNS notification..."
 
@@ -684,6 +745,9 @@ Model: OpenVLA-OFT (OFT recipe on OpenVLA-7B base)
 Simulation: LIBERO (robosuite + MuJoCo, headless EGL)
 {%- if libero_plus %}
 Benchmark: LIBERO-Plus {{ libero_plus.suite }}, {{ libero_plus.perturb|join(',') }} x {{ libero_plus.variants_per_category or 'all' }} variants (python vlasim.py results --robustness --vla openvla-oft)
+{%- endif %}
+{%- if libero_r2s %}
+Benchmark: LIBERO-R2S {{ libero_r2s.suite }} — objects from real2sim run {{ libero_r2s.run_id }} (python vlasim.py results --real2sim --vla openvla-oft)
 {%- endif %}
 Instance: ${INSTANCE_TYPE}
 

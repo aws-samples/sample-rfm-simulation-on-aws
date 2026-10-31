@@ -34,6 +34,10 @@ export interface VlaSimulatorStackProps extends cdk.StackProps {
   liberoSuite?: string;
   /** LIBERO targets: "plus" = LIBERO-Plus sweep (models/<vla>.yaml libero_plus); default "libero". */
   liberoVariant?: string;
+  /** openvla-oft / pi: "real2sim" = LIBERO-R2S object swap (models/<vla>.yaml libero_r2s); default "libero". */
+  liberoObjects?: string;
+  /** --libero-objects real2sim: s3://<bucket>/<RUN_ID>/real2sim of the stage-1 run whose objects are read. */
+  real2simRun?: string;
 }
 
 /**
@@ -128,6 +132,17 @@ export function resolveInstanceCfg(vla: string, modelConfig: any): any {
   return { ...base, ...(variants[name]?.instance ?? {}) };
 }
 
+// LIBERO-R2S: s3://bucket/<RUN_ID>[/real2sim][/] -> {bucket, prefix "<RUN_ID>/real2sim"} (the stage-1 outputs the
+// instance may read); throws on anything else. Mirrors libero_r2s.parse_run.
+export function real2simRunPrefix(uri: string): { bucket: string; prefix: string } {
+  const m = /^s3:\/\/([a-z0-9][a-z0-9.-]{1,61}[a-z0-9])\/((?:[A-Za-z0-9_.=+-]+\/)*?[A-Za-z0-9_.=+-]+?)(?:\/real2sim)?\/?$/.exec(
+    String(uri ?? '').trim());
+  if (!m || m[2].includes('..') || m[2].includes('*')) {
+    throw new Error(`real2sim_run must be s3://<bucket>/<RUN_ID> of a real2sim stage-1 run, got "${uri}"`);
+  }
+  return { bucket: m[1], prefix: `${m[2]}/real2sim` };
+}
+
 // Real2Sim user capture: models/<vla>.yaml input = {source: capture, capture_s3_uri: s3://bucket/key.zip}
 // -> "bucket/key.zip" (the one object the instance may read); undefined for any other input.
 export function captureObjectPath(vla: string, input: any): string | undefined {
@@ -144,7 +159,7 @@ export class VlaSimulatorStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: VlaSimulatorStackProps) {
     super(scope, id, props);
 
-    const { vla, liberoSuite, liberoVariant } = props;
+    const { vla, liberoSuite, liberoVariant, liberoObjects, real2simRun } = props;
 
     // ── Load config ──────────────────────────────────────────────
     const simConfigPath = path.resolve(__dirname, '../../simulator-config.yaml');
@@ -158,10 +173,21 @@ export class VlaSimulatorStack extends cdk.Stack {
     if (liberoVariant === 'plus' && !plusCfg) {
       throw new Error(`libero_variant=plus needs a libero_plus block in models/${vla}.yaml`);
     }
+    // --libero-objects real2sim: libero_r2s.creationpolicy_timeout / ebs_gb likewise, plus a read grant on the
+    // stage-1 run (below). Absent → the LIBERO stack, unchanged.
+    const r2sCfg = liberoObjects === 'real2sim' ? modelConfig.libero_r2s : undefined;
+    if (liberoObjects === 'real2sim' && !r2sCfg) {
+      throw new Error(`libero_objects=real2sim needs a libero_r2s block in models/${vla}.yaml`);
+    }
+    if (r2sCfg && liberoVariant === 'plus') {
+      throw new Error('libero_objects=real2sim cannot be combined with libero_variant=plus');
+    }
+    const r2sRun = r2sCfg ? real2simRunPrefix(real2simRun ?? '') : undefined;
+    const knobCfg = plusCfg ?? r2sCfg;
     const instanceCfg = {
       ...(resolveInstanceCfg(vla, modelConfig) ?? {}),
-      ...(plusCfg?.creationpolicy_timeout ? { creationpolicy_timeout: plusCfg.creationpolicy_timeout } : {}),
-      ...(plusCfg?.ebs_gb ? { ebs_gb: plusCfg.ebs_gb } : {}),
+      ...(knobCfg?.creationpolicy_timeout ? { creationpolicy_timeout: knobCfg.creationpolicy_timeout } : {}),
+      ...(knobCfg?.ebs_gb ? { ebs_gb: knobCfg.ebs_gb } : {}),
     };
 
     // CDK context takes precedence (injected by deploy.py)
@@ -382,6 +408,23 @@ export class VlaSimulatorStack extends cdk.Stack {
       role.addToPolicy(new iam.PolicyStatement({
         actions: ['s3:GetObject'],
         resources: [`arn:${cdk.Aws.PARTITION}:s3:::${captureObject}`],
+      }));
+    }
+
+    // LIBERO-R2S: read exactly the stage-1 outputs the UserData downloads (<run>/segment/* and splat_world.ply);
+    // ListBucket only under <run>/segment/ (aws s3 cp --recursive lists before it copies).
+    if (r2sRun) {
+      role.addToPolicy(new iam.PolicyStatement({
+        actions: ['s3:GetObject'],
+        resources: [
+          `arn:${cdk.Aws.PARTITION}:s3:::${r2sRun.bucket}/${r2sRun.prefix}/segment/*`,
+          `arn:${cdk.Aws.PARTITION}:s3:::${r2sRun.bucket}/${r2sRun.prefix}/splat_world.ply`,
+        ],
+      }));
+      role.addToPolicy(new iam.PolicyStatement({
+        actions: ['s3:ListBucket'],
+        resources: [`arn:${cdk.Aws.PARTITION}:s3:::${r2sRun.bucket}`],
+        conditions: { StringLike: { 's3:prefix': [`${r2sRun.prefix}/segment/`, `${r2sRun.prefix}/segment/*`] } },
       }));
     }
 
@@ -675,6 +718,11 @@ export class VlaSimulatorStack extends cdk.Stack {
         id: 'AwsSolutions-IAM5',
         reason: `N1.7 rollout reads the fine-tuned ckpt objects from ${serverCkptBucket}; object key wildcard required for the ckpt directory contents (read-only).`,
         appliesTo: [`Resource::arn:<AWS::Partition>:s3:::${serverCkptBucket}/*`],
+      }] : []),
+      ...(r2sRun ? [{
+        id: 'AwsSolutions-IAM5',
+        reason: 'LIBERO-R2S reads the per-cluster hull files of one real2sim stage-1 run (read-only); the key wildcard is limited to that run\'s segment/ directory.',
+        appliesTo: [`Resource::arn:<AWS::Partition>:s3:::${r2sRun.bucket}/${r2sRun.prefix}/segment/*`],
       }] : []),
       ...(instanceCfg.bedrock === true ? [{
         id: 'AwsSolutions-IAM5',

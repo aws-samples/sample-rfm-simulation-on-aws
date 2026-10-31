@@ -398,6 +398,34 @@ if [ -f "${LIBERO_DF}" ] && ! grep -q "UV_BUILD_CONSTRAINT" "${LIBERO_DF}"; then
     log "  Patched examples/libero/Dockerfile: build-time setuptools<76"
 fi
 
+{%- if libero_r2s %}
+{% with r2s=libero_r2s, r2s_step="3.8/5", r2s_log="pi", r2s_pkg="${OPENPI_DIR}/third_party/libero/libero/libero" %}{% include "_libero-r2s-setup.sh.j2" %}{% endwith %}
+# The policy client imports this host checkout through the compose bind mount ($PWD:/app), so the patched
+# hope_objects.py and the sibling asset dirs (relative symlinks) are what the container loads.
+# Physics check before any GPU time is spent on the policy, inside the LIBERO client image (Python 3.8,
+# the eval's own robosuite/mujoco); no renderer. The build is cached for the first `compose up --build`.
+log "[3.8/5] LIBERO-R2S: building the LIBERO client image for the physics check..."
+mkdir -p "${OPENPI_DIR}/data/libero-r2s"
+cp "${R2S_WORK}/bin/check_scene.py" "${OPENPI_DIR}/data/libero-r2s/check_scene.py"
+(cd "${OPENPI_DIR}" && docker compose -f examples/libero/compose.yml build runtime) 2>&1 | tee /tmp/pi_r2s_image.log
+[ "${PIPESTATUS[0]}" -eq 0 ] || die "LIBERO-R2S: LIBERO client image build failed (see /tmp/pi_r2s_image.log)"
+r2s_check() {
+    log "[3.8/5] LIBERO-R2S: physics check of the swapped scenes (tasks ${R2S_TASK_IDS})..."
+    rm -f "${OPENPI_DIR}/data/libero-r2s/check.json" "${OPENPI_DIR}/data/libero-r2s/unstable.txt"
+    (cd "${OPENPI_DIR}" && CLIENT_ARGS="" docker compose -f examples/libero/compose.yml run --rm -T --no-deps runtime \
+        /bin/bash -c "source /.venv/bin/activate && python /data/libero-r2s/check_scene.py --suite {{ libero_r2s.suite }} \
+            --tasks ${R2S_TASK_IDS} --dirs stable_hope_objects{% for m in libero_r2s.modes %},stable_hope_objects_r2s_{{ m }}{% endfor %} \
+            --objects ${R2S_OBJECTS} --out /data/libero-r2s/check.json --unstable-out /data/libero-r2s/unstable.txt") \
+        2>&1 | tee -a /tmp/pi_r2s_check.log
+    local rc="${PIPESTATUS[0]}"
+    cp "${OPENPI_DIR}/data/libero-r2s/check.json" "${R2S_WORK}/check.json" 2>/dev/null || true
+    cp "${OPENPI_DIR}/data/libero-r2s/unstable.txt" "${R2S_WORK}/unstable.txt" 2>/dev/null || true
+    return "${rc}"
+}
+r2s_stabilise
+R2S_CONDS=""
+{%- endif %}
+
 # ── [4/5] Sequential task execution ──────────────────────────────
 log "[4/5] Starting sequential task execution..."
 
@@ -463,6 +491,16 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
     python3 /tmp/pi_lp_task_ids_patch.py "${OPENPI_DIR}/examples/libero/main.py" "${LP_IDS}" \
         || die "LIBERO-Plus task-loop patch failed (task ${TASK_IDX})"
     log "  LIBERO-Plus ${LP_KEY} (${LP_CAT}): ${LP_COUNT} variants (seed ${LP_SEED}) → task ids ${LP_IDS}"
+{%- endif %}
+{%- if libero_r2s %}
+    # LIBERO-R2S: same task ids / init states / seed for every condition; only the HOPE asset directory changes.
+    R2S_COND=$(echo "$TASK" | jq -r '.r2s_condition')
+    R2S_ASSET_DIR=$(echo "$TASK" | jq -r '.r2s_dir')
+    python3 "${R2S_WORK}/bin/r2s_select.py" use "${R2S_HOPE_PY}" "${R2S_ASSET_DIR}" \
+        || die "LIBERO-R2S: selecting ${R2S_ASSET_DIR} failed (task ${TASK_IDX})"
+    python3 "${R2S_WORK}/bin/r2s_select.py" loop "${OPENPI_DIR}/examples/libero/main.py" "${R2S_TASK_IDS}" \
+        || die "LIBERO-R2S: task-loop patch failed (task ${TASK_IDX})"
+    log "  LIBERO-R2S condition ${R2S_COND}: assets ${R2S_ASSET_DIR}, task ids ${R2S_TASK_IDS}"
 {%- endif %}
     K_ARGS=""
     [ -n "${K_REPLAN}" ] && K_ARGS="${K_ARGS} --args.replan-steps ${K_REPLAN}"
@@ -561,6 +599,17 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
         echo "stack_libero_plus_commit: ${LP_COMMIT}"
         echo "stack_libero_plus_assets: {{ libero_plus.assets_repo }}@{{ libero_plus.assets_revision[:8] }}"
 {%- endif %}
+{%- if libero_r2s %}
+        read -r R2S_K R2S_N < <(python3 "${R2S_WORK}/bin/r2s_libero_report.py" count "/tmp/pi_task${TASK_IDX}.log" 2>/dev/null || echo "0 0")
+        echo "n_episodes: ${R2S_N}"
+        echo "n_success: ${R2S_K}"
+        echo "benchmark: libero_r2s"
+        echo "r2s_condition: ${R2S_COND}"
+        echo "r2s_task_ids: ${R2S_TASK_IDS}"
+        echo "r2s_objects: ${R2S_OBJECTS}"
+        echo "stack_r2s_assets: scale={{ libero_r2s.scale }} mass={{ libero_r2s.mass }}"
+        echo "stack_r2s_run: {{ libero_r2s.run_id }}"
+{%- endif %}
     } > "/tmp/pi_task${TASK_IDX}_summary.txt"
 
     # S3 upload
@@ -604,6 +653,9 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
                 echo "instance: ${INSTANCE_ID} (${INSTANCE_TYPE})"
                 echo "suite: ${SUITE}"
                 echo "language_command: ${language_cmd}"
+{%- if libero_r2s %}
+                echo "objects: ${R2S_ASSET_DIR} (LIBERO-R2S/${R2S_COND}: real2sim run {{ libero_r2s.run_id }})"
+{%- endif %}
                 echo "result: ${vid_result}"
                 echo "run_id: ${RUN_ID}"
             } > "$txt_path"
@@ -628,11 +680,34 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
     log "  Videos uploaded: ${VIDEO_COUNT}"
 
     # Collect for SNS summary
+{%- if libero_r2s %}
+    cp "/tmp/pi_task${TASK_IDX}.log" "${R2S_WORK}/eval-${R2S_COND}.log" 2>/dev/null || true
+    R2S_CONDS="${R2S_CONDS} --cond ${R2S_COND}=${R2S_WORK}/eval-${R2S_COND}.log"
+    SUMMARY_ALL="${SUMMARY_ALL}
+[Task $((TASK_IDX+1))] ${SUITE} LIBERO-R2S/${R2S_COND} — success_rate=${SR} (${NUM_EPISODES} eps × tasks ${R2S_TASK_IDS})"
+{%- else %}
     SUMMARY_ALL="${SUMMARY_ALL}
 [Task $((TASK_IDX+1))] ${SUITE} — success_rate=${SR} (${NUM_EPISODES} eps/task)"
+{%- endif %}
 
     log "  Task $((TASK_IDX+1)) done"
 done
+
+{%- if libero_r2s %}
+# LIBERO-R2S: public vs reconstructed objects, per condition and per object -> <run>/libero-r2s/
+log "[4.9/5] LIBERO-R2S: report..."
+# shellcheck disable=SC2086
+python3 "${R2S_WORK}/bin/r2s_libero_report.py" final --out "${R2S_WORK}/report" ${R2S_CONDS} \
+    --tasks "${R2S_WORK}/tasks.json" --objects "${R2S_WORK}/objects.json" --check "${R2S_WORK}/check.json" \
+    --suite {{ libero_r2s.suite }} --model "pi05_libero (openpi)" 2>&1 | tee /tmp/pi_r2s_report.log || log "[warn] LIBERO-R2S report failed"
+for f in report/results.json report/summary.txt objects.json tasks.json check.json; do
+    [ -f "${R2S_WORK}/${f}" ] && aws s3 cp "${R2S_WORK}/${f}" "s3://${S3_BUCKET}/${RUN_ID}/libero-r2s/$(basename "${f}")" \
+        --region "$REGION" --only-show-errors || true
+done
+SUMMARY_ALL="${SUMMARY_ALL}
+
+$(cat "${R2S_WORK}/report/summary.txt" 2>/dev/null)"
+{%- endif %}
 
 # A suite that never printed a success rate did not run (image build or eval crashed); its
 # compose.log is already in S3. Do not report the run as a success.

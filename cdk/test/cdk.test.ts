@@ -1,6 +1,6 @@
 import * as cdk from 'aws-cdk-lib';
 import { Template } from 'aws-cdk-lib/assertions';
-import { captureObjectPath, resolveInstanceCfg, VlaSimulatorStack } from '../lib/vla-simulator-stack';
+import { captureObjectPath, real2simRunPrefix, resolveInstanceCfg, VlaSimulatorStack } from '../lib/vla-simulator-stack';
 
 // The stack reads the rendered UserData from assets/userdata/<vla>.sh (gitignored); the jest
 // globalSetup seeds placeholders for the targets synthesized here (test/userdata-seed.ts).
@@ -257,4 +257,58 @@ test('libero_variant=plus also sizes the other LIBERO targets from their libero_
   const pi = Template.fromStack(plusStack('pi', 'Pi-Demo', 'plus'));
   pi.hasResourceProperties('AWS::CloudFormation::WaitCondition', { Timeout: String(240 * 60) });
   pi.hasResourceProperties('AWS::CloudFormation::CustomResource', { EbsGb: '230' });
+});
+
+// LIBERO-R2S object swap (deploy.py --libero-objects real2sim): same stack name, timeout / EBS from
+// models/<vla>.yaml libero_r2s, and a read grant on exactly the stage-1 outputs of one run.
+function r2sStack(vla: string, stackName: string, real2simRun?: string, liberoSuite = '', liberoVariant?: string) {
+  const app = new cdk.App({ context: { region: 'us-east-1', vla, notify_email: 'test@example.com' } });
+  return new VlaSimulatorStack(app, stackName, {
+    vla, liberoSuite, liberoVariant, liberoObjects: real2simRun === undefined ? undefined : 'real2sim', real2simRun,
+    env: { account: '123456789012', region: 'us-east-1' },
+  });
+}
+
+function s3Statements(template: Template): any[] {
+  const out: any[] = [];
+  for (const p of Object.values(template.findResources('AWS::IAM::Policy')) as any[]) {
+    for (const st of p.Properties.PolicyDocument.Statement) {
+      const acts = ([] as string[]).concat(st.Action);
+      if (acts.some((a) => a === 's3:GetObject' || a === 's3:ListBucket')) out.push(st);
+    }
+  }
+  return out;
+}
+
+test('real2simRunPrefix accepts s3://bucket/<RUN_ID>[/real2sim] only', () => {
+  expect(real2simRunPrefix('s3://my-results/2026-10-29-0142')).toEqual({ bucket: 'my-results', prefix: '2026-10-29-0142/real2sim' });
+  expect(real2simRunPrefix('s3://my-results/2026-10-29-0142/real2sim/')).toEqual({ bucket: 'my-results', prefix: '2026-10-29-0142/real2sim' });
+  expect(() => real2simRunPrefix('s3://my-results/')).toThrow();
+  expect(() => real2simRunPrefix('s3://my-results/*')).toThrow();
+  expect(() => real2simRunPrefix('s3://my-results/../x')).toThrow();
+  expect(() => real2simRunPrefix('')).toThrow();
+});
+
+test('libero_objects=real2sim grants read on one stage-1 run and takes timeout / EBS from libero_r2s', () => {
+  const run = 's3://r2s-results-bucket/2026-10-29-0142';
+  const r2s = Template.fromStack(r2sStack('pi', 'Pi-Demo', run));
+  r2s.hasResourceProperties('AWS::CloudFormation::WaitCondition', { Timeout: String(300 * 60) });
+  const json = JSON.stringify(s3Statements(r2s));
+  expect(json).toContain('r2s-results-bucket/2026-10-29-0142/real2sim/segment/*');
+  expect(json).toContain('r2s-results-bucket/2026-10-29-0142/real2sim/splat_world.ply');
+  expect(json).toContain('"s3:prefix":["2026-10-29-0142/real2sim/segment/","2026-10-29-0142/real2sim/segment/*"]');
+  expect(json).not.toContain('r2s-results-bucket/*');
+  // Without the context: no grant on that bucket, the LIBERO timeout.
+  const base = Template.fromStack(r2sStack('pi', 'Pi-Demo'));
+  expect(JSON.stringify(s3Statements(base))).not.toContain('r2s-results-bucket');
+  base.hasResourceProperties('AWS::CloudFormation::WaitCondition', { Timeout: String(240 * 60) });
+  const oft = Template.fromStack(r2sStack('openvla-oft', 'OpenVLA-OFT-Object-Demo', run, 'object'));
+  oft.hasResourceProperties('AWS::CloudFormation::WaitCondition', { Timeout: String(300 * 60) });
+  oft.hasResourceProperties('AWS::CloudFormation::CustomResource', { EbsGb: '250' });
+});
+
+test('libero_objects=real2sim is rejected without a libero_r2s block, a run URI, or with libero_variant=plus', () => {
+  expect(() => r2sStack('smolvla', 'SmolVLA-Demo', 's3://b-1/2026-10-29-0142')).toThrow(/libero_r2s block/);
+  expect(() => r2sStack('pi', 'Pi-Demo', '')).toThrow(/real2sim_run/);
+  expect(() => r2sStack('openvla-oft', 'OpenVLA-OFT-Object-Demo', 's3://b-1/r', 'object', 'plus')).toThrow(/libero_variant=plus/);
 });

@@ -67,6 +67,16 @@ jobs:
           done
           echo "synthesized $n targets"
           test "$n" -gt 0
+      # RL targets (models/<vla>.yaml profiles): the loop above covers the default smoke profile; render and
+      # synthesize the 8-GPU full profile too (its own instance list, EBS and WaitCondition timeout).
+      - name: render + cdk synth (rlinf full profile)
+        working-directory: cdk
+        run: |
+          (cd .. && python generate.py --vla rlinf-oft-libero --rl-profile full --output-dir assets/userdata > /dev/null \
+            && bash -n assets/userdata/rlinf-oft-libero.sh)
+          npx cdk synth -q -c region=us-east-1 -c notify_email=ci@example.com -c vla=rlinf-oft-libero -c rl_profile=full \
+            --output cdk.out-rlinf-full > /dev/null
+          echo "synth ok rlinf-oft-libero full"
       # Video history gallery: the shared RFM-Gallery app, and one target with the gallery context on
       # (GalleryPublisher Lambda + S3 notification); both under cdk-nag like the targets above.
       - name: cdk synth (gallery)

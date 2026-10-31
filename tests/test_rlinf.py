@@ -279,3 +279,11 @@ def test_train_overrides_only_touch_existing_rollout_keys():
                 walk(v)
     walk(cfg)
     assert found and not [o for o in found if o.startswith("rollout.model.") and "lora" in o]
+
+
+def test_gpu_guards_around_ray_runs():
+    """A daemon-reload revoked GPU access mid-run (NVML Unknown Error); RLinf then put the rollout
+    worker on NO_ACCEL, it died in __init__ and the eval driver waited ~2 h on a dead actor."""
+    text = (ROOT / "templates" / "rlinf-userdata.sh.j2").read_text()
+    assert "native.cgroupdriver=cgroupfs" in text
+    assert text.count('gpu_check "') == 2 and text.count("watch_dead_actor \"${WORK}/logs/") == 2

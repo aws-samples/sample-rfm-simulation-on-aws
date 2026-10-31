@@ -157,6 +157,19 @@ SHM_GB=$(( HOST_MEM_MIB * 4 / 10 / 1024 ))
 log "[3/9] Docker + NVIDIA runtime..."
 command -v docker >/dev/null 2>&1 || die "docker not found on the AMI"
 systemctl start docker 2>/dev/null || true
+# cgroupfs driver so a stray systemctl daemon-reload cannot revoke GPU device access mid-run (the
+# container then sees "Failed to initialize NVML: Unknown Error", torch reports no CUDA, RLinf places
+# the rollout worker on NO_ACCEL and it dies; same fix as cosmos-policy / robolab).
+nvidia-ctk runtime configure --runtime=docker > /dev/null 2>&1 || true
+python3 - <<'PYEOF' || die "could not set the Docker cgroup driver"
+import json, os
+p = "/etc/docker/daemon.json"
+cfg = json.load(open(p)) if os.path.exists(p) and os.path.getsize(p) else {}
+opts = [o for o in cfg.get("exec-opts", []) if not o.startswith("native.cgroupdriver=")]
+cfg["exec-opts"] = opts + ["native.cgroupdriver=cgroupfs"]
+json.dump(cfg, open(p, "w"), indent=2)
+PYEOF
+systemctl restart docker 2>/dev/null || true
 docker info 2>/dev/null | grep -qi nvidia || log "[warn] docker info shows no nvidia runtime; relying on --gpus (nvidia-container-toolkit)"
 IMAGE="{{ docker_image }}@{{ docker_digest }}"
 log "[3/9] Pulling ${IMAGE} (~17.6 GB compressed, ~10-20 min)..."
@@ -309,16 +322,42 @@ COMMON_JSON=$(jq -cn --arg it "${INSTANCE_TYPE}" --arg drv "${DRIVER}" --arg img
   stack_sft: "{{ hf_repo }}@{{ hf_model_revision }}", stack_eval: "{{ eval_config }} n={{ eval_num_envs }}",
   stack_driver: $drv}')
 
+# torch must see the GPU inside the container before each Ray run (RLinf otherwise places workers on
+# NO_ACCEL and the driver waits forever).
+gpu_check() {
+    in_env "python -c 'import torch; assert torch.cuda.is_available(), \"no CUDA in the container\"; print(\"cuda devices\", torch.cuda.device_count())'" \
+        < /dev/null >> "${WORK}/logs/gpu_check.log" 2>&1 || die "$1: torch sees no GPU in the container (see ${WORK}/logs/gpu_check.log)"
+}
+
+# Ray keeps the driver waiting when a worker dies in its constructor; stop the run instead of idling
+# until the timeout. $1 = log file. Run in the background next to the Ray command.
+watch_dead_actor() {
+    local logf=$1
+    while sleep 30; do
+        if grep -aq "The actor died because of an error raised in its creation task" "${logf}" 2>/dev/null; then
+            log "[warn] a Ray worker died at creation (see ${logf}); stopping the run"
+            docker exec "${CTR}" pkill -f "embodied_agent.py" >/dev/null 2>&1 || true
+            docker exec "${CTR}" bash -c "ray stop --force" >/dev/null 2>&1 || true
+            return 0
+        fi
+    done
+}
+
 # One eval with the shared protocol. $1 = phase (baseline|rl), $2 = task dir, $3 = extra overrides.
 run_eval() {
     local phase=$1 task=$2 extra=$3
     local marker="${WORK}/out/${phase}.marker"
     touch "${marker}"
     log "  eval ${phase}: {{ eval_config }} with ${EVAL_NUM_ENVS} envs ${extra}"
+    gpu_check "eval ${phase}"
+    : > "${WORK}/logs/eval_${phase}.log"
+    watch_dead_actor "${WORK}/logs/eval_${phase}.log" &
+    local watcher=$!
     set +e
     IN_ENV_TIMEOUT=10800 in_env "ray stop --force >/dev/null 2>&1; bash evaluations/run_eval.sh libero {{ eval_config }} rollout.model.model_path=${SFT_DIR} ${EVAL_OVERRIDES} ${extra}" \
         < /dev/null > "${WORK}/logs/eval_${phase}.log" 2>&1
     local rc=$?
+    kill "${watcher}" 2>/dev/null; wait "${watcher}" 2>/dev/null
     set -e
     log "  eval ${phase} exit ${rc}"
     local cond="baseline" ckpt="{{ hf_repo }}@{{ hf_model_revision[:8] }}"
@@ -363,10 +402,15 @@ if [ -z "${EVAL_RUN}" ]; then
     TRAIN_CAP=$(( MAX_WALL_HOURS * 3600 - ELAPSED - 5400 ))   # keep 1.5 h for the RL eval + uploads
     [ "${TRAIN_CAP}" -gt 600 ] || die "no wall-clock left for training (${ELAPSED}s used of ${MAX_WALL_HOURS} h)"
     log "[8/9] (b) GRPO training: {{ train_config }}, ${RL_STEPS} steps, save every ${RL_SAVE_INTERVAL}, cap ${TRAIN_CAP}s..."
+    gpu_check "training"
+    : > "${WORK}/logs/train.log"
+    watch_dead_actor "${WORK}/logs/train.log" &
+    TRAIN_WATCHER=$!
     set +e
     IN_ENV_TIMEOUT="${TRAIN_CAP}" in_env "ray stop --force >/dev/null 2>&1; python examples/embodiment/train_embodied_agent.py --config-path /workspace/RLinf/examples/embodiment/config/ --config-name {{ train_config }} ${TRAIN_OVERRIDES}" \
         < /dev/null > "${WORK}/logs/train.log" 2>&1
     TRAIN_RC=$?
+    kill "${TRAIN_WATCHER}" 2>/dev/null; wait "${TRAIN_WATCHER}" 2>/dev/null
     set -e
     log "  training exit ${TRAIN_RC} (124 = wall-clock cap; the latest saved step is evaluated)"
     in_env "ray stop --force" < /dev/null >/dev/null 2>&1 || true

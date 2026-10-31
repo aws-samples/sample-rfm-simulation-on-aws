@@ -145,6 +145,8 @@ def test_render_profiles(tmp_path, profile):
     assert 'mujoco==3.3.2' in text and "PYTHONFAULTHANDLER=1" in text
     # The report script is embedded and decodes to the asset.
     assert "REPORTEOF" in text
+    # The RL row is labelled with the step that was evaluated (cap / --rl-eval-run), set before the RL eval.
+    assert text.find('RL_CONDITION="rl-grpo-${EVAL_STEP}steps"') < text.find("run_eval rl task-1")
 
 
 def test_render_steps_and_eval_run(tmp_path):

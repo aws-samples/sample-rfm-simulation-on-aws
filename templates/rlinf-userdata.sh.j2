@@ -317,7 +317,7 @@ run_eval() {
     [ "${phase}" = rl ] && { cond="${RL_CONDITION}"; ckpt="${RL_CKPT_LABEL}"; }
     python3 "${WORK}/rlinf_report.py" phase "${WORK}/out/${phase}.json" --phase "${phase}" \
         --log "${WORK}/logs/eval_${phase}.log" --n "${EVAL_NUM_ENVS}" --checkpoint "${ckpt}" --condition "${cond}" \
-        --meta "{\"rl_steps\": ${RL_STEPS}, \"rl_profile\": \"${RL_PROFILE}\", \"eval_num_envs\": ${EVAL_NUM_ENVS}, \"eval_config\": \"{{ eval_config }}\", \"train_config\": \"{{ train_config }}\"}" \
+        --meta "{\"rl_steps\": ${EVAL_STEP:-0}, \"rl_steps_requested\": ${RL_STEPS}, \"rl_profile\": \"${RL_PROFILE}\", \"eval_num_envs\": ${EVAL_NUM_ENVS}, \"eval_config\": \"{{ eval_config }}\", \"train_config\": \"{{ train_config }}\"}" \
         --common "${COMMON_JSON}" --summary "${WORK}/out/${phase}_summary.txt" 2>&1 | tee -a "${LOG_FILE}" || true
     local prefix="s3://${S3_BUCKET}/${RUN_ID}/${task}"
     aws s3 cp "${WORK}/logs/eval_${phase}.log" "${prefix}/eval.log" --region "$REGION" >/dev/null 2>&1 || true
@@ -394,6 +394,12 @@ else
         || die "download of s3://${S3_BUCKET}/${EVAL_RUN}/${PREFIX} failed"
     RL_CKPT_LABEL="s3://${S3_BUCKET}/${EVAL_RUN}/${PREFIX%/}"
 fi
+# Label the RL row with the step actually evaluated: the wall-clock cap or --rl-eval-run can make it differ from
+# the requested ${RL_STEPS} (RLinf saves checkpoints/global_step_<N>).
+EVAL_STEP="${STEP_NAME#global_step_}"
+case "${EVAL_STEP}" in ''|*[!0-9]*) die "unexpected checkpoint name ${STEP_NAME}" ;; esac
+RL_CONDITION="rl-grpo-${EVAL_STEP}steps"
+[ "${EVAL_STEP}" = "${RL_STEPS}" ] || log "  evaluating step ${EVAL_STEP} (requested ${RL_STEPS}); condition ${RL_CONDITION}"
 # The eval loads the SFT model dir and overlays the trained weights (runner.ckpt_path, RLinf docs guides/resume).
 FULL_W=$(find "${STEP_DIR}" -name 'full_weights.pt' 2>/dev/null | head -1 || true)
 [ -n "${FULL_W}" ] || die "no full_weights.pt under ${STEP_NAME} (RLinf saved only DCP shards; see the checkpoint in S3)"
@@ -404,7 +410,7 @@ log "[9/9] (c) Eval of the RL checkpoint (${STEP_NAME})..."
 run_eval rl task-1 "runner.ckpt_path=${FULL_W_CTR}"
 
 python3 "${WORK}/rlinf_report.py" report "${WORK}/out/baseline.json" "${WORK}/out/rl.json" "${WORK}/out" \
-    --meta "{\"target\": \"{{ vla }}\", \"run_id\": \"${RUN_ID}\", \"suite\": \"{{ task_suite_name }}\", \"rl_profile\": \"${RL_PROFILE}\", \"rl_steps\": ${RL_STEPS}, \"instance_type\": \"${INSTANCE_TYPE}\", \"gpus\": ${GPU_COUNT}, \"published_sft\": {{ published_sft }}, \"published_rl\": {{ published_rl }}, \"run_wall_s\": $(( $(date +%s) - START_EPOCH ))}" \
+    --meta "{\"target\": \"{{ vla }}\", \"run_id\": \"${RUN_ID}\", \"suite\": \"{{ task_suite_name }}\", \"rl_profile\": \"${RL_PROFILE}\", \"rl_steps\": ${EVAL_STEP}, \"rl_steps_requested\": ${RL_STEPS}, \"instance_type\": \"${INSTANCE_TYPE}\", \"gpus\": ${GPU_COUNT}, \"published_sft\": {{ published_sft }}, \"published_rl\": {{ published_rl }}, \"run_wall_s\": $(( $(date +%s) - START_EPOCH ))}" \
     > "${WORK}/out/report.txt" 2>&1 || die "report failed"
 cat "${WORK}/out/report.txt" | tee -a "${LOG_FILE}"
 for f in results.json summary.txt; do

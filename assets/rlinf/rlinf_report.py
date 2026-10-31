@@ -60,7 +60,7 @@ def summary_lines(rec, common):
         out.update(success_rate=f"{rec['success_rate']:.4f}", n_episodes=rec["n_episodes"], n_success=rec["n_success"])
     else:
         out["success_rate"] = "unknown"
-    for key in ("rl_steps", "rl_profile", "train_config", "eval_config", "eval_num_envs", "eval_seed"):
+    for key in ("rl_steps", "rl_steps_requested", "rl_profile", "train_config", "eval_config", "eval_num_envs", "eval_seed"):
         if rec.get(key) is not None:
             out[key] = rec[key]
     return "".join(f"{k}: {v}\n" for k, v in out.items())

@@ -293,6 +293,8 @@ import sys
 p = sys.argv[1]
 s = open(p).read()
 edits = [
+    # ImageMagick's dependency chain pulls tzdata, whose postinst prompts without a noninteractive frontend.
+    ("RUN apt-get update && \\\n", "ARG DEBIAN_FRONTEND=noninteractive\nRUN apt-get update && \\\n"),
     ("COPY ./third_party/libero/requirements.txt /tmp/requirements-libero.txt\n",
      "COPY ./third_party/libero/requirements.openpi.txt /tmp/requirements-libero.txt\n"),
     ("    libxext6\n", "    libxext6 \\\n    libmagickwand-dev \\\n    libexpat1 \\\n    libfontconfig1-dev\n"),

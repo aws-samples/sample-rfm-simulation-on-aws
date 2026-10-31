@@ -1,0 +1,15 @@
+model,suite,condition,successes,episodes,run,simulator
+robolab-pi05,robolab-12,C0,45,120,2026-10-31-0244,
+robolab-pi05,robolab-12,C0,54,120,2026-10-31-0248,
+robolab-cosmos3,robolab-12,C0,41,120,2026-10-31-0245,
+robolab-cosmos3,robolab-12,C0,36,120,2026-10-31-0247,
+robolab-pi05,robolab-12,C1,55,120,2026-10-31-0247,
+robolab-cosmos3,robolab-12,C1,36,120,2026-10-31-0247,
+robolab-pi05,robolab-12,Cs,27,120,2026-10-31-0520,
+robolab-cosmos3,robolab-12,Cs,51,120,2026-10-31-0552,
+arena-pi05,arena-microwave,b10-s1000,91,100,a,isaaclab
+arena-pi05,arena-microwave,b10-s1000,94,100,b,isaaclab
+arena-smolvla,arena-microwave,b10-s1000,95,100,a,isaaclab
+arena-smolvla,arena-microwave,b10-s1000,96,100,b,isaaclab
+arena-pi05,arena-microwave,b1-s1000,69,100,a,isaaclab
+arena-pi05,arena-microwave,b1-s1000,77,100,b,isaaclab

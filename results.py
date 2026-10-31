@@ -319,22 +319,31 @@ def run_compare(a, boto3=None):
     if not A or not B:
         print(f"No finished cells for {'A' if not A else 'B'} ({sa if not A else sb}).")
         return 1
-    rows = compare.compare(A, B, ca, cb, alpha=a.alpha, raw_p=a.raw_p)
+    repeat_info = None
+    if not a.assume_repeatable:
+        import repeatability
+        sim_a = compare.simulator_from_csv(a.from_csv, sa) if a.from_csv else None
+        sim_b = compare.simulator_from_csv(a.from_csv, sb) if a.from_csv else None
+        ia = repeatability.for_simulator(sim_a) if sim_a else repeatability.for_target(sa)
+        ib = repeatability.for_simulator(sim_b) if sim_b else repeatability.for_target(sb)
+        repeat_info = ({"A and B": ia} if ia == ib else {f"A={a.compare[0]}": ia, f"B={a.compare[1]}": ib})
+    rows = compare.compare(A, B, ca, cb, alpha=a.alpha, raw_p=a.raw_p,
+                           repeat=None if repeat_info is None else (ia["repeatable"], ib["repeatable"]))
     if not rows:
         print("No suite/condition row exists on both sides.")
         return 1
-    compare.print_rows(a.compare[0], a.compare[1], rows, null, a.alpha, a.raw_p)
+    compare.print_rows(a.compare[0], a.compare[1], rows, null, a.alpha, a.raw_p, repeat_info=repeat_info)
     if a.csv:
         cols = ["suite", "condition_a", "condition_b", "k_a", "n_a", "k_b", "n_b", "p", "q", "verdict",
-                "paired_n", "only_a", "only_b", "p_mcnemar"]
+                "paired_n", "only_a", "only_b", "p_mcnemar", "rerun_class", "single_run_verdict", "one_run_verdict"]
         with open(a.csv, "w", newline="") as f:
             w = csv.DictWriter(f, fieldnames=cols, extrasaction="ignore")
             w.writeheader()
             w.writerows(rows)
     if a.json:
         with open(a.json, "w") as f:
-            json.dump(dict(a=a.compare[0], b=a.compare[1], alpha=a.alpha, raw_p=a.raw_p, rows=rows, rerun_null=null),
-                      f, indent=1)
+            json.dump(dict(a=a.compare[0], b=a.compare[1], alpha=a.alpha, raw_p=a.raw_p, rows=rows, rerun_null=null,
+                           simulators=repeat_info), f, indent=1, default=str)
     return 0
 
 
@@ -370,6 +379,8 @@ def main(argv=None):
     c.add_argument("--episodes", metavar="PATH", help="with --from-csv: per-episode outcomes JSON for the paired test")
     c.add_argument("--alpha", type=float, default=0.05, help="significance level for the verdict (default 0.05)")
     c.add_argument("--raw-p", action="store_true", help="decide on the uncorrected Fisher p instead of the BH q")
+    c.add_argument("--assume-repeatable", action="store_true", help="ignore the per-simulator re-run rule "
+                   "(repeatability.py) and call a winner from one run per side even on GPU physics")
     a = p.parse_args(argv)
     if a.compare:
         return run_compare(a)

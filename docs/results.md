@@ -421,6 +421,41 @@ pretend: the card says `not-controllable` and why.
 | `smolvla-robotwin` | every task's `seed` | yes | yes | lerobot-eval --seed (RoboTwin setup_demo seed) |
 | `lingbot-vla2` | every task's `seed` | yes | yes | lerobot-eval --seed (RoboTwin setup_demo seed) |
 
+## Re-run null per simulator
+
+A verdict is only as good as the noise under it. On LIBERO (MuJoCo, CPU physics) an identical re-run gives the
+same episodes back: with the same seed, SmolVLA and X-VLA repeated 50 of 50 LIBERO-Spatial episodes, also on
+another machine and region. On GPU physics it does not: an identical RoboLab (Isaac Lab) re-run changed 25 of 120
+pi0.5 episodes and 19 of 120 Cosmos3 episodes and turned a tie (p = 0.69) into a win (p = 0.023); in Isaac Lab
+Arena the same seed on the same machine changed 9 to 46 of 100 episodes between two runs. A shared seed
+(`--seed`) is therefore necessary but not sufficient there: the comparison also needs repeated runs and their spread.
+
+`repeatability.py` records this per simulator (`yes` / `no` / `unmeasured`, with the evidence), and
+`results --compare` applies it:
+
+| simulator class | one finished run per side | two or more finished runs (same stack, suite, condition, fingerprint) |
+|---|---|---|
+| `yes` (LIBERO) | verdict as before | verdict as before; the k range is printed |
+| `no` (RoboLab, Isaac Lab) | `needs re-run`; the one-run verdict is kept as `single_run_verdict` | the re-run spread (k range, episodes that changed between runs) is printed and the verdict is tested on every pair of runs (one run of A x one run of B, two-sided Fisher at `--alpha`); if the pairs disagree the verdict is `unstable` |
+| `unmeasured` (SimplerEnv, RoboCasa, RoboTwin, other MuJoCo) | verdict as before, with a note | as `yes` |
+
+On S3, runs of one bucket are only read with `--all-runs`; runs of the same target in two regions are two buckets
+and both count. Offline, a `run` column in the `--from-csv` table marks several runs of one cell and a `simulator`
+column overrides the target table (`--episodes` entries may carry `run`). `--assume-repeatable` turns the rule off.
+
+```
+$ python vlasim.py results --compare robolab-pi05 robolab-cosmos3 --from-csv tests/fixtures/rerun_cells.csv \
+      --episodes tests/fixtures/rerun_episodes.json
+suite       condition  A=robolab-pi05  B=robolab-cosmos3  ...  verdict       re-run
+robolab-12  C0         54/120          36/120             ...  unstable      A 45-54/120 over 2 runs, 25 of 120 episodes changed (21%); B 36-41/120 over 2 runs, 19 of 120 episodes changed (16%); run pairs A>B 1 · tie 3
+robolab-12  C1         55/120          36/120             ...  needs re-run  one run only (AB); one-run verdict A>B
+robolab-12  Cs         27/120          51/120             ...  needs re-run  one run only (AB); one-run verdict B>A
+```
+
+The protocol card records the simulator class next to every result (`rerun_null`: `simulator`, `repeatable`,
+`evidence`, `runs_for_a_verdict` = 2 where the simulator does not repeat), so a reader of one result file knows
+whether one run of it can carry a verdict.
+
 ## Post-run judge (judge.json)
 
 `python vlasim.py judge --vla <target> [--run RUN_ID]` ([targets](targets.md#post-run-judge-flora-rewarder)) scores every rollout video of a finished run with NVIDIA Flora-Rewarder and writes, next to the run:

@@ -70,6 +70,12 @@
             echo "  policy_seed: $(pc_q '{{ sp.policy | default("no") }}')"
             echo "  via: $(pc_q '{{ sp.via | default("") }}')"
             echo "  not_controllable_reason: $(pc_q '{{ sp.reason | default("") }}')"
+{%- set rn = protocol_static.rerun_null | default({}) %}
+            echo "rerun_null:"
+            echo "  simulator: $(pc_q '{{ rn.simulator | default("unknown") }}')"
+            echo "  repeatable: $(pc_q '{{ rn.repeatable | default("unmeasured") }}')"
+            echo "  evidence: $(pc_q '{{ rn.evidence | default("") }}')"
+            echo "  runs_for_a_verdict: {{ rn.runs_for_a_verdict | default(1) }}"
             echo "start_states: $(pc_q "$(pc_get init_states init_file task_ids random_init num_trials_per_task)")"
             echo "chunk_rule: $(pc_q "$(pc_get replan replan_head n_action_steps action_horizon execute_steps)")"
             echo "step_cap: $(pc_q "$(pc_get max_episode_steps max_steps step_scale episode_length)")"

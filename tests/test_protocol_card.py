@@ -28,7 +28,7 @@ pytestmark = pytest.mark.skipif(BASH is None, reason="bash not on PATH")
 MARK = "# Evaluation protocol card"
 CARD_KEYS = {"schema", "target", "tool_commit", "checkpoints", "code_pins", "suite", "condition", "seed",
              "start_states", "chunk_rule", "step_cap", "instruction", "k", "n", "instance_type", "gpu", "region",
-             "written_utc", "seed_plan"}
+             "written_utc", "seed_plan", "rerun_null"}
 
 
 def _render(vla, out_dir, extra=()):
@@ -94,6 +94,15 @@ def test_card_from_a_full_summary(tmp_path):
     assert {"repo": "moojink/openvla-7b-oft-finetuned-libero-10",
             "revision": "95220f9a3421a7ff12d4218e73d09ade830fa9a3", "suite": "10"} in card["checkpoints"]
     assert "s3://b/run/task-0/protocol.yaml" in log
+
+
+def test_card_records_the_rerun_null_of_the_simulator(tmp_path):
+    card, _ = _run_card(tmp_path, "suite: libero_10\nn_episodes: 50\nn_success: 48\n")
+    rn = card["rerun_null"]
+    assert (rn["simulator"], rn["repeatable"], rn["runs_for_a_verdict"]) == ("libero", "yes", 1)
+    assert "50 of 50" in rn["evidence"]
+    static = generate.protocol_static({"model": {}}, "robolab-pi05")["rerun_null"]
+    assert (static["simulator"], static["repeatable"], static["runs_for_a_verdict"]) == ("robolab", "no", 2)
 
 
 def test_card_never_aborts_on_missing_keys(tmp_path):

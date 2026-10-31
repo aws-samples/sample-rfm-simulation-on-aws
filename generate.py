@@ -42,6 +42,7 @@ from jinja2 import Environment, FileSystemLoader
 
 import libero_plus
 import libero_r2s
+import repeatability
 import robotwin_plan
 import seeds
 from targets import JUDGE_TARGETS, VLA_TARGETS
@@ -99,8 +100,12 @@ def protocol_static(config: dict, target: str) -> dict:
     plan = {k: (re.sub(r"['\n\r]", "", str(v)) if k in ("via", "reason")
                 else str(v) if SAFE_VALUE_RE.match(str(v)) else "unknown") if v not in (None, "") else ""
             for k, v in plan.items()}
+    rep = repeatability.for_target(target)
+    rerun_null = {k: re.sub(r"['\n\r]", "", str(rep.get(k, ""))) for k in ("simulator", "repeatable", "evidence")}
+    # finished runs of one stack, suite and condition that results --compare needs before it calls a winner
+    rerun_null["runs_for_a_verdict"] = 2 if rep.get("repeatable") == "no" else 1
     return dict(target=target if SAFE_VALUE_RE.match(target) else "unknown", tool_commit=_tool_commit(),
-                checkpoints=checkpoints, code_pins=dict(sorted(pins.items())), seed_plan=plan)
+                checkpoints=checkpoints, code_pins=dict(sorted(pins.items())), seed_plan=plan, rerun_null=rerun_null)
 
 
 def _with_protocol(ctx: dict, config: dict) -> dict:

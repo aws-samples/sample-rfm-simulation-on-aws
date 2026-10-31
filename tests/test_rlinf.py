@@ -229,3 +229,13 @@ def test_phases_become_baseline_and_rl_rows(monkeypatch):
     assert got == {(VLA, "LIBERO-Goal"): (48, 100), (f"{VLA} [rl-grpo-5steps]", "LIBERO-Goal"): (62, 100)}
     assert not cells["stack_differences"]  # same stack fingerprint for both phases
     assert lb.RL_CONDITION_RE.match("rl-grpo-100steps") and not lb.RL_CONDITION_RE.match("S0")
+
+
+def test_doctor_reads_the_profile_instance_list():
+    import vlasim
+    assert vlasim._model_preferred(VLA) == CFG["profiles"]["smoke"]["instance"]["preferred"]
+    full = vlasim._model_preferred(VLA, "full")
+    assert full == CFG["profiles"]["full"]["instance"]["preferred"]
+    assert min(vlasim._instance_vcpu(t) for t in full) == 96  # p4de.24xlarge: an 8-GPU quota is needed
+    assert vlasim._peek_core_args(["--vla", VLA, "--rl-profile", "full"])[3] == "full"
+    assert vlasim._model_preferred("xvla", "full") == vlasim._model_preferred("xvla")  # no profiles block

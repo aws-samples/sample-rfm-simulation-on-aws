@@ -151,8 +151,11 @@ def _read_config():
     return (grab("region"), grab("notify_email"))
 
 
-def _model_preferred(vla):
-    """Return the `instance.preferred` list from models/{vla}.yaml, best-effort."""
+def _model_preferred(vla, rl_profile=None):
+    """Return the `instance.preferred` list from models/{vla}.yaml, best-effort.
+
+    Models with a `profiles:` block (rlinf-*): the selected profile's instance keys win (default smoke),
+    as in the CDK stack (context rl_profile)."""
     model_path = BASE_DIR / "models" / f"{vla}.yaml"
     if not model_path.exists():
         return None
@@ -165,6 +168,9 @@ def _model_preferred(vla):
         variant = (cfg.get("variants") or {}).get(str((cfg.get("model") or {}).get("variant", "")))
         if isinstance(variant, dict):
             inst.update(variant.get("instance") or {})
+        profile = (cfg.get("profiles") or {}).get(rl_profile or "smoke")
+        if isinstance(profile, dict):
+            inst.update(profile.get("instance") or {})
         pref = inst.get("preferred")
         if pref:
             return list(pref)
@@ -185,7 +191,7 @@ def _run(cmd, **kwargs):
 
 # ───────────────────────────── doctor ──────────────────────────────────────
 
-def run_doctor(vla=None, region=None, email=None, quiet_header=False, bridge=False):
+def run_doctor(vla=None, region=None, email=None, quiet_header=False, bridge=False, rl_profile=None):
     """Run all prerequisite checks. Returns the number of FAILs (0 == ready)."""
     d = Doctor()
     if not quiet_header:
@@ -344,7 +350,7 @@ def run_doctor(vla=None, region=None, email=None, quiet_header=False, bridge=Fal
 
     # 13. GPU instance quota (best-effort — WARN only) ----------------------
     if account:
-        _check_gpu_quota(d, boto3, ClientError, BotoCoreError, region, vla)
+        _check_gpu_quota(d, boto3, ClientError, BotoCoreError, region, vla, rl_profile)
 
     # 14. HF token for gated models (per region) ----------------------------
     if account and vla in HF_TOKEN_TARGETS and not bridge:
@@ -383,7 +389,7 @@ def _check_hf_token(d, boto3, ClientError, BotoCoreError, region, vla):
         d.warn(f"could not verify HF token in SSM: {type(e).__name__}")
 
 
-def _check_gpu_quota(d, boto3, ClientError, BotoCoreError, region, vla):
+def _check_gpu_quota(d, boto3, ClientError, BotoCoreError, region, vla, rl_profile=None):
     """Compare the On-Demand G/VR vCPU quota against the smallest viable instance.
 
     Always WARN-only: Service Quotas can be access-denied, and the AzSelector
@@ -395,7 +401,7 @@ def _check_gpu_quota(d, boto3, ClientError, BotoCoreError, region, vla):
     need = 4
     detail = "a single-GPU instance"
     if vla:
-        pref = _model_preferred(vla)
+        pref = _model_preferred(vla, rl_profile)
         if pref:
             vcpus = [v for v in (_instance_vcpu(i) for i in pref) if v]
             if vcpus:
@@ -592,8 +598,9 @@ def _peek_core_args(rest):
     p.add_argument("--vla")
     p.add_argument("--region", "-r")
     p.add_argument("--email", "-e")
+    p.add_argument("--rl-profile")
     known, _ = p.parse_known_args(rest)
-    return known.vla, known.region, known.email
+    return known.vla, known.region, known.email, known.rl_profile
 
 
 def run_deploy(rest):
@@ -604,12 +611,12 @@ def run_deploy(rest):
     skip_doctor = "--skip-doctor" in rest
     forward = [t for t in rest if t != "--skip-doctor"]
 
-    vla, region, email = _peek_core_args(forward)
+    vla, region, email, rl_profile = _peek_core_args(forward)
 
     if not skip_doctor:
         print("=== Preflight (vlasim doctor) ===")
         failures = run_doctor(vla=vla, region=region, email=email, quiet_header=True,
-                              bridge="--bridge" in forward)
+                              bridge="--bridge" in forward, rl_profile=rl_profile)
         print("=================================\n")
         if failures:
             print("[deploy] Preflight FAILED. Fix the [FAIL] items above, or re-run with "
@@ -631,7 +638,7 @@ def run_judge(rest):
     forward = [t for t in rest if t != "--skip-doctor"]
     if "--judge" not in forward:
         forward = ["--judge"] + forward
-    _, region, email = _peek_core_args(forward)
+    _, region, email, _ = _peek_core_args(forward)
     if not skip_doctor:
         print("=== Preflight (vlasim doctor, judge instance) ===")
         failures = run_doctor(vla=JUDGE_TARGETS[0], region=region, email=email, quiet_header=True)
@@ -698,8 +705,10 @@ def run_doctor_cli(rest):
                    help="Check quota/instance fit for a specific target")
     p.add_argument("--region", "-r", help="Override region (else from config)")
     p.add_argument("--email", "-e", help="Override email (else from config)")
+    p.add_argument("--rl-profile", choices=["smoke", "full"],
+                   help="rlinf-* targets: check the quota for this profile's instance list (default smoke)")
     args = p.parse_args(rest)
-    return 1 if run_doctor(vla=args.vla, region=args.region, email=args.email) else 0
+    return 1 if run_doctor(vla=args.vla, region=args.region, email=args.email, rl_profile=args.rl_profile) else 0
 
 
 # ───────────────────────────── dispatch ────────────────────────────────────

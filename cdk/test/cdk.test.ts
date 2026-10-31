@@ -247,7 +247,16 @@ test('libero_variant=plus takes the timeout and EBS size from the libero_plus bl
 });
 
 test('libero_variant=plus is rejected for a target without a libero_plus block', () => {
-  expect(() => plusStack('xvla', 'XVLA-Demo', 'plus')).toThrow(/libero_plus block/);
+  expect(() => plusStack('cosmos-policy', 'Cosmos-Policy-Demo', 'plus')).toThrow(/libero_plus block/);
+});
+
+test('libero_variant=plus also sizes the other LIBERO targets from their libero_plus block', () => {
+  const xvla = Template.fromStack(plusStack('xvla', 'XVLA-Demo', 'plus'));
+  xvla.hasResourceProperties('AWS::CloudFormation::WaitCondition', { Timeout: String(180 * 60) });
+  xvla.hasResourceProperties('AWS::CloudFormation::CustomResource', { EbsGb: '180' });
+  const pi = Template.fromStack(plusStack('pi', 'Pi-Demo', 'plus'));
+  pi.hasResourceProperties('AWS::CloudFormation::WaitCondition', { Timeout: String(240 * 60) });
+  pi.hasResourceProperties('AWS::CloudFormation::CustomResource', { EbsGb: '230' });
 });
 
 // LIBERO-R2S object swap (deploy.py --libero-objects real2sim): same stack name, timeout / EBS from

@@ -311,6 +311,24 @@ fi
 # (scripts/libero/requirements.txt + third_party/openpi/third_party/libero/requirements.txt).
 log "[5/7] Provisioning LIBERO sim venv (Py3.8, ~8-12min)..."
 cd "${LAP_DIR}"
+{%- if libero_plus %}
+# --libero-variant plus: the venv installs `libero` editable from third_party/openpi/third_party/libero, so the
+# fork replaces that submodule checkout (runtime clone only). Same requirement edits as the pi target (same
+# Python 3.8 client stack): robosuite (scripts/libero/requirements.txt already pins 1.4.1, the fork's 1.4.0
+# would conflict), usd-core (training code only; no Python 3.8 wheel) and unpinned wand / scikit-image go;
+# libero_plus.pip_pins are installed right after the sync instead.
+rm -rf "${LAP_DIR}/third_party/openpi/third_party/libero"
+{% with lp=libero_plus, lp_step="5/7", lp_log="lap", lp_venv_mode="external", lp_python="python3",
+        lp_pip="", lp_dir="${LAP_DIR}/third_party/openpi/third_party/libero" %}{% include "_libero-plus-setup.sh.j2" %}{% endwith %}
+grep -viE '^[[:space:]]*(robosuite|usd-core|wand|scikit-image)([[:space:]=<>!~;]|$)' "${LIBERO_PLUS_DIR}/requirements.txt" \
+    > "${LIBERO_PLUS_DIR}/requirements.lap.txt"
+! grep -qiE '^[[:space:]]*(robosuite|usd-core|wand|scikit-image)([[:space:]=<>!~;]|$)' "${LIBERO_PLUS_DIR}/requirements.lap.txt" \
+    || die "LIBERO-Plus: filtering the fork requirements failed"
+cat > "${LAP_DIR}/scripts/libero/lp_verify.py" <<'LPVERIFY_EOF'
+{{ libero_plus.openpi_verify_py }}LPVERIFY_EOF
+cat > /tmp/lap_lp_task_ids_patch.py <<'LPPATCH_EOF'
+{{ libero_plus.openpi_patch_py }}LPPATCH_EOF
+{%- endif %}
 uv venv --python 3.8 scripts/libero/.venv 2>&1 | tee /tmp/lap_libero_venv.log \
     || die "LIBERO venv create (uv venv --python 3.8) failed"
 
@@ -322,7 +340,7 @@ set -o pipefail
 uv pip sync \
     --python "${LIBERO_VENV}/bin/python" \
     scripts/libero/requirements.txt \
-    third_party/openpi/third_party/libero/requirements.txt \
+    third_party/openpi/third_party/libero/requirements{{ '.lap' if libero_plus else '' }}.txt \
     --extra-index-url https://download.pytorch.org/whl/cu113 \
     --index-strategy=unsafe-best-match \
     2>&1 | tee /tmp/lap_libero_pip_sync.log \
@@ -344,6 +362,11 @@ uv pip install \
     --config-settings editable_mode=compat \
     2>&1 | tee /tmp/lap_libero_install.log \
     || die "libero editable install failed"
+{%- if libero_plus %}
+log "[5/7] LIBERO-Plus pins in the LIBERO venv: {{ libero_plus.pip_pins }}"
+uv pip install --python "${LIBERO_VENV}/bin/python" -c scripts/libero/requirements.txt {{ libero_plus.pip_pins }} \
+    2>&1 | tee /tmp/lap_lp_pins.log || die "LIBERO-Plus pins failed (see /tmp/lap_lp_pins.log)"
+{%- endif %}
 
 # Pre-create LIBERO config.yaml so the namespace package's first import doesn't hit interactive
 # input() (same workaround as openvla-oft). LAP's main.py uses `from libero.libero import ...`
@@ -419,6 +442,10 @@ fi
 grep -q 'action_chunk = np.array(action_chunk)  # writeable copy' "${LAP_MAIN_PY}" \
     || die "invert_and_scale_gripper read-only patch verification failed"
 log "  main.py invert_and_scale_gripper patched (writeable action copy)"
+{%- if libero_plus %}
+# LIBERO-Plus: keep the patched main.py; each task entry restores it before its task-loop patch.
+cp "${LAP_MAIN_PY}" "${LAP_MAIN_PY}.lporig"
+{%- endif %}
 
 # ── [6/7] HF checkpoint download ───────────────────────────────────
 # Bridge mode: SKIP — the checkpoint lives on the remote LAP endpoint.
@@ -644,12 +671,50 @@ fi
 TASKS_JSON='{{ tasks_json }}'
 TASK_COUNT=$(echo "$TASKS_JSON" | jq length)
 SUMMARY_ALL=""
+{%- if libero_plus %}
+
+# LIBERO-Plus: pick every task entry's variants up front (seeded, stdlib), then build, reset and step one
+# variant of each dimension in the LIBERO venv and load main.py's imports (openpi_verify.py, as for pi).
+LP_VERIFY_IDS=""
+for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
+    TASK=$(echo "$TASKS_JSON" | jq -r ".[$TASK_IDX]")
+    LP_IDS=$(python3 /tmp/lp_select_variants.py "${LP_CLASSIFICATION}" "$(echo "$TASK" | jq -r '.suite')" \
+        "$(echo "$TASK" | jq -r '.perturbation_category')" "$(echo "$TASK" | jq -r '.variants')" \
+        "$(echo "$TASK" | jq -r '.variant_seed')" --format csv --manifest "/tmp/lap_task${TASK_IDX}_libero_plus_variants.json") \
+        || die "LIBERO-Plus variant selection failed (task ${TASK_IDX})"
+    echo "${LP_IDS}" > "/tmp/lap_task${TASK_IDX}_lp_ids.csv"
+    LP_VERIFY_IDS="${LP_VERIFY_IDS:+${LP_VERIFY_IDS},}${LP_IDS%%,*}"
+done
+log "[7/7] Checking LIBERO-Plus in the LIBERO venv (variants ${LP_VERIFY_IDS})..."
+(cd "${LAP_DIR}/scripts/libero" && LIBERO_CONFIG_PATH=/root/.libero MUJOCO_GL=egl PYOPENGL_PLATFORM=egl \
+    PYTHONPATH="${LAP_DIR}/third_party/openpi/third_party/libero:${PYTHONPATH:-}" \
+    "${LIBERO_VENV}/bin/python" lp_verify.py {{ libero_plus.suite }} "${LP_VERIFY_IDS}") 2>&1 | tee /tmp/lap_lp_verify.log \
+    || die "LIBERO-Plus check in the LIBERO venv failed (see /tmp/lap_lp_verify.log)"
+grep -q 'LIBERO-PLUS VERIFY OK' /tmp/lap_lp_verify.log || die "LIBERO-Plus check printed no OK line (see /tmp/lap_lp_verify.log)"
+{%- endif %}
 
 for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
     TASK=$(echo "$TASKS_JSON" | jq -r ".[$TASK_IDX]")
     SUITE=$(echo "$TASK" | jq -r '.suite')
     NUM_TRIALS=$(echo "$TASK" | jq -r '.num_trials_per_task')
     DESCRIPTION=$(echo "$TASK" | jq -r '.description // ""')
+{%- if libero_plus %}
+    # LIBERO-Plus: this entry's perturbation dimension → the variant ids picked above; main.py's task loop is
+    # rewritten to run exactly those (num_trials_per_task trials each), and both video names get the id.
+    COND=$(echo "$TASK" | jq -r '.condition // "S0"')
+    LP_KEY=$(echo "$TASK" | jq -r '.perturbation')
+    LP_CAT=$(echo "$TASK" | jq -r '.perturbation_category')
+    LP_N=$(echo "$TASK" | jq -r '.variants')
+    LP_SEED=$(echo "$TASK" | jq -r '.variant_seed')
+    LP_MANIFEST="/tmp/lap_task${TASK_IDX}_libero_plus_variants.json"
+    LP_IDS=$(cat "/tmp/lap_task${TASK_IDX}_lp_ids.csv")
+    cp "${LAP_MAIN_PY}.lporig" "${LAP_MAIN_PY}"
+    python3 /tmp/lap_lp_task_ids_patch.py "${LAP_MAIN_PY}" "${LP_IDS}" \
+        || die "LIBERO-Plus task-loop patch failed (task ${TASK_IDX})"
+    sed -i 's|f"rollout_wrist_{task_segment}_{suffix}\.mp4"|f"rollout_wrist_{task_id:05d}_{task_segment}_{suffix}.mp4"|' "${LAP_MAIN_PY}"
+    grep -q 'rollout_wrist_{task_id:05d}_' "${LAP_MAIN_PY}" || die "LIBERO-Plus: wrist video name patch failed (task ${TASK_IDX})"
+    log "  LIBERO-Plus ${LP_KEY} (${LP_CAT}): variants ${LP_IDS} (seed ${LP_SEED})"
+{%- endif %}
 
     VIDEO_DIR="${VIDEO_BASE_DIR}/task-${TASK_IDX}"
     RESULTS_FILE="${RESULTS_BASE_DIR}/task-${TASK_IDX}.json"
@@ -714,6 +779,23 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
         echo "num_trials_per_task: ${NUM_TRIALS}"
         echo "success_rate: ${SR}"
         echo "description: ${DESCRIPTION}"
+{%- if libero_plus %}
+        # k/n from main.py's results JSON (written under --args.results_out_path), else its final log lines.
+        LP_RJ=$(find "${RESULTS_FILE}" -name 'results_*.json' 2>/dev/null | sort | tail -1 || true)
+        LP_NE=$( [ -n "${LP_RJ}" ] && jq -r '.summary.total_episodes // empty' "${LP_RJ}" 2>/dev/null || true)
+        LP_NS=$( [ -n "${LP_RJ}" ] && jq -r '.summary.total_successes // empty' "${LP_RJ}" 2>/dev/null || true)
+        [ -n "${LP_NE}" ] || LP_NE=$(grep -oE 'Total episodes:[[:space:]]+[0-9]+' "/tmp/lap_task${TASK_IDX}.log" 2>/dev/null | tail -1 | awk '{print $NF}' || true)
+        echo "n_episodes: ${LP_NE}"
+        echo "n_success: ${LP_NS}"
+        echo "condition: ${COND}"
+        echo "benchmark: libero_plus"
+        echo "perturbation: ${LP_KEY}"
+        echo "perturbation_category: ${LP_CAT}"
+        echo "variants: ${LP_N} (seed ${LP_SEED}; ids in libero_plus_variants.json)"
+        echo "stack_lap_commit: $(git -C "${LAP_DIR}" rev-parse HEAD 2>/dev/null || echo unknown)"
+        echo "stack_libero_plus_commit: ${LP_COMMIT}"
+        echo "stack_libero_plus_assets: {{ libero_plus.assets_repo }}@{{ libero_plus.assets_revision[:8] }}"
+{%- endif %}
     } > "/tmp/lap_task${TASK_IDX}_summary.txt"
 
     # S3 upload (videos + logs + results JSON + summary)
@@ -771,9 +853,17 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
     [ -f "/tmp/lap_task${TASK_IDX}_summary.txt" ] && \
         aws s3 cp "/tmp/lap_task${TASK_IDX}_summary.txt" \
         "${S3_TASK_PREFIX}/summary.txt" --region "$REGION" || true
+{%- if libero_plus %}
+    [ -f "${LP_MANIFEST}" ] && \
+        aws s3 cp "${LP_MANIFEST}" "${S3_TASK_PREFIX}/libero_plus_variants.json" --region "$REGION" || true
+
+    SUMMARY_ALL="${SUMMARY_ALL}
+[Task $((TASK_IDX+1))] ${SUITE} LIBERO-Plus/${LP_KEY} — success_rate=${SR} (${NUM_TRIALS} trial/variant × ${LP_N} variants)"
+{%- else %}
 
     SUMMARY_ALL="${SUMMARY_ALL}
 [Task $((TASK_IDX+1))] ${SUITE} — success_rate=${SR} (${NUM_TRIALS} trials/task × 10 tasks)"
+{%- endif %}
     log "  Task $((TASK_IDX+1)) done"
 
     # Hard-fail after S3 upload if eval crashed. Prevents silent CFN SUCCESS when
@@ -810,6 +900,9 @@ ${SUMMARY_ALL}
 Model: LAP-3B (PaliGemma-3B + Flow Matching, JAX)
 Checkpoint: {{ hf_repo }} (rev {{ hf_model_revision[:8] if hf_model_revision else 'unpinned' }})
 Simulation: LIBERO via openpi submodule (robosuite + MuJoCo, headless EGL)
+{%- if libero_plus %}
+Benchmark: LIBERO-Plus {{ libero_plus.suite }}, {{ libero_plus.perturb|join(',') }} x {{ libero_plus.variants_per_category or 'all' }} variants (python vlasim.py results --robustness --vla lap)
+{%- endif %}
 Instance: ${INSTANCE_TYPE}
 
 ${GALLERY_BLOCK}Download results:

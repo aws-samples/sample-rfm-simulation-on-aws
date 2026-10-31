@@ -336,6 +336,26 @@ git submodule update --init external_dependencies/LIBERO \
     2>&1 | tee /tmp/gr00t_submodule.log \
     || { tail -50 /tmp/gr00t_submodule.log | while IFS= read -r line; do log "  [submodule] $line"; done; die "LIBERO submodule init failed"; }
 log "  [3/6] LIBERO submodule OK: $(ls external_dependencies/LIBERO | head -3 | tr '\n' ' ')"
+{%- if libero_plus %}
+
+# --libero-variant plus: setup_libero.sh installs `libero` editable from external_dependencies/LIBERO, so the
+# fork replaces that submodule checkout (runtime clone only) before the script runs. Three edits keep the
+# script on the fork: its own `git submodule update` line is dropped (it would check the gitlink commit out
+# in the fork clone), its closing gym.make sanity check gets a task name the fork has (the fork renames every
+# suite task with a variant suffix), and the fork's requirements.txt is filtered: robosuite 1.4.0 (the fork
+# needs 1.4.1), usd-core (training code only; its newest release has no Python 3.10 wheel) and unpinned
+# wand / scikit-image go, the pins below come right after the script's mujoco pin (FIX 14) instead.
+rm -rf "${ISAAC_GROOT_DIR}/external_dependencies/LIBERO"
+{% with lp=libero_plus, lp_step="3/6", lp_log="gr00t", lp_venv_mode="external", lp_python="python3",
+        lp_pip="", lp_dir="${ISAAC_GROOT_DIR}/external_dependencies/LIBERO" %}{% include "_libero-plus-setup.sh.j2" %}{% endwith %}
+cp "${LIBERO_PLUS_DIR}/requirements.txt" "${LIBERO_PLUS_DIR}/requirements.fork.txt"
+grep -viE '^[[:space:]]*(robosuite|usd-core|wand|scikit-image)([[:space:]=<>!~;]|$)' "${LIBERO_PLUS_DIR}/requirements.fork.txt" \
+    > "${LIBERO_PLUS_DIR}/requirements.txt"
+! grep -qiE '^[[:space:]]*(robosuite|usd-core|wand|scikit-image)([[:space:]=<>!~;]|$)' "${LIBERO_PLUS_DIR}/requirements.txt" \
+    || die "LIBERO-Plus: filtering the fork requirements failed"
+LP_SANITY_TASK=$(python3 -c "import json, sys; print(json.load(open(sys.argv[1]))['{{ libero_plus.suite }}'][0]['name'])" "${LP_CLASSIFICATION}") \
+    || die "LIBERO-Plus: no {{ libero_plus.suite }} entry in ${LP_CLASSIFICATION}"
+{%- endif %}
 
 # FIX 14 — mujoco unpinned in the LIBERO dependency chain. setup_libero.sh installs LIBERO's
 # requirements.txt, which pins robosuite==1.4.0 but NOT mujoco, and robosuite declares only
@@ -370,6 +390,22 @@ else
         || die "FIX 14: setup_libero.sh no longer parses after patch"
     log "  FIX 14 applied — $(grep -n 'FIX 14' "${SETUP_LIBERO_SH}" | head -1)"
 fi
+{%- if libero_plus %}
+python3 - "${SETUP_LIBERO_SH}" "${LP_SANITY_TASK}" <<'LP_SETUP_EOF' || die "LIBERO-Plus: setup_libero.sh patch failed (Isaac-GR00T commit drifted?)"
+import re
+import sys
+p, task = sys.argv[1], sys.argv[2]
+s = open(p).read()
+s, k1 = re.subn(r"^git submodule update --init \$LIBERO_REPO\n", "", s, flags=re.M)
+s, k2 = re.subn(r'gym\.make\("libero_sim/[A-Za-z0-9_]+"\)', 'gym.make("libero_sim/' + task + '")', s)
+s, k3 = re.subn(r"^(uv pip install .*# FIX 14.*)$",
+                lambda m: m.group(1) + "\nuv pip install {{ libero_plus.pip_pins }}  # LIBERO-Plus pins", s, flags=re.M)
+assert (k1, k2, k3) == (1, 1, 1), ("submodule line, sanity env, FIX 14 line", k1, k2, k3)
+open(p, "w").write(s)
+print("setup_libero.sh patched for LIBERO-Plus (sanity env libero_sim/" + task + ")")
+LP_SETUP_EOF
+bash -n "${SETUP_LIBERO_SH}" || die "LIBERO-Plus: setup_libero.sh no longer parses after patch"
+{%- endif %}
 
 # Run setup_libero.sh — pipe output to both file and CW Logs (via userdata.log)
 log "  [3/6] Running setup_libero.sh (uv venv + deps + sanity) ..."
@@ -588,6 +624,48 @@ log "[warn] hf_model_revision not set — using unpinned HuggingFace ID (reprodu
 TASKS_JSON='{{ tasks_json }}'
 TASK_COUNT=$(echo "$TASKS_JSON" | jq length)
 SUMMARY_ALL=""
+{%- if libero_plus %}
+
+# LIBERO-Plus: pick every task entry's variants up front (seeded, stdlib), then build, reset and step one
+# variant of each dimension in the rollout venv (registration, wand / scikit-image and the env chain).
+LP_VERIFY_IDS=""
+for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
+    TASK=$(echo "$TASKS_JSON" | jq -r ".[$TASK_IDX]")
+    LP_IDS=$(python3 /tmp/lp_select_variants.py "${LP_CLASSIFICATION}" "$(echo "$TASK" | jq -r '.suite')" \
+        "$(echo "$TASK" | jq -r '.perturbation_category')" "$(echo "$TASK" | jq -r '.variants')" \
+        "$(echo "$TASK" | jq -r '.variant_seed')" --format csv --manifest "/tmp/gr00t_task${TASK_IDX}_libero_plus_variants.json") \
+        || die "LIBERO-Plus variant selection failed (task ${TASK_IDX})"
+    LP_VERIFY_IDS="${LP_VERIFY_IDS:+${LP_VERIFY_IDS},}${LP_IDS%%,*}"
+done
+log "[4.2/6] Checking LIBERO-Plus in the rollout venv (variants ${LP_VERIFY_IDS})..."
+cat > /tmp/gr00t_lp_verify.py <<'LP_VERIFY_EOF'
+import sys
+import gymnasium as gym
+import numpy
+import skimage.filters  # noqa: F401  (fork: blur / noise perturbations)
+import wand.image  # noqa: F401  (fork: ImageMagick; needs libmagickwand on the host)
+import gr00t.eval.rollout_policy  # noqa: F401  (import chain the rollout client needs)
+import gr00t.policy.server_client  # noqa: F401  (PolicyClient: imported lazily by rollout_policy)
+from gr00t.eval.sim.LIBERO.libero_env import register_libero_envs
+from libero.libero import benchmark
+suite = benchmark.get_benchmark_dict()[sys.argv[1]]()
+assert suite.n_tasks > 100, "libero still resolves to vanilla LIBERO (10 tasks per suite)"
+print("numpy", numpy.__version__, "/", sys.argv[1], "variants:", suite.n_tasks)
+register_libero_envs()
+for tid in [int(x) for x in sys.argv[2].split(",")]:
+    name = suite.get_task(tid).name
+    env = gym.make("libero_sim/" + name)
+    obs, _ = env.reset()
+    assert obs["video.image"].shape == (256, 256, 3), obs["video.image"].shape
+    env.close()
+    print("variant", tid, name, "OK")
+print("LIBERO-PLUS VERIFY OK")
+LP_VERIFY_EOF
+(cd "${ISAAC_GROOT_DIR}" && MUJOCO_GL=egl PYOPENGL_PLATFORM=egl "${VENV}/bin/python" /tmp/gr00t_lp_verify.py \
+    "{{ libero_plus.suite }}" "${LP_VERIFY_IDS}") 2>&1 | tee /tmp/gr00t_lp_verify.log \
+    || die "LIBERO-Plus check in the rollout venv failed (see /tmp/gr00t_lp_verify.log)"
+grep -q 'LIBERO-PLUS VERIFY OK' /tmp/gr00t_lp_verify.log || die "LIBERO-Plus check printed no OK line (see /tmp/gr00t_lp_verify.log)"
+{%- endif %}
 
 for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
     TASK=$(echo "$TASKS_JSON" | jq -r ".[$TASK_IDX]")
@@ -614,6 +692,17 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
     SUITE=$(echo "$TASK" | jq -r '.suite // empty')
 {%- endif %}
     log "  stack condition=${K_COND} replan=${K_REPLAN:-default} max_episode_steps=${MAX_STEPS}"
+{%- if libero_plus %}
+    # LIBERO-Plus: this entry's perturbation dimension → the variants picked above; one rollout_policy.py
+    # call per variant (each variant is its own registered gym id), against the same policy server.
+    SUITE=$(echo "$TASK" | jq -r '.suite')
+    LP_KEY=$(echo "$TASK" | jq -r '.perturbation')
+    LP_CAT=$(echo "$TASK" | jq -r '.perturbation_category')
+    LP_N=$(echo "$TASK" | jq -r '.variants')
+    LP_SEED=$(echo "$TASK" | jq -r '.variant_seed')
+    LP_MANIFEST="/tmp/gr00t_task${TASK_IDX}_libero_plus_variants.json"
+    log "  LIBERO-Plus ${LP_KEY} (${LP_CAT}): $(jq length "${LP_MANIFEST}") variants (seed ${LP_SEED})"
+{%- endif %}
 
     VIDEO_DIR="${VIDEO_BASE_DIR}/task-${TASK_IDX}"
     mkdir -p "$VIDEO_DIR"
@@ -674,6 +763,37 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
     log "  Running rollout (CLI mode)..."
     touch /tmp/gr00t_task${TASK_IDX}_start.marker
     cd "${ISAAC_GROOT_DIR}"
+{%- if libero_plus %}
+    : > /tmp/gr00t_rollout_task${TASK_IDX}.log
+    LP_DONE=0
+    LP_SUCC_SUM=0
+    while IFS=$'\t' read -r LP_ID LP_NAME; do
+        LP_VDIR="/tmp/gr00t_lp_videos/task${TASK_IDX}/${LP_ID}"
+        rm -rf "${LP_VDIR}"
+        log "  variant ${LP_ID}: ${LP_NAME}"
+        "${VENV}/bin/python" gr00t/eval/rollout_policy.py \
+            --env-name "libero_sim/${LP_NAME}" \
+            --policy-client-host localhost \
+            --policy-client-port 8000 \
+            --n-episodes "${N_EPISODES}" \
+            --n-envs "${N_ENVS}" \
+            --max-episode-steps "${MAX_STEPS}" \
+            --video-dir "${LP_VDIR}" \
+            "${K_ARGS[@]}" \
+            2>&1 | tee /tmp/gr00t_lp_rollout.log | tee -a /tmp/gr00t_rollout_task${TASK_IDX}.log >/dev/null \
+            || log "  [warn] variant ${LP_ID} rollout error (continuing)"
+        LP_SR=$(grep -oE 'success rate:[[:space:]]+[0-9.]+' /tmp/gr00t_lp_rollout.log 2>/dev/null | tail -1 | awk '{print $NF}' || true)
+        if [ -n "${LP_SR}" ]; then
+            LP_DONE=$((LP_DONE + N_EPISODES))
+            LP_SUCC_SUM=$(awk "BEGIN { printf \"%d\", ${LP_SUCC_SUM} + ${N_EPISODES} * ${LP_SR} + 0.5 }")
+        fi
+        log "    success rate ${LP_SR:-none}"
+        # Video names repeat across variants: prefix each with the variant id.
+        while IFS= read -r mp4_file; do
+            mv "${mp4_file}" "${VIDEO_DIR}/$(printf '%05d' "${LP_ID}")_$(basename "${mp4_file}")"
+        done < <(find "${LP_VDIR}" -name "*.mp4" 2>/dev/null | sort)
+    done < <(jq -r '.[] | "\(.task_id)\t\(.name)"' "${LP_MANIFEST}")
+{%- else %}
     "${VENV}/bin/python" gr00t/eval/rollout_policy.py \
         --env-name "${ENV_NAME}" \
         --policy-client-host localhost \
@@ -684,6 +804,7 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
         "${K_ARGS[@]}" \
         2>&1 | tee /tmp/gr00t_rollout_task${TASK_IDX}.log \
         || log "  [warn] Task ${TASK_IDX} rollout error (continuing)"
+{%- endif %}
 {%- if sim_id == "simpler" %}
     # The very first get_action on a fresh instance can outlast the client's 15 s ZMQ receive timeout
     # (cold CUDA kernels / caches): the first gr00t-bridge GPU run lost task 0 to `zmq.error.Again` while
@@ -706,17 +827,27 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
             || log "  [warn] Task ${TASK_IDX} rollout retry error (continuing)"
     fi
 {%- endif %}
+{%- if not libero_plus %}
 
     # Collect videos (CLI saves to /tmp/sim_eval_videos_<env>/<uuid>/video.mp4)
     find /tmp -name "*.mp4" -newer /tmp/gr00t_task${TASK_IDX}_start.marker \
         -exec mv {} "${VIDEO_DIR}/" \; 2>/dev/null || true
+{%- endif %}
     VIDEO_COUNT=$(find "${VIDEO_DIR}" -name "*.mp4" 2>/dev/null | wc -l)
     log "  Videos collected: ${VIDEO_COUNT}"
+{%- if libero_plus %}
+
+    # LIBERO-Plus: k/n summed over the variants that reported a rate (a crashed variant is not counted).
+    N_EPISODES=${LP_DONE}
+    N_SUCCESS=${LP_SUCC_SUM}
+    SR=$(awk "BEGIN { if (${LP_DONE} > 0) printf \"%.4f\", ${LP_SUCC_SUM} / ${LP_DONE}; else print \"unknown\" }")
+{%- else %}
 
     # Parse success rate from rollout output (e.g. "success rate:  0.8")
     SR=$(grep -oE 'success rate:[[:space:]]+[0-9.]+' \
         /tmp/gr00t_rollout_task${TASK_IDX}.log 2>/dev/null | tail -1 | awk '{print $NF}' || echo "unknown")
     N_SUCCESS=$(awk "BEGIN { printf \"%d\", ${N_EPISODES} * ${SR:-0} }" 2>/dev/null || echo "?")
+{%- endif %}
     log "  success_rate=${SR} (${N_SUCCESS}/${N_EPISODES})"
 
     # Write summary.txt
@@ -734,6 +865,15 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
         echo "replan: ${K_REPLAN:-default}"
         echo "max_episode_steps: ${MAX_STEPS}"
         echo "stack_isaac_groot_commit: $(git -C "${ISAAC_GROOT_DIR}" rev-parse HEAD 2>/dev/null || echo unknown)"
+{%- if libero_plus %}
+        echo "suite: ${SUITE}"
+        echo "benchmark: libero_plus"
+        echo "perturbation: ${LP_KEY}"
+        echo "perturbation_category: ${LP_CAT}"
+        echo "variants: ${LP_N} (seed ${LP_SEED}; ids in libero_plus_variants.json)"
+        echo "stack_libero_plus_commit: ${LP_COMMIT}"
+        echo "stack_libero_plus_assets: {{ libero_plus.assets_repo }}@{{ libero_plus.assets_revision[:8] }}"
+{%- endif %}
 {%- if sim_id == 'simpler' %}
         echo "stack_sapien: $("${VENV}/bin/python" -c 'import sapien; print(sapien.__version__)' 2>/dev/null || echo unknown)"
         echo "stack_simplerenv_commit: $(git -C "${ISAAC_GROOT_DIR}/external_dependencies/SimplerEnv" rev-parse HEAD 2>/dev/null || echo unknown)"
@@ -815,6 +955,10 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
     [ -f "/tmp/gr00t_task${TASK_IDX}_summary.txt" ] && \
         aws s3 cp "/tmp/gr00t_task${TASK_IDX}_summary.txt" \
         "${S3_TASK_PREFIX}/summary.txt" --region "$REGION" || true
+{%- if libero_plus %}
+    [ -f "${LP_MANIFEST}" ] && \
+        aws s3 cp "${LP_MANIFEST}" "${S3_TASK_PREFIX}/libero_plus_variants.json" --region "$REGION" || true
+{%- endif %}
 
     # Collect summaries
     if [ -f "/tmp/gr00t_task${TASK_IDX}_summary.txt" ]; then

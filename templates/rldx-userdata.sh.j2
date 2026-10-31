@@ -26,7 +26,7 @@ RLDX_CKPT_DIR=/home/ubuntu/.cache/rldx/ckpt
 # Sim client venv (RLWRLD's setup_*.sh builds it at a fixed in-repo path).
 # LIBERO_VENV is the historical name; for non-LIBERO sims (sim_venv_subpath set) it
 # holds that sim's venv (e.g. SimplerEnv's simpler_uv/.venv) — same variable, shared plumbing.
-LIBERO_VENV=${RLDX_DIR}/{{ sim_venv_subpath if sim_venv_subpath else 'rldx/eval/sim/LIBERO/libero_uv/.venv' }}
+LIBERO_VENV=${RLDX_DIR}/{{ 'rldx/eval/sim/LIBERO_PLUS/libero_plus_uv/.venv' if libero_plus else (sim_venv_subpath if sim_venv_subpath else 'rldx/eval/sim/LIBERO/libero_uv/.venv') }}
 VIDEO_BASE_DIR=/tmp/rldx-videos
 RUN_ID=$(date '+%Y-%m-%d-%H%M')
 
@@ -341,6 +341,43 @@ print('flash_attn:', flash_attn.__version__)
 # transformers 4.51.3, but rollout_policy.py's top-level `from rldx.data...` triggers eager
 # model registration that needs the model deps + transformers 4.57.0). We run their setup
 # (tolerating that expected final-test failure), then apply 4 fixes, then verify ourselves.
+{%- if libero_plus %}
+# --libero-variant plus: RLDX-1 ships its own LIBERO-Plus path at this commit (rldx/eval/sim/LIBERO_PLUS:
+# setup_libero_plus.sh builds libero_plus_uv, libero_plus_env.py registers libero_plus_sim/<variant>). The
+# fork is cloned here at the pinned commit with the pinned asset pack (the script clones the fork's HEAD and
+# downloads the zip unpinned, and skips both when they are already present). Two edits keep its venv on
+# Python 3.10: robosuite 1.4.0 -> 1.4.1 (the fork needs 1.4.1) and usd-core dropped (training code only; its
+# newest release has no Python 3.10 wheel); its unpinned extra_requirements.txt (wand, scikit-image) gets the
+# libero_plus.pip_pins instead.
+cd "${RLDX_DIR}"
+{% with lp=libero_plus, lp_step="5/8", lp_log="rldx", lp_venv_mode="external", lp_python="python3",
+        lp_pip="", lp_dir="${RLDX_DIR}/external_dependencies/LIBERO-plus" %}{% include "_libero-plus-setup.sh.j2" %}{% endwith %}
+for LP_REQ in stable_scanned_objects turbosquid_objects textures wall.xml; do
+    [ -e "${LP_PKG}/assets/${LP_REQ}" ] || die "LIBERO-Plus: ${LP_PKG}/assets/${LP_REQ} missing (setup_libero_plus.sh would re-download)"
+done
+python3 - "${LIBERO_PLUS_DIR}" {{ libero_plus.pip_pins }} <<'LP_REQ_EOF' || die "LIBERO-Plus: requirements edit failed (fork drifted?)"
+import os
+import re
+import sys
+d, pins = sys.argv[1], sys.argv[2:]
+p = os.path.join(d, "requirements.txt")
+s = open(p).read()
+s, k1 = re.subn(r"(?m)^[ \t]*robosuite==1\.4\.0[ \t]*$", "robosuite==1.4.1", s)
+s, k2 = re.subn(r"(?m)^[ \t]*usd-core\b.*\n?", "", s)
+assert (k1, k2) == (1, 1), ("robosuite 1.4.0 line, usd-core line", k1, k2)
+open(p, "w").write(s)
+extra = [x for x in pins if re.match(r"(?i)(wand|scikit-image)==", x)]
+assert len(extra) == 2, ("libero_plus.pip_pins needs Wand and scikit-image pins", extra)
+open(os.path.join(d, "extra_requirements.txt"), "w").write("\n".join(extra) + "\n")
+print("LIBERO-Plus requirements: robosuite 1.4.1, no usd-core; extra:", extra)
+LP_REQ_EOF
+log "[5/8] Running RLWRLD setup_libero_plus.sh (builds libero_plus_uv venv, ~8-12min)..."
+bash run_scripts/eval/libero_plus/setup_libero_plus.sh 2>&1 | tee /tmp/rldx_setup_libero_plus.log \
+    || die "setup_libero_plus.sh failed (see /tmp/rldx_setup_libero_plus.log)"
+[ -x "${LIBERO_VENV}/bin/python" ] || die "libero_plus_uv venv not created by setup_libero_plus.sh"
+LP_CONFIG_DIR="${LIBERO_PLUS_DIR}/.libero_config"
+[ -f "${LP_CONFIG_DIR}/config.yaml" ] || die "LIBERO-Plus: ${LP_CONFIG_DIR}/config.yaml not written by setup_libero_plus.sh"
+{%- else %}
 log "[5/8] Running RLWRLD setup_libero.sh (builds libero_uv venv, ~8-12min)..."
 cd "${RLDX_DIR}"
 # setup_libero.sh runs `set -euo pipefail` and ends with a register_libero_envs test that
@@ -357,6 +394,7 @@ set -e
 trap '_trap_handler' ERR
 log "  setup_libero.sh exit=${SETUP_EXIT} (final register test expected to fail pre-fix)"
 [ -x "${LIBERO_VENV}/bin/python" ] || die "libero_uv venv not created by setup_libero.sh (see /tmp/rldx_setup_libero.log)"
+{%- endif %}
 
 # FIX 1 — model deps missing in LIBERO venv (setup installs rldx --no-deps).
 # Mirror the main-venv resolved versions. timm NOT needed (absent from main venv).
@@ -389,6 +427,51 @@ uv pip install --python "${LIBERO_VENV}/bin/python" \
     {{ sim_protect_pins if sim_protect_pins else 'mujoco==3.3.1' }} \
     2>&1 | tee /tmp/rldx_fix11_mujoco.log \
     || die "FIX 11 (renderer pins) failed (see /tmp/rldx_fix11_mujoco.log)"
+{%- if libero_plus %}
+log "[5/8] LIBERO-Plus pins in libero_plus_uv venv: {{ libero_plus.pip_pins }}"
+uv pip install --python "${LIBERO_VENV}/bin/python" {{ libero_plus.pip_pins }} \
+    2>&1 | tee /tmp/rldx_lp_pins.log || die "LIBERO-Plus pins failed (see /tmp/rldx_lp_pins.log)"
+
+# LIBERO-Plus: pick every task entry's variants up front (seeded, stdlib), then build and reset one variant
+# of each dimension in the rollout venv (registration, wand / scikit-image and the rollout import chain).
+TASKS_JSON='{{ tasks_json }}'
+LP_VERIFY_IDS=""
+for TASK_IDX in $(seq 0 $(($(echo "$TASKS_JSON" | jq length) - 1))); do
+    TASK=$(echo "$TASKS_JSON" | jq -r ".[$TASK_IDX]")
+    LP_IDS=$(python3 /tmp/lp_select_variants.py "${LP_CLASSIFICATION}" "$(echo "$TASK" | jq -r '.suite')" \
+        "$(echo "$TASK" | jq -r '.perturbation_category')" "$(echo "$TASK" | jq -r '.variants')" \
+        "$(echo "$TASK" | jq -r '.variant_seed')" --format csv --manifest "/tmp/rldx_task${TASK_IDX}_libero_plus_variants.json") \
+        || die "LIBERO-Plus variant selection failed (task ${TASK_IDX})"
+    LP_VERIFY_IDS="${LP_VERIFY_IDS:+${LP_VERIFY_IDS},}${LP_IDS%%,*}"
+done
+log "[5/8] Verifying libero_plus_uv venv (rollout imports + variants ${LP_VERIFY_IDS})..."
+cat > /tmp/rldx_lp_verify.py <<'LP_VERIFY_EOF'
+import sys
+import gymnasium as gym
+import numpy
+import skimage.filters  # noqa: F401  (fork: blur / noise perturbations)
+import wand.image  # noqa: F401  (fork: ImageMagick; needs libmagickwand on the host)
+import rldx.eval.rollout_policy  # noqa: F401  (import chain the rollout client needs)
+import rldx.policy.server_client  # noqa: F401  (PolicyClient: imported lazily by rollout_policy)
+from rldx.eval.sim.LIBERO_PLUS.libero_plus_env import register_libero_plus_envs
+from libero.libero import benchmark
+suite = benchmark.get_benchmark_dict()[sys.argv[1]]()
+assert suite.n_tasks > 100, "libero still resolves to vanilla LIBERO (10 tasks per suite)"
+print("numpy", numpy.__version__, "/", sys.argv[1], "variants:", suite.n_tasks)
+register_libero_plus_envs()
+for tid in [int(x) for x in sys.argv[2].split(",")]:
+    name = suite.get_task(tid).name
+    env = gym.make("libero_plus_sim/" + name)
+    env.reset()
+    env.close()
+    print("variant", tid, name, "OK")
+print("LIBERO-PLUS VERIFY OK")
+LP_VERIFY_EOF
+(cd "${RLDX_DIR}" && LIBERO_CONFIG_PATH="${LP_CONFIG_DIR}" "${LIBERO_VENV}/bin/python" /tmp/rldx_lp_verify.py \
+    "{{ libero_plus.suite }}" "${LP_VERIFY_IDS}") 2>&1 | tee /tmp/rldx_lp_verify.log \
+    || die "LIBERO-Plus check in the libero_plus_uv venv failed (see /tmp/rldx_lp_verify.log)"
+grep -q 'LIBERO-PLUS VERIFY OK' /tmp/rldx_lp_verify.log || die "LIBERO-Plus check printed no OK line (see /tmp/rldx_lp_verify.log)"
+{%- else %}
 
 # FIX 3 — LIBERO first-run interactive prompt. libero/__init__.py prompts "custom path?(Y/N)"
 # via input() → EOFError under non-interactive userdata. Seed /root/.libero/config.yaml once
@@ -426,6 +509,7 @@ print('ROLLOUT_IMPORTS_OK + gym.make OK:', os.environ['RLDX_VERIFY_ENV'])
 "
 ) 2>&1 | tee /tmp/rldx_libero_import_check.log \
     || die "libero_uv venv import/gym.make check failed (see /tmp/rldx_libero_import_check.log)"
+{%- endif %}
 {% else %}
 {% if sim_id == 'simpler' -%}
 # ── [5/8] {{ sim_id }} sim venv (RLWRLD {{ sim_setup_script }} + FIX 1/2 + FIX 4/5/6/7) ──
@@ -917,6 +1001,18 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
     ENV_NAME=$(echo "$TASK" | jq -r '.env_name')
     NUM_EPISODES=$(echo "$TASK" | jq -r '.num_episodes')
     DESCRIPTION=$(echo "$TASK" | jq -r '.description // ""')
+{%- if libero_plus %}
+    # LIBERO-Plus: this entry's perturbation dimension → the variants picked in [5/8]; one rollout_policy.py
+    # call per variant (each variant is its own libero_plus_sim/<name> gym id), against the same server.
+    COND=$(echo "$TASK" | jq -r '.condition // "S0"')
+    LP_KEY=$(echo "$TASK" | jq -r '.perturbation')
+    LP_CAT=$(echo "$TASK" | jq -r '.perturbation_category')
+    LP_N=$(echo "$TASK" | jq -r '.variants')
+    LP_SEED=$(echo "$TASK" | jq -r '.variant_seed')
+    LP_MANIFEST="/tmp/rldx_task${TASK_IDX}_libero_plus_variants.json"
+    ENV_NAME="libero_plus_sim/<${LP_KEY} variants>"
+    log "  LIBERO-Plus ${LP_KEY} (${LP_CAT}): $(jq length "${LP_MANIFEST}") variants (seed ${LP_SEED})"
+{%- endif %}
 
     VIDEO_DIR="${VIDEO_BASE_DIR}/task-${TASK_IDX}"
     mkdir -p "$VIDEO_DIR"
@@ -929,6 +1025,58 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
     # Disable BOTH errexit AND the ERR trap (see setup note): a non-zero eval must not auto-fire
     # cfn_signal here — we capture EVAL_EXIT and fail explicitly via die() below, AFTER uploading
     # diagnostics. Letting the ERR trap fire would skip the S3 diag upload.
+{%- if libero_plus %}
+    : > "/tmp/rldx_task${TASK_IDX}.log"
+    CSV_FILE="${VIDEO_DIR}/simulation_results.csv"
+    echo "task_id,variant,env_idx,episode_idx,success,reward,steps,video_path" > "${CSV_FILE}"
+    LP_DONE=0
+    LP_SUCC=0
+    LP_FAILED=0
+    while IFS=$'\t' read -r LP_ID LP_NAME; do
+        LP_VDIR="/tmp/rldx_lp_videos/task${TASK_IDX}/${LP_ID}"
+        rm -rf "${LP_VDIR}"
+        mkdir -p "${LP_VDIR}"
+        log "  variant ${LP_ID}: ${LP_NAME}"
+        set +e
+        trap - ERR
+        (
+            cd "${RLDX_DIR}"
+            export LIBERO_CONFIG_PATH="${LP_CONFIG_DIR}"
+            "${LIBERO_VENV}/bin/python" rldx/eval/rollout_policy.py \
+                --n_episodes "${NUM_EPISODES}" \
+                --policy_client_host 127.0.0.1 \
+                --policy_client_port "${PORT}" \
+                --max_episode_steps {{ max_episode_steps if max_episode_steps else 720 }} \
+                --env_name "libero_plus_sim/${LP_NAME}" \
+                --n_action_steps {{ n_action_steps if n_action_steps else 8 }} \
+                --n_envs {{ n_envs if n_envs else 1 }} \
+                --video_dir "${LP_VDIR}"
+        ) >> "/tmp/rldx_task${TASK_IDX}.log" 2>&1
+        LP_EXIT=$?
+        set -e
+        trap '_trap_handler' ERR
+        # k/n of this variant from its simulation_results.csv (success column = 1/0 per episode).
+        read -r LP_K LP_NN < <(awk -F, 'NR>1 && $3 ~ /^[01]$/ {s+=$3; n++} END {printf "%d %d\n", s, n}' \
+            "${LP_VDIR}/simulation_results.csv" 2>/dev/null || echo "0 0")
+        if [ "${LP_EXIT}" -ne 0 ] || [ "${LP_NN:-0}" -eq 0 ]; then
+            LP_FAILED=$((LP_FAILED + 1))
+            log "    [warn] variant ${LP_ID} rollout exit=${LP_EXIT}, ${LP_NN:-0} episodes recorded (not counted)"
+        else
+            LP_DONE=$((LP_DONE + LP_NN))
+            LP_SUCC=$((LP_SUCC + LP_K))
+            awk -F, -v id="${LP_ID}" -v nm="${LP_NAME}" 'NR>1 {print id "," nm "," $0}' \
+                "${LP_VDIR}/simulation_results.csv" >> "${CSV_FILE}"
+            log "    ${LP_K}/${LP_NN} success"
+        fi
+        # Video names carry the variant name; prefix the variant id so they sort with the manifest.
+        while IFS= read -r mp4_file; do
+            mv "${mp4_file}" "${VIDEO_DIR}/$(printf '%05d' "${LP_ID}")_$(basename "${mp4_file}")"
+        done < <(find "${LP_VDIR}" -name "*.mp4" 2>/dev/null | sort)
+    done < <(jq -r '.[] | "\(.task_id)\t\(.name)"' "${LP_MANIFEST}")
+    # A variant that crashed is logged and skipped; the task fails only when no variant ran.
+    EVAL_EXIT=0
+    [ "${LP_DONE}" -gt 0 ] || EVAL_EXIT=1
+{%- else %}
     set +e
     trap - ERR
     (
@@ -952,12 +1100,16 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
     EVAL_EXIT=${PIPESTATUS[0]}
     set -e
     trap '_trap_handler' ERR
+{%- endif %}
     if [ "${EVAL_EXIT}" -ne 0 ]; then
         log "  [error] Task ${TASK_IDX} eval exit=${EVAL_EXIT} — will fail after uploading diagnostics"
     fi
 
     VIDEO_COUNT=$(find "${VIDEO_DIR}" -name "*.mp4" 2>/dev/null | wc -l)
     log "  Videos collected: ${VIDEO_COUNT}"
+{%- if libero_plus %}
+    SR=$(awk -v k="${LP_SUCC}" -v n="${LP_DONE}" 'BEGIN { if (n > 0) printf "%.3f", k / n; else print "unknown" }')
+{%- else %}
 
     # Parse success rate from simulation_results.csv (success column = 1/0 per episode).
     # rollout_policy.py writes ${VIDEO_DIR}/simulation_results.csv.
@@ -971,6 +1123,7 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
         SR=$(grep -oiE 'success.rate[^0-9]*[0-9.]+' "/tmp/rldx_task${TASK_IDX}.log" 2>/dev/null \
             | tail -1 | grep -oE '[0-9.]+$' || echo "unknown")
     fi
+{%- endif %}
     log "  success_rate=${SR}"
 
     {
@@ -983,6 +1136,21 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
         echo "num_episodes: ${NUM_EPISODES}"
         echo "success_rate: ${SR}"
         echo "description: ${DESCRIPTION}"
+{%- if libero_plus %}
+        # k/n summed over the variants that recorded episodes (a crashed variant is not counted).
+        echo "n_episodes: ${LP_DONE}"
+        echo "n_success: ${LP_SUCC}"
+        echo "variants_failed: ${LP_FAILED}"
+        echo "condition: ${COND}"
+        echo "benchmark: libero_plus"
+        echo "perturbation: ${LP_KEY}"
+        echo "perturbation_category: ${LP_CAT}"
+        echo "variants: ${LP_N} (seed ${LP_SEED}; ids in libero_plus_variants.json)"
+        echo "stack_rldx_commit: $(git -C "${RLDX_DIR}" rev-parse HEAD 2>/dev/null || echo unknown)"
+        echo "stack_mujoco: $("${LIBERO_VENV}/bin/python" -c 'import mujoco; print(mujoco.__version__)' 2>/dev/null || echo unknown)"
+        echo "stack_libero_plus_commit: ${LP_COMMIT}"
+        echo "stack_libero_plus_assets: {{ libero_plus.assets_repo }}@{{ libero_plus.assets_revision[:8] }}"
+{%- endif %}
     } > "/tmp/rldx_task${TASK_IDX}_summary.txt"
 
     # S3 upload (videos + logs + results CSV + summary)
@@ -1048,9 +1216,17 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
     [ -f "/tmp/rldx_task${TASK_IDX}_summary.txt" ] && \
         aws s3 cp "/tmp/rldx_task${TASK_IDX}_summary.txt" \
         "${S3_TASK_PREFIX}/summary.txt" --region "$REGION" || true
+{%- if libero_plus %}
+    [ -f "${LP_MANIFEST}" ] && \
+        aws s3 cp "${LP_MANIFEST}" "${S3_TASK_PREFIX}/libero_plus_variants.json" --region "$REGION" || true
+
+    SUMMARY_ALL="${SUMMARY_ALL}
+[Task $((TASK_IDX+1))] ${SUITE} LIBERO-Plus/${LP_KEY} — success_rate=${SR} (${LP_SUCC}/${LP_DONE}, ${LP_FAILED} variants failed)"
+{%- else %}
 
     SUMMARY_ALL="${SUMMARY_ALL}
 [Task $((TASK_IDX+1))] ${SUITE} :: ${ENV_NAME} — success_rate=${SR} (${NUM_EPISODES} episodes)"
+{%- endif %}
     log "  Task $((TASK_IDX+1)) done"
 
     # Hard-fail after S3 upload if eval crashed or produced no rollouts.
@@ -1082,6 +1258,9 @@ Model: RLDX-1 (RLWRLD — MSAT on Qwen3-VL-8B, eager inference)
 Checkpoint: {{ hf_repo }} (rev {{ hf_model_revision[:8] if hf_model_revision else 'unpinned' }})
 License: RLWRLD Model License v1.0 (NON-COMMERCIAL — simulation benchmarking)
 Simulation: {{ sim_label if sim_label else 'LIBERO (robosuite + MuJoCo, headless EGL)' }}
+{%- if libero_plus %}
+Benchmark: LIBERO-Plus {{ libero_plus.suite }}, {{ libero_plus.perturb|join(',') }} x {{ libero_plus.variants_per_category or 'all' }} variants (python vlasim.py results --robustness --vla rldx)
+{%- endif %}
 Instance: ${INSTANCE_TYPE}
 
 ${GALLERY_BLOCK}Download results:

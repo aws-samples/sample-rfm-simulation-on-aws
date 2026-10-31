@@ -251,6 +251,24 @@ With 10 variants per dimension the 95% interval of one dimension is roughly ±0.
 
 Both sweeps ran in ap-northeast-2 on 2026-10-30 with the default plan (seeded draw of 10 variants per dimension). With 10 variants per dimension, a single cell is a coarse signal; the pattern is what to read: OpenVLA-OFT keeps its LIBERO-Spatial skill under every dimension except the robot initial state, while SmolVLA drops on almost all of them. The sensor-noise dimension is CPU-bound on the LeRobot target (the fork recomputes its fog map in Python on every frame at 360 px): about 1.8 s per step, ~80 min for 10 episodes, against ~3 min for the other dimensions.
 
+### Wired, not run yet
+
+The switch is wired for these targets as well (render-checked only; no GPU run yet). Each row is what a default `--libero-variant plus` run writes; the reference column is the closest published number, not a same-stack baseline.
+
+| `--vla` | Suite (default plan) | Episodes | Same-stack LIBERO baseline in this repo | Published LIBERO-Plus reference |
+|---|---|---:|---|---|
+| `pi` (pi0.5) | libero_spatial, 10 variants x 1 ep | 70 | LIBERO-Spatial rate-only row above | π₀ 53.6 / π₀-Fast 61.6 total (paper; π0.5 not listed) |
+| `gr00t` | libero_spatial, 10 variants x 1 ep | 70 | none on Spatial (LIBERO scenes row) | not listed |
+| `xvla` | libero_spatial, 10 variants x 1 ep | 70 | LIBERO-Spatial smoke row | not listed |
+| `fastwam` | libero_spatial, 10 variants x 1 ep | 70 | LIBERO-Spatial row | not listed |
+| `lingbot-va` | libero_10, 2 variants x 1 ep | 14 | LIBERO-10 row | not listed |
+| `vla-adapter` | libero_spatial, 10 variants x 1 ep | 70 | LIBERO-Spatial smoke row (10/10) | not listed |
+| `molmoact2` | libero_goal, 10 variants x 1 ep | 70 | LIBERO-Goal smoke row (10/10) | not listed |
+| `rldx` | libero_spatial, 10 variants x 1 ep | 70 | LIBERO-Spatial rate-only row | 84.3% total, all variants of four suites ([RLDX-1 `run_scripts/eval/libero_plus/README.md`](https://github.com/RLWRLD/RLDX-1/blob/ecbfaf80cd031dcc892186ed30465de3591047e6/run_scripts/eval/libero_plus/README.md), same checkpoint) |
+| `lap` | libero_spatial, 10 variants x 1 ep | 70 | LIBERO-Spatial rate-only row | not listed |
+
+`cosmos-policy` and `aspire` are not wired (reasons in [targets](targets.md#libero-plus-robustness-sweep)).
+
 ### Reported in the LIBERO-Plus paper
 
 Success rate (%) per dimension from the leaderboard of the [LIBERO-Plus README](https://github.com/sylvestf/LIBERO-plus/blob/4976dc30028e805ff8094b55501d532c48fec182/README.md) (pinned commit; Fei et al., [arXiv 2510.13626](https://arxiv.org/abs/2510.13626)). The paper protocol evaluates every variant of all four suites (10,030 episodes, 1 each) and "Total" is over all of them, so these numbers are a reference for the shape of the drop, not a same-stack baseline for the 70-episode LIBERO-Spatial default here.

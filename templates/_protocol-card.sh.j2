@@ -1,7 +1,8 @@
 {#- Evaluation protocol card: <task>/protocol.yaml next to <task>/summary.txt.
 
     One record per task of everything a reader needs to decide whether two numbers are comparable:
-    target, checkpoint(s) and revision, code pins, tool commit, seed, start-state set, chunk execution rule,
+    target, checkpoint(s) and revision, code pins, tool commit, seed (+ the shared-seed plan: drawn / given /
+    model, and whether the target can be seeded at all), start-state set, chunk execution rule,
     step cap, instruction, condition, instance type, GPU, k and n. Render-time values come from the model
     YAML (generate.protocol_static); run-time values are read from this task's summary.txt, so a field the
     target does not record is written as `unknown` instead of being guessed.
@@ -54,7 +55,21 @@
 {%- endfor %}
             echo "suite: $(pc_q "$(pc_val suite env_name task_suite benchmark)")"
             echo "condition: $(pc_q "$(pc_val condition)")"
-            echo "seed: $(pc_q "$(pc_val seed)")"
+            PC_SEED=$(pc_val seed)
+{%- set sp = protocol_static.seed_plan | default({}) %}
+{%- if sp.status == "applied" %}
+            [ "${PC_SEED}" = unknown ] && PC_SEED='{{ sp.value }}'
+{%- endif %}
+            echo "seed: $(pc_q "${PC_SEED}")"
+            echo "seed_plan:"
+            echo "  mode: $(pc_q '{{ sp.mode | default("model") }}')"
+            echo "  value: $(pc_q '{{ sp.value | default("") }}')"
+            echo "  drawn_utc: $(pc_q '{{ sp.drawn_utc | default("") }}')"
+            echo "  status: $(pc_q '{{ sp.status | default("model") }}')"
+            echo "  env_seed: $(pc_q '{{ sp.env | default("no") }}')"
+            echo "  policy_seed: $(pc_q '{{ sp.policy | default("no") }}')"
+            echo "  via: $(pc_q '{{ sp.via | default("") }}')"
+            echo "  not_controllable_reason: $(pc_q '{{ sp.reason | default("") }}')"
             echo "start_states: $(pc_q "$(pc_get init_states init_file task_ids random_init num_trials_per_task)")"
             echo "chunk_rule: $(pc_q "$(pc_get replan replan_head n_action_steps action_horizon execute_steps)")"
             echo "step_cap: $(pc_q "$(pc_get max_episode_steps max_steps step_scale episode_length)")"

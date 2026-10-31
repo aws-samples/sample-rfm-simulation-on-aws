@@ -43,6 +43,7 @@ from jinja2 import Environment, FileSystemLoader
 import libero_plus
 import libero_r2s
 import robotwin_plan
+import seeds
 from targets import JUDGE_TARGETS, VLA_TARGETS
 
 BASE_DIR = Path(__file__).parent
@@ -94,8 +95,12 @@ def protocol_static(config: dict, target: str) -> dict:
                 walk(v, path + [str(i)])
 
     walk(model, [])
+    plan = config.get("seed_plan") or seeds.apply({}, target, seeds.resolve("model"))["seed_plan"]
+    plan = {k: (re.sub(r"['\n\r]", "", str(v)) if k in ("via", "reason")
+                else str(v) if SAFE_VALUE_RE.match(str(v)) else "unknown") if v not in (None, "") else ""
+            for k, v in plan.items()}
     return dict(target=target if SAFE_VALUE_RE.match(target) else "unknown", tool_commit=_tool_commit(),
-                checkpoints=checkpoints, code_pins=dict(sorted(pins.items())))
+                checkpoints=checkpoints, code_pins=dict(sorted(pins.items())), seed_plan=plan)
 
 
 def _with_protocol(ctx: dict, config: dict) -> dict:
@@ -1604,6 +1609,11 @@ def main():
                              "randomized / full = the official 49 tasks x 100 episodes (full = both settings)")
     parser.add_argument("--robotwin-shard", default="", metavar="K/N",
                         help="RoboTwin targets: keep every N-th (setting, task) unit starting at K (1-based)")
+    parser.add_argument("--seed", default="model", metavar="model|auto|N",
+                        help="Seed for every task: model = the per-task seeds of models/<vla>.yaml (default); "
+                             "auto = draw one now (secrets.randbits(31)); N = reuse a published seed. "
+                             "Use the same value for every target you compare (docs/results.md \"Shared seed\").")
+    parser.add_argument("--seed-drawn-utc", default=None, help=argparse.SUPPRESS)
     parser.add_argument("--rl-profile", default="smoke", choices=list(RL_PROFILES),
                         help="rlinf-oft-libero: smoke = 1 GPU, LoRA, a few GRPO steps; full = 8 GPU, recipe defaults "
                              "(models/<vla>.yaml profiles)")
@@ -1629,6 +1639,17 @@ def main():
 
     name = args.judge_target or args.vla
     config = _load_merged_config(config_path, name)
+    try:
+        seed_plan = seeds.resolve(args.seed, drawn_utc=args.seed_drawn_utc)
+    except ValueError as e:
+        parser.error(str(e))
+    config = seeds.apply(config, name, seed_plan)
+    sp = config["seed_plan"]
+    if sp["status"] == "applied":
+        print(f"Seed:   {sp['value']} ({sp['mode']}) -> every task of {name}")
+    elif sp["status"] == "not-controllable":
+        print(f"[warn] --seed {sp['value']}: {name} cannot be seeded by the tool ({sp['reason']}); "
+              "recorded in protocol.yaml as not-controllable", file=sys.stderr)
     plus = None
     if args.libero_variant == "plus":
         if args.judge_target:

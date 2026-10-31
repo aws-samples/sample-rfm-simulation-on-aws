@@ -51,6 +51,7 @@ import gallery
 import libero_plus
 import libero_r2s
 import robotwin_plan
+import seeds
 from generate import (
     OFT_DEFAULT_SUITE,
     OFT_LIBERO_SUITES,
@@ -427,6 +428,10 @@ def main():
     parser.add_argument("--robotwin-shard", default="", metavar="K/N",
                         help="RoboTwin targets: run every N-th (setting, task) unit starting at K (1-based); "
                              "deploy K = 1..N one after the other (same stack, one RUN_ID each)")
+    parser.add_argument("--seed", default="model", metavar="model|auto|N",
+                        help="Seed for every task of this run: model = models/<vla>.yaml seeds (default); auto = draw "
+                             "one now and print it; N = reuse it. Give every target of a comparison the same N "
+                             "(docs/results.md \"Shared seed\"); protocol.yaml records it.")
     parser.add_argument("--rl-profile", default="smoke", choices=list(RL_PROFILES),
                         help="rlinf-oft-libero: smoke = 1 GPU, LoRA, a few GRPO steps (~2-4 h); full = 8 GPU, recipe "
                              "defaults, the stack completes after the baseline eval and training continues up to "
@@ -559,6 +564,23 @@ def main():
     vpc_id = ""
     extra_cdk_ctx: list[str] = []
     generate_extra: list[str] = []
+    seed_args: list[str] = []
+    try:
+        seed_plan = seeds.resolve(args.seed)
+    except ValueError as e:
+        parser.error(str(e))
+    if seed_plan["value"] is not None:
+        # Resolve once here so the drawn value is printed and the same one reaches generate.py.
+        seed_args = ["--seed", str(seed_plan["value"])]
+        if seed_plan["drawn_utc"]:
+            seed_args += ["--seed-drawn-utc", seed_plan["drawn_utc"]]
+        ctl = seeds.control(args.vla)
+        if seed_plan["mode"] == "drawn":
+            print(f"[seed] drew {seed_plan['value']} at {seed_plan['drawn_utc']} — deploy every other target of "
+                  f"this comparison with --seed {seed_plan['value']}")
+        if ctl.get("where") is None:
+            print(f"[seed] {args.vla} cannot be seeded by the tool: {ctl.get('reason')} "
+                  "(protocol.yaml records it as not-controllable)")
 
     if args.bridge:
         if args.vla == "openvla-oft":
@@ -728,6 +750,7 @@ def main():
             *collect_args,
             *plus_args,
             *generate_extra,
+            *seed_args,
         ],
         cwd=str(BASE_DIR),
         check=True,

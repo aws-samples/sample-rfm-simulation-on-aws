@@ -97,6 +97,22 @@ A task with no `summary.txt` (still running, or the run died) is counted under `
 
 `vlasim results --matrix` prints a cross-model leaderboard instead: one row per target, one column per benchmark (LIBERO suites, LIBERO-Plus dimensions, SimplerEnv, RoboCasa, RoboLab, RoboTwin, ...), the latest comparable run per cell with k/n and its Wilson interval, cells marked when their stack fingerprints differ, and an estimated EC2 cost per run and per episode from the run's wall time and a pinned On-Demand price table. `--csv` / `--json` export it and `--write-docs` refreshes the block in [docs/results.md](docs/results.md#cross-model-matrix-leaderboard).
 
+### Reproducing a comparison: publish protocol.yaml
+
+Draw one seed for the whole comparison and give it to every target, then publish the cards:
+
+```bash
+python vlasim.py deploy --vla smolvla --seed auto        # prints: [seed] drew 1460571231 ... --seed 1460571231
+python vlasim.py deploy --vla xvla    --seed 1460571231  # same seed for the second policy
+python vlasim.py results --compare smolvla xvla
+```
+
+Each task writes `protocol.yaml` next to `summary.txt`: seed and how it was applied, start-state set,
+instruction, chunk execution rule, step cap, checkpoint revision, code commits, instance type and GPU.
+Publishing those files with the numbers is enough for anyone to rerun the same comparison with
+`--seed <n>`; targets the tool cannot seed are marked `not-controllable` with the reason
+([docs/results.md](docs/results.md#shared-seed---seed)).
+
 ## Supported targets
 
 Instance = first choice in `models/<target>.yaml`; the deploy falls back to other types and AZs when capacity is short. **NC** = non-commercial or research-only weights or tools (see [License](#license)).

@@ -368,6 +368,59 @@ A field the target does not record is written as `unknown`, never guessed. `--ma
 whose tasks all wrote one is no longer marked ‡ (comparability unknown); the CSV / JSON output has a
 `protocol_card` column.
 
+## Shared seed (`--seed`)
+
+A comparison is only reproducible if the randomness behind each number is known and the same for every
+policy. `deploy --seed` sets it for one run:
+
+- `--seed auto` draws one seed when the test starts (`secrets.randbits(31)`) and prints it, for example
+  `[seed] drew 1460571231 at 2026-10-31T05:20:00Z — deploy every other target of this comparison with --seed 1460571231`.
+- `--seed <n>` gives that value to every task of the run. Use the same `<n>` for every target you compare.
+- `--seed model` (the default) keeps the per-task seeds of `models/<target>.yaml`, i.e. the settings behind
+  the numbers already published in this file.
+
+A seed has two jobs: the **env seed** decides start states, object placement and resets; the **policy seed**
+decides sampling noise (diffusion / flow noise, token sampling). On LIBERO the start states come from the
+benchmark's init-state files, so they are already shared between policies (`fixed` below) and the seed
+reaches the policy side. Comparing two policies on the same start states is what the paired McNemar test of
+`--compare` uses; a shared policy seed does not correlate two different networks, it makes each run
+repeatable.
+
+`protocol.yaml` records the plan under `seed_plan` (`mode` drawn / given / model, `value`, `drawn_utc`,
+`status` applied / model / not-controllable, `env_seed`, `policy_seed`, `via`, `not_controllable_reason`).
+The tool writes the seed for 14 of the 27 targets. For the others it does not
+pretend: the card says `not-controllable` and why.
+
+| target | where the tool writes it | env seed | policy seed | how / why not |
+|---|---|---|---|---|
+| `gr00t` | not set by the tool | no | no | rollout_policy.py at Isaac-GR00T 4b1dca9 has no seed and calls env.reset() without one (random resets); upstream 65cc4a1 adds --seed |
+| `gr00t-bridge` | every task's `seed` | no | yes | rollout_policy.py --seed (seeds Python / NumPy / torch) |
+| `gr00t-gr1` | not set by the tool | no | no | the template passes no seed to the RoboCasa GR-1 rollout (random resets) |
+| `gr00t-g1` | not set by the tool | no | no | rollout_policy.py at Isaac-GR00T 7786639 has a seedless env.reset() |
+| `pi` | every task's `seed` | fixed | yes | openpi examples/libero main.py --args.seed |
+| `openvla-oft` | every task's `seed` | fixed | yes | run_libero_eval.py --seed |
+| `lap` | not set by the tool | no | no | the template passes no seed to the LAP evaluation client |
+| `rldx` | not set by the tool | no | no | the template passes no seed to the RLDX evaluation entry point |
+| `rldx-simpler` | not set by the tool | no | no | the template passes no seed to the RLDX evaluation entry point |
+| `rldx-bridge` | not set by the tool | no | no | the template passes no seed to the RLDX evaluation entry point |
+| `rldx-gr1` | not set by the tool | no | no | the template passes no seed to the RLDX evaluation entry point |
+| `rldx-kitchen` | not set by the tool | no | no | the template passes no seed to the RLDX evaluation entry point |
+| `openarm-isaac` | every task's `seed` | yes | yes | run_eval.py --seed (Isaac Lab env + policy) |
+| `openarm-lift-act` | not set by the tool | no | no | the template passes no seed to the ACT play script; it writes no summary.txt |
+| `molmoact2` | every task's `seed` | fixed | yes | lerobot-eval --seed |
+| `xvla` | every task's `seed` | fixed | yes | lerobot-eval --seed |
+| `smolvla` | every task's `seed` | fixed | yes | lerobot-eval --seed |
+| `lingbot-va` | every task's `seed` | fixed | yes | lerobot-eval --seed |
+| `vla-adapter` | not set by the tool | fixed | no | the template passes no seed to the upstream eval script |
+| `fastwam` | every task's `seed` | fixed | yes | lerobot-eval --seed |
+| `cosmos-policy` | every task's `seed` | fixed | yes | run_libero_eval --seed (with --randomize_seed False) |
+| `aspire` | not set by the tool | fixed | no | scored on LIBERO-Pro saved init states 0..4 (eval_seeds index them); the frozen program has no sampling |
+| `real2sim` | not set by the tool | no | no | reconstruction pipeline, not a policy evaluation (segment_args fix its own seed) |
+| `robolab-cosmos3` | `eval.seed` | yes | yes | RoboLab eval --seed (one seed per run) |
+| `robolab-pi05` | `eval.seed` | yes | yes | RoboLab eval --seed (one seed per run) |
+| `smolvla-robotwin` | every task's `seed` | yes | yes | lerobot-eval --seed (RoboTwin setup_demo seed) |
+| `lingbot-vla2` | every task's `seed` | yes | yes | lerobot-eval --seed (RoboTwin setup_demo seed) |
+
 ## Post-run judge (judge.json)
 
 `python vlasim.py judge --vla <target> [--run RUN_ID]` ([targets](targets.md#post-run-judge-flora-rewarder)) scores every rollout video of a finished run with NVIDIA Flora-Rewarder and writes, next to the run:

@@ -5,6 +5,7 @@ The block is cut out of a rendered userdata script and run with stub `aws`, `cur
 so no AWS access or GPU is needed.
 """
 
+import json
 import os
 import re
 import shutil
@@ -27,7 +28,7 @@ pytestmark = pytest.mark.skipif(BASH is None, reason="bash not on PATH")
 MARK = "# Evaluation protocol card"
 CARD_KEYS = {"schema", "target", "tool_commit", "checkpoints", "code_pins", "suite", "condition", "seed",
              "start_states", "chunk_rule", "step_cap", "instruction", "k", "n", "instance_type", "gpu", "region",
-             "written_utc"}
+             "written_utc", "seed_plan"}
 
 
 def _render(vla, out_dir, extra=()):
@@ -129,3 +130,27 @@ def test_card_reads_cli_flags_recorded_in_the_summary(tmp_path):
     assert card["seed"] == "1000"
     assert card["chunk_rule"] == "policy.n_action_steps=10"
     assert card["step_cap"] == "unknown"
+
+
+def test_card_records_model_seed_plan(tmp_path):
+    card, _ = _run_card(tmp_path, "n_episodes: 1\nn_success: 1\nseed: 7\n")
+    sp = card["seed_plan"]
+    assert (sp["mode"], sp["status"], sp["value"]) == ("model", "model", "")
+    assert (sp["env_seed"], sp["policy_seed"]) == ("fixed", "yes")
+
+
+def test_card_records_a_shared_seed(tmp_path):
+    """--seed N reaches every task; when the summary does not print a seed the card falls back to it."""
+    text = _render("openvla-oft", tmp_path, ("--libero-suite", "10", "--seed", "123456789"))
+    tasks = json.loads(re.search(r"TASKS_JSON='(.*?)'\n", text).group(1))
+    assert tasks and all(t["seed"] == 123456789 for t in tasks)
+    card, _ = _run_card(tmp_path, "n_episodes: 1\nn_success: 1\n",
+                        extra=("--libero-suite", "10", "--seed", "123456789"))
+    assert card["seed"] == "123456789"
+    assert (card["seed_plan"]["mode"], card["seed_plan"]["status"]) == ("given", "applied")
+
+
+def test_card_says_when_a_target_cannot_be_seeded(tmp_path):
+    text = _render("gr00t", tmp_path, ("--seed", "5"))
+    block = _card_block(text)
+    assert "not-controllable" in block and "4b1dca9" in block

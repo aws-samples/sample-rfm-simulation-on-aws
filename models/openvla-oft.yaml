@@ -112,6 +112,24 @@ libero_plus:
   creationpolicy_timeout: PT240M   # install ~35 + ckpt ~10 + assets 6.4 GB ~10 + eval ~60 + buffer
   ebs_gb: 270
 
+# LIBERO-R2S real2sim object swap (off unless deployed with --libero-objects real2sim; see docs/targets.md).
+# Objects reconstructed by a real2sim stage-1 run (python vlasim.py deploy --vla real2sim) replace LIBERO's HOPE
+# objects of the same name; public / collision / full scenes run the same task ids, init states and seed:
+#   python vlasim.py deploy --vla openvla-oft --libero-suite object --libero-objects real2sim \
+#       --real2sim-run s3://<real2sim results bucket>/<RUN_ID>
+# With the HOPE-Video scene 0 default of stage 1: libero_object tasks 0,1,5,9 (alphabet soup, cream cheese, tomato
+# sauce, orange juice; the reconstructed milk carton topples in the physics check and stays stock) x 10 trials x 3
+# conditions = 120 episodes (~1.5 h of eval on L4).
+libero_r2s:
+  conditions: [public, collision, full]
+  trials_per_task: 10
+  scale: fit           # fit = stock bounding-box volume (shape stays the reconstruction's); metric = measured size
+  mass: match          # match = stock mass; density = stock density on the reconstructed volume
+  select: interest     # interest = tasks whose object of interest is replaced; any = replaced object anywhere
+  seed: 7              # run_libero_eval.py default; the same for every condition
+  creationpolicy_timeout: PT300M   # install ~35 + ckpt ~10 + eval ~120-150 + buffer
+  ebs_gb: 250
+
 # Bridge mode not supported in initial version.
 # OpenVLA-OFT client/server split would require a separate policy-server image — deferred.
 bridge:

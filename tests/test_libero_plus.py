@@ -94,13 +94,19 @@ def test_openpi_patch_rewrites_loop_and_video_name_once(tmp_path):
     patch = ROOT / "assets" / "libero-plus" / "openpi_task_ids_patch.py"
     f = tmp_path / "main.py"
     f.write_text("    for task_id in tqdm.tqdm(range(num_tasks_in_suite)):\n"
-                 "        p = f\"rollout_{task_segment}_{suffix}.mp4\"\n")
+                 "        p = f\"rollout_{task_segment}_{suffix}.mp4\"\n"
+                 "    env_args = {\"bddl_file_name\": task_bddl_file, \"camera_heights\": resolution}\n")
     assert subprocess.run([sys.executable, str(patch), str(f), "4,12"], capture_output=True).returncode == 0
     text = f.read_text()
     assert "tqdm.tqdm([4, 12])" in text and "rollout_{task_id:05d}_{task_segment}" in text
+    # LIBERO-Plus' env_wrapper does `"_view_" in bddl_file_name` → TypeError on a pathlib.Path
+    assert '"bddl_file_name": str(task_bddl_file)' in text
     # second run: the loop is gone → fail loudly instead of silently running every variant
     assert subprocess.run([sys.executable, str(patch), str(f), "4"], capture_output=True).returncode != 0
     f.write_text("for task_id in tqdm.tqdm(range(num_tasks_in_suite)):\n")  # video site missing
+    assert subprocess.run([sys.executable, str(patch), str(f), "4"], capture_output=True).returncode != 0
+    f.write_text("for task_id in tqdm.tqdm(range(num_tasks_in_suite)):\n"  # bddl site missing
+                 "p = f\"rollout_{task_segment}_{suffix}.mp4\"\n")
     assert subprocess.run([sys.executable, str(patch), str(f), "4"], capture_output=True).returncode != 0
 
 

@@ -7,7 +7,8 @@ LIBERO-Plus suite has ~2,400 variants. The LIBERO client runs in a container who
 by examples/libero/compose.yml, so the ids are written into the script as a literal list instead of
 being read from an environment variable. The replay video name is also prefixed with the variant id:
 upstream names it after the instruction only, so the variants of one dimension that share an
-instruction (camera, light, layout, ...) would overwrite each other's video.
+instruction (camera, light, layout, ...) would overwrite each other's video. The bddl path is passed as a
+str: LIBERO-Plus does substring tests on it.
 
 Run after stackpatch.py (which restores the upstream file first); fails loudly if a site is missing.
 """
@@ -26,5 +27,10 @@ if k != 1:
 s, k = re.subn(r'f"rollout_\{task_segment\}_\{suffix\}\.mp4"', 'f"rollout_{task_id:05d}_{task_segment}_{suffix}.mp4"', s)
 if k != 1:
     sys.exit(f"LIBERO-PLUS PATCH FAIL: expected 1 replay video name in {p}, found {k}")
+# LIBERO-Plus' env_wrapper tests `"_view_" in bddl_file_name`, which raises TypeError on the
+# pathlib.Path upstream passes (stock LIBERO accepted either); hand it a str.
+s, k = re.subn(r'"bddl_file_name":\s*task_bddl_file\b', '"bddl_file_name": str(task_bddl_file)', s)
+if k != 1:
+    sys.exit(f"LIBERO-PLUS PATCH FAIL: expected 1 bddl_file_name arg in {p}, found {k}")
 open(p, "w").write(s)
-print(f"LIBERO-PLUS PATCH: task loop runs {len(ids)} variant(s), videos prefixed with the variant id")
+print(f"LIBERO-PLUS PATCH: task loop runs {len(ids)} variant(s), videos prefixed with the variant id, bddl path as str")

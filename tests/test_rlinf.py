@@ -242,3 +242,13 @@ def test_doctor_reads_the_profile_instance_list():
     assert min(vlasim._instance_vcpu(t) for t in full) == 96  # p4de.24xlarge: an 8-GPU quota is needed
     assert vlasim._peek_core_args(["--vla", VLA, "--rl-profile", "full"])[3] == "full"
     assert vlasim._model_preferred("xvla", "full") == vlasim._model_preferred("xvla")  # no profiles block
+
+
+def test_hydra_config_path_is_absolute():
+    """Hydra resolves a relative --config-path against the script's directory, so
+    examples/embodiment/config/ became examples/embodiment/examples/embodiment/config."""
+    import re
+
+    text = (Path(__file__).resolve().parents[1] / "templates" / "rlinf-userdata.sh.j2").read_text()
+    paths = re.findall(r"--config-path\s+(\S+)", text)
+    assert paths and all(p.startswith("/") for p in paths), paths

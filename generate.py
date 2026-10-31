@@ -83,7 +83,7 @@ def oft_stack_name(suite: str) -> str:
 # --libero-variant plus: targets whose template carries the LIBERO-Plus switch (each also needs a
 # `libero_plus:` block in models/<id>.yaml). See libero_plus.py and docs/targets.md.
 LIBERO_PLUS_TEMPLATE_TARGETS = ("openvla-oft", "xvla", "smolvla", "lingbot-va", "fastwam", "pi", "gr00t",
-                                "vla-adapter", "molmoact2", "rldx")
+                                "vla-adapter", "molmoact2", "rldx", "lap")
 
 
 def libero_plus_supported(vla: str, config: dict) -> bool:
@@ -533,11 +533,20 @@ def generate_rldx(config: dict, dry_run: bool, vla: str = "rldx", plus: tuple = 
     return env.get_template("rldx-userdata.sh.j2").render(**ctx)
 
 
-def generate_lap(config: dict, resolved_nlb: str, dry_run: bool) -> str:
+def generate_lap(config: dict, resolved_nlb: str, dry_run: bool, plus: tuple = None) -> str:
     tasks = config.get("tasks", [])
     if not tasks:
         print("[error] models/lap.yaml has no tasks entry.", file=sys.stderr)
         sys.exit(1)
+    lp_ctx = None
+    if plus is not None:
+        # --libero-variant plus: same Python 3.8 LIBERO client stack as pi (openpi's third_party/libero), so
+        # the pi recipe applies: fork in place of that submodule, filtered requirements, openpi task-loop patch.
+        lp_ctx, lp_tasks = _libero_plus_ctx(config, "lap", *plus)
+        if lp_ctx["hf_repo"]:
+            print("[error] models/lap.yaml: libero_plus.hf_repo is not supported", file=sys.stderr)
+            sys.exit(1)
+        tasks = [dict(t, num_trials_per_task=lp_ctx["episodes_per_variant"]) for t in lp_tasks]
 
     tasks_json = _tasks_json_for_bash(tasks)
     deployment = config.get("deployment", {})
@@ -559,6 +568,7 @@ def generate_lap(config: dict, resolved_nlb: str, dry_run: bool) -> str:
         "policy_type": model.get("policy_type", "flow"),
         "lap_proto": lap_proto_path.read_text() if lap_proto_path.exists() else "",
         "lap_grpc_bridge_py": lap_grpc_bridge_path.read_text() if lap_grpc_bridge_path.exists() else "",
+        "libero_plus": lp_ctx,
     }
 
     env = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)), keep_trailing_newline=True)  # nosec B701 - shell script template
@@ -1374,7 +1384,7 @@ def main():
     elif args.vla == "openvla-oft":
         rendered = generate_openvla_oft(config, args.libero_suite, args.dry_run, plus=plus)
     elif args.vla == "lap":
-        rendered = generate_lap(config, args.resolved_nlb, args.dry_run)
+        rendered = generate_lap(config, args.resolved_nlb, args.dry_run, plus=plus)
     elif args.vla in ("rldx", "rldx-simpler", "rldx-bridge", "rldx-gr1", "rldx-kitchen"):
         rendered = generate_rldx(config, args.dry_run, vla=args.vla, plus=plus)
     elif args.vla == "openarm-isaac":

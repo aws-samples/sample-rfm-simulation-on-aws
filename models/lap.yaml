@@ -51,6 +51,19 @@ tasks:
 #   python deploy.py --vla lap --bridge
 # nlb_endpoint accepts a literal host:port or ssm:/path (default reads the SSM parameter
 #   /vla-hub/lap/3b/grpc-endpoint, which you create). vpc_id must be the endpoint's VPC (same-VPC NLB).
+# --libero-variant plus (LIBERO-Plus robustness sweep, docs/targets.md#libero-plus-robustness-sweep).
+# Same Python 3.8 LIBERO client stack as pi (openpi third_party/libero + openpi-style main.py), so the
+# same fork swap, requirement filter, pins and task-loop patch apply. Works in local and bridge mode
+# (only the LIBERO client changes), but deploy.py does not combine --libero-variant plus with --bridge.
+libero_plus:
+  suite: libero_spatial
+  perturb: [camera, robot, language, light, background, noise, layout]
+  variants_per_category: 10        # 7 x 10 variants x 1 trial = 70 episodes
+  seed: 7
+  pip_pins: "Wand==0.6.13 scikit-image==0.21.0 networkx==3.1 tifffile==2023.7.10 PyWavelets==1.4.1 lazy_loader==0.4"
+  creationpolicy_timeout: PT240M   # install ~40 + ckpt 12 GB ~10 + assets 6.4 GB ~10 + eval ~40 + buffer
+  ebs_gb: 230                      # + 6.4 GB zip and its extracted asset tree
+
 bridge:
   vpc_id: ""                               # e.g. vpc-xxxxxxxxxxxxxxxxx — VPC of your endpoint (leave empty for local mode)
   nlb_endpoint: "ssm:/vla-hub/lap/3b/grpc-endpoint"  # internal NLB :50055, resolved at deploy (literal host:port or ssm:/path)

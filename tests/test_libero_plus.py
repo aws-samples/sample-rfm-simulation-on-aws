@@ -114,7 +114,7 @@ def _gen(tmp_path, *args):
 @pytest.mark.parametrize("vla,extra", [("smolvla", []), ("openvla-oft", ["--libero-suite", "spatial"]), ("pi", []),
                                        ("xvla", []), ("fastwam", []), ("gr00t", []),
                                        ("vla-adapter", []), ("molmoact2", []),
-                                       ("rldx", [])])
+                                       ("rldx", []), ("lap", [])])
 def test_plus_render(vla, extra, tmp_path):
     pytest.importorskip("jinja2")
     out = _gen(tmp_path, "--vla", vla, *extra, "--libero-variant", "plus", "--perturb", "camera,light", "--perturb-n", "3")
@@ -138,6 +138,10 @@ def test_plus_render(vla, extra, tmp_path):
         assert "LIBERO_VENV=${RLDX_DIR}/rldx/eval/sim/LIBERO_PLUS/libero_plus_uv/.venv" in text
         assert "run_scripts/eval/libero/setup_libero.sh" not in text
         assert all(t["num_episodes"] == 1 for t in tasks)
+    elif vla == "lap":  # pi's Python 3.8 client recipe in LAP's host venv
+        assert "lap_lp_task_ids_patch.py" in text and "requirements.lap.txt" in text and "lp_verify.py" in text
+        assert 'cp "${LAP_MAIN_PY}.lporig" "${LAP_MAIN_PY}"' in text and "rollout_wrist_{task_id:05d}_" in text
+        assert all(t["num_trials_per_task"] == 1 for t in tasks)
     elif vla == "pi":
         assert "pi_lp_task_ids_patch.py" in text and "requirements.openpi.txt" in text
         assert 'rm -rf "${OPENPI_DIR}/third_party/libero"' in text and "lp_verify.py" in text
@@ -162,7 +166,7 @@ def test_explicit_libero_variant_is_the_default_render(tmp_path):
 
 
 @pytest.mark.parametrize("args", [
-    ["--vla", "lap", "--libero-variant", "plus"],                # no switch in this template
+    ["--vla", "aspire", "--libero-variant", "plus"],             # no switch in this template
     ["--vla", "cosmos-policy", "--libero-variant", "plus"],      # no switch in this template
     ["--vla", "gr00t-bridge", "--libero-variant", "plus"],       # SimplerEnv, not LIBERO
     ["--vla", "smolvla", "--libero-variant", "plus", "--perturb", "fog"],

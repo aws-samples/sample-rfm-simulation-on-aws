@@ -61,7 +61,7 @@ BASELINE_CONDITIONS = {"", "-", "s0", "none", "default", "baseline", "official"}
 # These protocol names are baseline runs when the suite itself is <Benchmark>/<setting>.
 PROTOCOL_CONDITIONS = {"subset", "clean", "randomized", "full"}
 # Column order: known benchmarks first, everything else alphabetically after them.
-COLUMN_ORDER = ["LIBERO-Spatial", "LIBERO-Object", "LIBERO-Goal", "LIBERO-10", "LIBERO-90", "LIBERO-Plus",
+COLUMN_ORDER = ["LIBERO-Spatial", "LIBERO-Object", "LIBERO-Goal", "LIBERO-10", "LIBERO-90", "LIBERO-Plus", "LIBERO-R2S",
                 "LIBERO scenes", "SimplerEnv", "RoboCasa", "GR1", "G1", "RoboLab", "RoboTwin"]
 
 # Keys that change what a success rate means. Cells in one column whose values differ are marked.

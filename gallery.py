@@ -193,6 +193,21 @@ def destroy_gallery_stack(region: str) -> None:
     subprocess.run(cmd, cwd=str(BASE_DIR / "cdk"), check=True)  # nosec B603,B607 - hardcoded command list
 
 
+# Prefix of the KeyValueStore name CDK generates for RFM-Gallery/GalleryPasswords. CloudFront names are
+# account-global, so a second RFM-Gallery in another region fails on AlreadyExists (OAC and KVS).
+GALLERY_KVS_PREFIX = "RFMGalleryGalleryPasswords"
+
+
+def other_region_gallery_kvs():
+    """Name of an existing RFM-Gallery KeyValueStore (any region), or None. Errors -> None (do not block)."""
+    try:
+        cf = _boto3().client("cloudfront", region_name="us-east-1")
+        items = cf.list_key_value_stores().get("KeyValueStoreList", {}).get("Items") or []
+    except Exception:  # noqa: BLE001 - best-effort precheck; the CDK deploy reports the real error
+        return None
+    return next((i["Name"] for i in items if str(i.get("Name", "")).startswith(GALLERY_KVS_PREFIX)), None)
+
+
 def ensure_gallery(region: str, email: str, update_stack: bool = False) -> dict:
     """Deploy RFM-Gallery when missing, make sure the e-mail has a password and a KVS entry.
 
@@ -200,6 +215,12 @@ def ensure_gallery(region: str, email: str, update_stack: bool = False) -> dict:
     """
     outputs = None if update_stack else stack_outputs(region, GALLERY_STACK_NAME)
     if outputs is None:
+        if not update_stack and (kvs := other_region_gallery_kvs()):
+            print(f"[error] {GALLERY_STACK_NAME} is not deployed in {region}, but its KeyValueStore {kvs} exists: "
+                  f"the gallery lives in another region of this account, and CloudFront names are account-global, "
+                  f"so a second one fails with AlreadyExists. Deploy with --no-gallery, or in the gallery's region.",
+                  file=sys.stderr)
+            sys.exit(1)
         print(f"[gallery] Deploying the shared video history stack {GALLERY_STACK_NAME} in {region} ...")
         deploy_gallery_stack(region)
         outputs = stack_outputs(region, GALLERY_STACK_NAME)

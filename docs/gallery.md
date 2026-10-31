@@ -34,7 +34,7 @@ must have been deployed with this version so the rewritten caption is read again
 
 ```
 deploy.py --vla <target>
-  ├─ RFM-Gallery stack (once per account + region, created when missing)
+  ├─ RFM-Gallery stack (once per account, created when missing)
   │    S3 bucket rfm-gallery-<account>-<region> (private, RETAIN)
   │    CloudFront distribution ── OAC ──> bucket
   │    CloudFront Function (viewer-request) + KeyValueStore: Basic auth for /g/<id>/...
@@ -57,6 +57,7 @@ deploy.py --vla <target>
 ## Opting out
 
 - One deploy: `python deploy.py --vla <target> --no-gallery` (or `vlasim deploy ... --no-gallery`).
+- **Other regions**: CloudFront names (OAC, KeyValueStore) are account-global, so the gallery exists in one region per account. A deploy in another region stops before CDK with an error naming the existing KeyValueStore; deploy there with `--no-gallery`.
 - Always: `deployment.gallery: false` in `simulator-config.yaml`.
 
 Without the gallery the target stack is the same as before (no Lambda, no notification, no link

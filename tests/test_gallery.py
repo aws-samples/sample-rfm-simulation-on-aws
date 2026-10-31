@@ -301,3 +301,24 @@ def test_rewritten_caption_is_read_again(monkeypatch):
     fake.objects[("res", "r1/task-0/videos/ep0.txt")] = b"ctx\n\n--- Flora judge ---\nFlora score: 2/5 (failure)\n"
     assert pub.handler(_event("res", "r1/task-0/videos/ep0.txt"), None) == {"copied": 1}
     assert "Flora 2/5" in fake.objects[("gal", PREFIX + "index.html")].decode()
+
+
+def test_second_region_gallery_stops_before_cdk(monkeypatch, capsys):
+    """CloudFront OAC / KVS names are account-global: a gallery in ap-northeast-2 made us-east-1 fail mid-deploy."""
+    class CF:
+        def list_key_value_stores(self):
+            return {"KeyValueStoreList": {"Items": [{"Name": "other-store"}, {"Name": "RFMGalleryGalleryPasswords7A95D186"}]}}
+
+    class B:
+        def client(self, *a, **k):
+            return CF()
+
+    deployed = []
+    monkeypatch.setattr(gallery, "_boto3", lambda: B())
+    monkeypatch.setattr(gallery, "stack_outputs", lambda r, n: None)
+    monkeypatch.setattr(gallery, "deploy_gallery_stack", lambda r: deployed.append(r))
+    with pytest.raises(SystemExit):
+        gallery.ensure_gallery("us-east-1", "a@example.com")
+    assert not deployed and "--no-gallery" in capsys.readouterr().err
+    monkeypatch.setattr(gallery, "_boto3", lambda: (_ for _ in ()).throw(RuntimeError("no creds")))
+    assert gallery.other_region_gallery_kvs() is None

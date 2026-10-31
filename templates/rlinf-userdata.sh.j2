@@ -237,10 +237,15 @@ for mod in ("flash_attn", "transformers", "peft", "timm", "ray", "hydra", "omega
             "prismatic", "prismatic.extern.hf.modeling_prismatic", "rlinf"):
     m = importlib.import_module(mod)
     print("import OK:", mod, getattr(m, "__version__", ""))
-import rlinf
+# Walk only the env / model registries: rlinf.workers.rollout.{sglang,vllm} raise ValueError on import when those
+# optional LLM rollout backends are absent, and the embodied recipe uses neither.
 found = {"libero env": [], "openvla_oft model": []}
-for info in pkgutil.walk_packages(rlinf.__path__, "rlinf."):
-    n = info.name
+names = []
+for sub in ("rlinf.envs", "rlinf.models"):
+    pkg = importlib.import_module(sub)
+    names += [i.name for i in pkgutil.walk_packages(pkg.__path__, sub + ".",
+                                                    onerror=lambda n: print("walk skipped (import error):", n))]
+for n in names:
     if ".envs." in n and "libero" in n:
         found["libero env"].append(n)
     elif ".models." in n and "openvla_oft" in n:

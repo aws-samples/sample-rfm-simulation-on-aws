@@ -138,7 +138,7 @@ def test_render_profiles(tmp_path, profile):
     assert f"-ge {prof['instance']['min_gpus']} ]" in text
     # Stage order: verify (imports + render + hydra compose) before the 15 GB download, baseline before training.
     order = ["VERIFY OK", "--cfg job", "snapshot_download", "run_eval baseline task-0", "train_embodied_agent.py "
-             "--config-path examples/embodiment/config/ --config-name libero_goal_grpo_openvlaoft ${TRAIN_OVERRIDES}\"",
+             "--config-path /workspace/RLinf/examples/embodiment/config/ --config-name libero_goal_grpo_openvlaoft ${TRAIN_OVERRIDES}\"",
              "run_eval rl task-1", "rlinf_report.py\" report"]
     pos = [text.find(s) for s in order]
     assert all(p > 0 for p in pos) and pos == sorted(pos), dict(zip(order, pos))

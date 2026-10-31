@@ -249,24 +249,20 @@ With 10 variants per dimension the 95% interval of one dimension is roughly ±0.
 |---|---|---|---|---|---|---|---|---|---|---|
 | `smolvla` | libero_spatial, 10 variants x 1 ep (2026-10-30, `g6.xlarge`) | 0.20 | 0.00 | 0.10 | 0.70 | 0.50 | 0.00 | 0.20 | 0.24 (17/70) | 0.80 (8/10, 2 tasks x 5 ep, 2026-10-14) |
 | `openvla-oft --libero-suite spatial` | libero_spatial, 10 variants x 1 ep (2026-10-30, `g6.xlarge`) | 1.00 | 0.30 | 0.90 | 1.00 | 1.00 | 1.00 | 0.90 | 0.87 (61/70) | 0.92 (46/50, 2026-06-01) |
+| `pi` (pi0.5) | libero_spatial, 10 variants x 1 ep (2026-10-31) | 0.70 | 0.80 | 0.80 | 0.90 | 1.00 | 1.00 | 1.00 | 0.89 (62/70) | LIBERO-Spatial rate-only row |
+| `rldx` | libero_spatial, 10 variants x 1 ep (2026-10-31) | 0.80 | 1.00 | 0.90 | 1.00 | 0.90 | 0.90 | 1.00 | 0.93 (65/70) | LIBERO-Spatial rate-only row |
+| `molmoact2` | libero_goal, 10 variants x 1 ep (2026-10-31) | 1.00 | 0.80 | 0.80 | 0.90 | 1.00 | 0.90 | 0.60 | 0.86 (60/70) | LIBERO-Goal smoke row (10/10) |
+| `vla-adapter` | libero_spatial, 10 variants x 1 ep (2026-10-31) | 0.70 | 0.30 | 1.00 | 1.00 | 1.00 | 1.00 | 0.80 | 0.83 (58/70) | 1.00 (10/10, smoke row) |
+| `gr00t` | libero_spatial, 10 variants x 1 ep (2026-10-31) | 0.60 | 0.40 | 0.80 | 0.80 | 1.00 | 1.00 | 0.90 | 0.79 (55/70) | none on Spatial |
+| `xvla` | libero_spatial, 10 variants x 1 ep (2026-10-31) | 0.00 | 0.60 | 0.80 | 1.00 | 0.90 | 0.90 | 0.80 | 0.71 (50/70) | LIBERO-Spatial smoke row |
+| `lap` | libero_spatial, 10 variants x 1 ep (2026-10-31) | 0.50 | 0.70 | 0.50 | 0.80 | 0.90 | 0.60 | 0.90 | 0.70 (49/70) | LIBERO-Spatial rate-only row |
+| `fastwam` | libero_spatial, 10 variants x 1 ep (2026-10-31) | 0.10 | 0.40 | 0.70 | 0.90 | 0.90 | 0.40 | 0.50 | 0.56 (39/70) | LIBERO-Spatial row |
 
-Both sweeps ran in ap-northeast-2 on 2026-10-30 with the default plan (seeded draw of 10 variants per dimension). With 10 variants per dimension, a single cell is a coarse signal; the pattern is what to read: OpenVLA-OFT keeps its LIBERO-Spatial skill under every dimension except the robot initial state, while SmolVLA drops on almost all of them. The sensor-noise dimension is CPU-bound on the LeRobot target (the fork recomputes its fog map in Python on every frame at 360 px): about 1.8 s per step, ~80 min for 10 episodes, against ~3 min for the other dimensions.
+All sweeps ran in ap-northeast-2 (2026-10-30 and 2026-10-31) with the default plan (seeded draw of 10 variants per dimension, seed 7, so every LIBERO-Spatial row saw the same 70 variants), each on the first instance type of its target's list. The baseline column points to the LIBERO table below where a same-stack run exists; it is not a 70-episode run on the same states. With 10 variants per dimension, a single cell is a coarse signal; the pattern is what to read: OpenVLA-OFT keeps its LIBERO-Spatial skill under every dimension except the robot initial state, while SmolVLA drops on almost all of them. Across the ten targets, background and light change little; camera viewpoint and robot initial state separate the policies most (X-VLA 0/10 and FastWAM 1/10 on camera; OpenVLA-OFT and VLA-Adapter 3/10 on robot), which matches the shape of the paper's leaderboard below. For `rldx`, RLDX-1 publishes 84.3% total over all variants of the four suites with the same checkpoint ([RLDX-1 `run_scripts/eval/libero_plus/README.md`](https://github.com/RLWRLD/RLDX-1/blob/ecbfaf80cd031dcc892186ed30465de3591047e6/run_scripts/eval/libero_plus/README.md)); the 0.93 here is the LIBERO-Spatial 70-episode default, not that protocol. The sensor-noise dimension is CPU-bound on the LeRobot target (the fork recomputes its fog map in Python on every frame at 360 px): about 1.8 s per step, ~80 min for 10 episodes, against ~3 min for the other dimensions.
 
 ### Wired, not run yet
 
-The switch is wired for these targets as well (render-checked only; no GPU run yet). Each row is what a default `--libero-variant plus` run writes; the reference column is the closest published number, not a same-stack baseline.
-
-| `--vla` | Suite (default plan) | Episodes | Same-stack LIBERO baseline in this repo | Published LIBERO-Plus reference |
-|---|---|---:|---|---|
-| `pi` (pi0.5) | libero_spatial, 10 variants x 1 ep | 70 | LIBERO-Spatial rate-only row above | π₀ 53.6 / π₀-Fast 61.6 total (paper; π0.5 not listed) |
-| `gr00t` | libero_spatial, 10 variants x 1 ep | 70 | none on Spatial (LIBERO scenes row) | not listed |
-| `xvla` | libero_spatial, 10 variants x 1 ep | 70 | LIBERO-Spatial smoke row | not listed |
-| `fastwam` | libero_spatial, 10 variants x 1 ep | 70 | LIBERO-Spatial row | not listed |
-| `lingbot-va` | libero_10, 2 variants x 1 ep | 14 | LIBERO-10 row | not listed |
-| `vla-adapter` | libero_spatial, 10 variants x 1 ep | 70 | LIBERO-Spatial smoke row (10/10) | not listed |
-| `molmoact2` | libero_goal, 10 variants x 1 ep | 70 | LIBERO-Goal smoke row (10/10) | not listed |
-| `rldx` | libero_spatial, 10 variants x 1 ep | 70 | LIBERO-Spatial rate-only row | 84.3% total, all variants of four suites ([RLDX-1 `run_scripts/eval/libero_plus/README.md`](https://github.com/RLWRLD/RLDX-1/blob/ecbfaf80cd031dcc892186ed30465de3591047e6/run_scripts/eval/libero_plus/README.md), same checkpoint) |
-| `lap` | libero_spatial, 10 variants x 1 ep | 70 | LIBERO-Spatial rate-only row | not listed |
+`lingbot-va` (libero_10, 2 variants x 1 ep = 14 episodes; reference = its LIBERO-10 row) is wired; its first sweep is running.
 
 `cosmos-policy` and `aspire` are not wired (reasons in [targets](targets.md#libero-plus-robustness-sweep)).
 

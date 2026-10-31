@@ -133,6 +133,7 @@ def test_plus_render(vla, extra, tmp_path):
         assert "pi_lp_task_ids_patch.py" in text and "requirements.openpi.txt" in text
         assert 'rm -rf "${OPENPI_DIR}/third_party/libero"' in text and "lp_verify.py" in text
         assert "hf_dl_guard" not in text and "/root/.libero/config.yaml" not in text
+        assert 'LIBERO_PLUS_DIR=${OPENPI_DIR}/third_party/libero' in text and "Cloning LIBERO-Plus" in text
         assert all(t["num_episodes"] == 1 for t in tasks)
     else:
         assert "lp_oft_task_ids_patch.py" in text and "Lifelong-Robot-Learning/LIBERO.git" not in text

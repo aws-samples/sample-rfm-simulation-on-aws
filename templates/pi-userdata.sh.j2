@@ -281,7 +281,7 @@ log "  stack knob: LIBERO client mujoco pinned to {{ mujoco_pin }}"
 # and unpinned wand / scikit-image, so the image installs a filtered copy of it and the pins below instead.
 [ -d "${OPENPI_DIR}/third_party/libero" ] || die "openpi third_party/libero submodule missing"
 rm -rf "${OPENPI_DIR}/third_party/libero"
-{% with lp=libero_plus, lp_step="3.2/5", lp_log="pi", lp_venv_mode="docker", lp_python="python3",
+{% with lp=libero_plus, lp_step="3.2/5", lp_log="pi", lp_venv_mode="external", lp_python="python3",
         lp_pip="", lp_dir="${OPENPI_DIR}/third_party/libero" %}{% include "_libero-plus-setup.sh.j2" %}{% endwith %}
 grep -vE '^[[:space:]]*(robosuite|usd-core|wand|scikit-image)([[:space:]=<>!~;]|$)' "${LIBERO_PLUS_DIR}/requirements.txt" \
     > "${LIBERO_PLUS_DIR}/requirements.openpi.txt"

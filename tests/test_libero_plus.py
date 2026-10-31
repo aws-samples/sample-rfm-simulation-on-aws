@@ -112,7 +112,8 @@ def _gen(tmp_path, *args):
 
 
 @pytest.mark.parametrize("vla,extra", [("smolvla", []), ("openvla-oft", ["--libero-suite", "spatial"]), ("pi", []),
-                                       ("xvla", []), ("fastwam", []), ("gr00t", [])])
+                                       ("xvla", []), ("fastwam", []), ("gr00t", []),
+                                       ("vla-adapter", [])])
 def test_plus_render(vla, extra, tmp_path):
     pytest.importorskip("jinja2")
     out = _gen(tmp_path, "--vla", vla, *extra, "--libero-variant", "plus", "--perturb", "camera,light", "--perturb-n", "3")
@@ -138,6 +139,8 @@ def test_plus_render(vla, extra, tmp_path):
     else:
         assert "lp_oft_task_ids_patch.py" in text and "Lifelong-Robot-Learning/LIBERO.git" not in text
         assert all(t["num_trials_per_task"] == 1 for t in tasks)
+        if vla == "vla-adapter":  # no stackpatch.py here: the eval script is restored before each patch
+            assert 'cp "${LP_EVAL_PY}.lporig" "${LP_EVAL_PY}"' in text and "condition: ${K_COND}" in text
     assert subprocess.run(["bash", "-n", str(tmp_path / f"{vla}.sh")]).returncode == 0
 
 

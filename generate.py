@@ -82,7 +82,8 @@ def oft_stack_name(suite: str) -> str:
 
 # --libero-variant plus: targets whose template carries the LIBERO-Plus switch (each also needs a
 # `libero_plus:` block in models/<id>.yaml). See libero_plus.py and docs/targets.md.
-LIBERO_PLUS_TEMPLATE_TARGETS = ("openvla-oft", "xvla", "smolvla", "lingbot-va", "fastwam", "pi", "gr00t")
+LIBERO_PLUS_TEMPLATE_TARGETS = ("openvla-oft", "xvla", "smolvla", "lingbot-va", "fastwam", "pi", "gr00t",
+                                "vla-adapter")
 
 
 def libero_plus_supported(vla: str, config: dict) -> bool:
@@ -841,7 +842,7 @@ def generate_lerobot_robotwin(config: dict, dry_run: bool, vla: str, protocol: s
     return env.get_template("lerobot-robotwin-userdata.sh.j2").render(**ctx)
 
 
-def generate_vla_adapter(config: dict, dry_run: bool, vla: str = "vla-adapter") -> str:
+def generate_vla_adapter(config: dict, dry_run: bool, vla: str = "vla-adapter", plus: tuple = None) -> str:
     """VLA-Adapter (OpenHelix) × LIBERO. An OpenVLA-OFT fork: vla-adapter-userdata.sh.j2 is a copy of the
     openvla-oft template (not shared, so the validated openvla-oft target cannot regress) with the repo,
     checkpoint and extra run_libero_eval.py flags taken from models/<vla>.yaml."""
@@ -854,6 +855,16 @@ def generate_vla_adapter(config: dict, dry_run: bool, vla: str = "vla-adapter") 
         if not model.get(key):
             print(f"[error] models/{vla}.yaml: model.{key} is required", file=sys.stderr)
             sys.exit(1)
+    lp_ctx = None
+    if plus is not None:
+        # --libero-variant plus: one task entry per perturbation dimension (same OFT task-loop patch as
+        # openvla-oft). The checkpoint is single-suite, so the sweep must run on that suite.
+        lp_ctx, lp_tasks = _libero_plus_ctx(config, vla, *plus)
+        if lp_ctx["hf_repo"] or lp_ctx["suite"] != model["task_suite_name"]:
+            print(f"[error] models/{vla}.yaml: libero_plus must run on the checkpoint's suite "
+                  f"({model['task_suite_name']}) with the model's own hf_repo", file=sys.stderr)
+            sys.exit(1)
+        tasks = [dict(t, num_trials_per_task=lp_ctx["episodes_per_variant"]) for t in lp_tasks]
     ctx = {
         "vla": vla,
         "tasks_json": _tasks_json_for_bash(tasks),
@@ -871,6 +882,7 @@ def generate_vla_adapter(config: dict, dry_run: bool, vla: str = "vla-adapter") 
         "extra_pip": list(model.get("extra_pip") or []),
         "sim_protect_pins": model.get("sim_protect_pins", ""),
         "tfmd_version": model.get("tfmd_version", ""),
+        "libero_plus": lp_ctx,
     }
     env = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)), keep_trailing_newline=True)  # nosec B701 - shell script template
     return env.get_template("vla-adapter-userdata.sh.j2").render(**ctx)
@@ -1355,7 +1367,7 @@ def main():
     elif args.vla == "cosmos-policy":
         rendered = generate_cosmos_policy(config, args.dry_run)
     elif args.vla == "vla-adapter":
-        rendered = generate_vla_adapter(config, args.dry_run)
+        rendered = generate_vla_adapter(config, args.dry_run, plus=plus)
     elif args.vla == "aspire":
         rendered = generate_aspire(config, args.dry_run)
     elif args.vla == "real2sim":

@@ -320,9 +320,9 @@ cd "${LAP_DIR}"
 rm -rf "${LAP_DIR}/third_party/openpi/third_party/libero"
 {% with lp=libero_plus, lp_step="5/7", lp_log="lap", lp_venv_mode="external", lp_python="python3",
         lp_pip="", lp_dir="${LAP_DIR}/third_party/openpi/third_party/libero" %}{% include "_libero-plus-setup.sh.j2" %}{% endwith %}
-grep -vE '^[[:space:]]*(robosuite|usd-core|wand|scikit-image)([[:space:]=<>!~;]|$)' "${LIBERO_PLUS_DIR}/requirements.txt" \
+grep -viE '^[[:space:]]*(robosuite|usd-core|wand|scikit-image)([[:space:]=<>!~;]|$)' "${LIBERO_PLUS_DIR}/requirements.txt" \
     > "${LIBERO_PLUS_DIR}/requirements.lap.txt"
-! grep -qiE '^[[:space:]]*(robosuite|usd-core|wand|scikit-image)' "${LIBERO_PLUS_DIR}/requirements.lap.txt" \
+! grep -qiE '^[[:space:]]*(robosuite|usd-core|wand|scikit-image)([[:space:]=<>!~;]|$)' "${LIBERO_PLUS_DIR}/requirements.lap.txt" \
     || die "LIBERO-Plus: filtering the fork requirements failed"
 cat > "${LAP_DIR}/scripts/libero/lp_verify.py" <<'LPVERIFY_EOF'
 {{ libero_plus.openpi_verify_py }}LPVERIFY_EOF

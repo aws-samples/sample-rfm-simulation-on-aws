@@ -283,9 +283,9 @@ log "  stack knob: LIBERO client mujoco pinned to {{ mujoco_pin }}"
 rm -rf "${OPENPI_DIR}/third_party/libero"
 {% with lp=libero_plus, lp_step="3.2/5", lp_log="pi", lp_venv_mode="external", lp_python="python3",
         lp_pip="", lp_dir="${OPENPI_DIR}/third_party/libero" %}{% include "_libero-plus-setup.sh.j2" %}{% endwith %}
-grep -vE '^[[:space:]]*(robosuite|usd-core|wand|scikit-image)([[:space:]=<>!~;]|$)' "${LIBERO_PLUS_DIR}/requirements.txt" \
+grep -viE '^[[:space:]]*(robosuite|usd-core|wand|scikit-image)([[:space:]=<>!~;]|$)' "${LIBERO_PLUS_DIR}/requirements.txt" \
     > "${LIBERO_PLUS_DIR}/requirements.openpi.txt"
-! grep -qiE '^[[:space:]]*(robosuite|usd-core|wand|scikit-image)' "${LIBERO_PLUS_DIR}/requirements.openpi.txt" \
+! grep -qiE '^[[:space:]]*(robosuite|usd-core|wand|scikit-image)([[:space:]=<>!~;]|$)' "${LIBERO_PLUS_DIR}/requirements.openpi.txt" \
     || die "LIBERO-Plus: filtering the fork requirements failed"
 LIBERO_DF="${OPENPI_DIR}/examples/libero/Dockerfile"
 python3 - "${LIBERO_DF}" <<'LP_DF_EOF' || die "LIBERO-Plus: examples/libero/Dockerfile patch failed (openpi commit drifted?)"

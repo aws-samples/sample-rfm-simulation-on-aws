@@ -215,3 +215,24 @@ def test_robustness_without_baseline():
     (noise, total) = results.robustness(rows)
     assert noise["baseline"] == "-" and noise["drop_pp"] == "" and total["perturbation"] == "all"
     assert results.robustness([dict(rows[0], condition="S0")]) == []
+
+
+def test_fork_requirements_filter_and_check_agree():
+    """The post-filter check must use the same name boundary as the filter.
+
+    The fork lists ``wandb``; a check without the boundary matched ``wand`` inside it and
+    aborted the pi / lap / gr00t plus runs right after the asset download.
+    """
+    import re
+    import subprocess
+
+    fixture = " wandb==0.13.1 \n robosuite==1.4.0\nusd-core>=25.5\nWand\nscikit-image\nnumpy==1.26.4\n"
+    root = Path(__file__).resolve().parents[1] / "templates"
+    for name in ("pi-userdata.sh.j2", "lap-userdata.sh.j2", "gr00t-userdata.sh.j2"):
+        text = (root / name).read_text()
+        flt = re.search(r"grep -viE '([^']+)'", text).group(1)
+        chk = re.search(r"! grep -qiE '([^']+)'", text).group(1)
+        kept = subprocess.run(["grep", "-viE", flt], input=fixture, capture_output=True, text=True).stdout
+        assert "wandb" in kept and "robosuite" not in kept, name
+        bad = subprocess.run(["grep", "-qiE", chk], input=kept, capture_output=True, text=True).returncode == 0
+        assert not bad, f"{name}: check rejects a correctly filtered requirements file"

@@ -349,9 +349,9 @@ rm -rf "${ISAAC_GROOT_DIR}/external_dependencies/LIBERO"
 {% with lp=libero_plus, lp_step="3/6", lp_log="gr00t", lp_venv_mode="external", lp_python="python3",
         lp_pip="", lp_dir="${ISAAC_GROOT_DIR}/external_dependencies/LIBERO" %}{% include "_libero-plus-setup.sh.j2" %}{% endwith %}
 cp "${LIBERO_PLUS_DIR}/requirements.txt" "${LIBERO_PLUS_DIR}/requirements.fork.txt"
-grep -vE '^[[:space:]]*(robosuite|usd-core|wand|scikit-image)([[:space:]=<>!~;]|$)' "${LIBERO_PLUS_DIR}/requirements.fork.txt" \
+grep -viE '^[[:space:]]*(robosuite|usd-core|wand|scikit-image)([[:space:]=<>!~;]|$)' "${LIBERO_PLUS_DIR}/requirements.fork.txt" \
     > "${LIBERO_PLUS_DIR}/requirements.txt"
-! grep -qiE '^[[:space:]]*(robosuite|usd-core|wand|scikit-image)' "${LIBERO_PLUS_DIR}/requirements.txt" \
+! grep -qiE '^[[:space:]]*(robosuite|usd-core|wand|scikit-image)([[:space:]=<>!~;]|$)' "${LIBERO_PLUS_DIR}/requirements.txt" \
     || die "LIBERO-Plus: filtering the fork requirements failed"
 LP_SANITY_TASK=$(python3 -c "import json, sys; print(json.load(open(sys.argv[1]))['{{ libero_plus.suite }}'][0]['name'])" "${LP_CLASSIFICATION}") \
     || die "LIBERO-Plus: no {{ libero_plus.suite }} entry in ${LP_CLASSIFICATION}"

@@ -113,7 +113,8 @@ def _gen(tmp_path, *args):
 
 @pytest.mark.parametrize("vla,extra", [("smolvla", []), ("openvla-oft", ["--libero-suite", "spatial"]), ("pi", []),
                                        ("xvla", []), ("fastwam", []), ("gr00t", []),
-                                       ("vla-adapter", []), ("molmoact2", [])])
+                                       ("vla-adapter", []), ("molmoact2", []),
+                                       ("rldx", [])])
 def test_plus_render(vla, extra, tmp_path):
     pytest.importorskip("jinja2")
     out = _gen(tmp_path, "--vla", vla, *extra, "--libero-variant", "plus", "--perturb", "camera,light", "--perturb-n", "3")
@@ -131,6 +132,12 @@ def test_plus_render(vla, extra, tmp_path):
         assert 'libero_sim/${LP_NAME}' in text and "LP_SETUP_EOF" in text and "LIBERO-PLUS VERIFY OK" in text
         assert "NEEDED = 'libero_spatial'" in text  # checkpoint subfolder follows the sweep suite
         assert all(t["n_episodes"] == 1 and t["embodiment"] == "LIBERO_PANDA" for t in tasks)
+    elif vla == "rldx":  # RLDX-1's own LIBERO-Plus path (libero_plus_uv venv, libero_plus_sim/<variant>)
+        assert "setup_libero_plus.sh" in text and 'libero_plus_sim/${LP_NAME}' in text
+        assert "LIBERO-PLUS VERIFY OK" in text and "LIBERO_PLUS_UV" not in text
+        assert "LIBERO_VENV=${RLDX_DIR}/rldx/eval/sim/LIBERO_PLUS/libero_plus_uv/.venv" in text
+        assert "run_scripts/eval/libero/setup_libero.sh" not in text
+        assert all(t["num_episodes"] == 1 for t in tasks)
     elif vla == "pi":
         assert "pi_lp_task_ids_patch.py" in text and "requirements.openpi.txt" in text
         assert 'rm -rf "${OPENPI_DIR}/third_party/libero"' in text and "lp_verify.py" in text

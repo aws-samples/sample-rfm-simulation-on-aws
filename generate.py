@@ -83,7 +83,7 @@ def oft_stack_name(suite: str) -> str:
 # --libero-variant plus: targets whose template carries the LIBERO-Plus switch (each also needs a
 # `libero_plus:` block in models/<id>.yaml). See libero_plus.py and docs/targets.md.
 LIBERO_PLUS_TEMPLATE_TARGETS = ("openvla-oft", "xvla", "smolvla", "lingbot-va", "fastwam", "pi", "gr00t",
-                                "vla-adapter", "molmoact2")
+                                "vla-adapter", "molmoact2", "rldx")
 
 
 def libero_plus_supported(vla: str, config: dict) -> bool:
@@ -408,7 +408,7 @@ def generate_openvla_oft(config: dict, libero_suite: str, dry_run: bool, plus: t
     return env.get_template("openvla-oft-userdata.sh.j2").render(**ctx)
 
 
-def generate_rldx(config: dict, dry_run: bool, vla: str = "rldx") -> str:
+def generate_rldx(config: dict, dry_run: bool, vla: str = "rldx", plus: tuple = None) -> str:
     """RLDX-1 (RLWRLD): MSAT/Qwen3-VL-8B × {LIBERO | SimplerEnv | ...}. Local mode only.
 
     ONE shared template (rldx-userdata.sh.j2) parameterised by `sim_id` (openvla-oft
@@ -435,6 +435,17 @@ def generate_rldx(config: dict, dry_run: bool, vla: str = "rldx") -> str:
     if model.get("simpler_robot", "google") not in ("google", "widowx"):
         print(f"[error] models/{vla}.yaml: model.simpler_robot must be google or widowx", file=sys.stderr)
         sys.exit(1)
+    lp_ctx = None
+    if plus is not None:
+        # --libero-variant plus: RLDX-1's own LIBERO-Plus path at rldx_commit (rldx/eval/sim/LIBERO_PLUS,
+        # libero_plus_sim/<variant> gym ids, setup_libero_plus.sh). One rollout per variant, 1 episode each.
+        lp_ctx, lp_tasks = _libero_plus_ctx(config, vla, *plus)
+        if lp_ctx["hf_repo"] or model.get("sim_id", "libero") != "libero":
+            print(f"[error] models/{vla}.yaml: libero_plus needs the LIBERO sim and the model's own hf_repo",
+                  file=sys.stderr)
+            sys.exit(1)
+        tasks = [dict(t, num_episodes=lp_ctx["episodes_per_variant"]) for t in lp_tasks]
+        tasks_json = _tasks_json_for_bash(tasks)
 
     ctx = {
         "tasks_json": tasks_json,
@@ -515,6 +526,7 @@ def generate_rldx(config: dict, dry_run: bool, vla: str = "rldx") -> str:
         # ~17-18min cold. Raised for SIMPLER so the watchdog doesn't kill a healthy load
         # mid-shard. Stays well under creationpolicy_timeout (PT180M).
         "server_warmup_timeout": int(model.get("server_warmup_timeout", 900)),
+        "libero_plus": lp_ctx,
     }
 
     env = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)), keep_trailing_newline=True)  # nosec B701 - shell script template
@@ -1364,7 +1376,7 @@ def main():
     elif args.vla == "lap":
         rendered = generate_lap(config, args.resolved_nlb, args.dry_run)
     elif args.vla in ("rldx", "rldx-simpler", "rldx-bridge", "rldx-gr1", "rldx-kitchen"):
-        rendered = generate_rldx(config, args.dry_run, vla=args.vla)
+        rendered = generate_rldx(config, args.dry_run, vla=args.vla, plus=plus)
     elif args.vla == "openarm-isaac":
         rendered = generate_openarm_isaac(config, args.dry_run)
     elif args.vla == "openarm-lift-act":

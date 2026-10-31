@@ -103,3 +103,18 @@ tasks:
 # instance instead; a remote endpoint would need an eager-mode thin gRPC adapter (not provided).
 bridge:
   enabled: false
+
+# --libero-variant plus (LIBERO-Plus robustness sweep, docs/targets.md#libero-plus-robustness-sweep).
+# RLDX-1 ships its own LIBERO-Plus path at rldx_commit (rldx/eval/sim/LIBERO_PLUS; README reports 84.3%
+# over the full LIBERO-Plus set with this same RLDX-1-FT-LIBERO checkpoint). The userdata runs its
+# setup_libero_plus.sh on the pinned fork + asset pack and one rollout per variant (1 episode each).
+libero_plus:
+  suite: libero_spatial
+  perturb: [camera, robot, language, light, background, noise, layout]
+  variants_per_category: 10        # 7 x 10 variants x 1 episode = 70 episodes
+  seed: 7
+  # robosuite 1.4.1 (the fork needs it), wand / scikit-image for its perturbations (last Python 3.10
+  # scikit-image line); gymnasium / numpy / mujoco restated from sim_protect_pins so nothing moves them.
+  pip_pins: "robosuite==1.4.1 Wand==0.6.13 scikit-image==0.25.2 gymnasium==0.29.1 numpy==1.26.4 mujoco==3.3.1"
+  creationpolicy_timeout: PT300M   # install ~45 + ckpt + backbone ~15 + assets ~10 + 70 x ~1 min + buffer
+  ebs_gb: 200                      # + 6.4 GB zip and its extracted asset tree, second sim venv

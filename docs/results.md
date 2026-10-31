@@ -279,7 +279,7 @@ public: k/n = rate [lo, hi]
 collision: k/n = rate [lo, hi] (drop +x.x pp)
 full: k/n = rate [lo, hi] (drop +x.x pp)
 per_object:
-  alphabet_soup: public k/n; collision k/n; full k/n
+  pick up the alphabet soup and place it in the basket: public k/n; collision k/n; full k/n
   ...
 objects (cluster, scale, extent ratio vs stock):
   ...
@@ -288,12 +288,36 @@ objects (cluster, scale, extent ratio vs stock):
 
 With 10 trials per task and 4 tasks (40 episodes per condition) the 95% interval of one condition is roughly ±0.1-0.15 wide near a 0.9 success rate; raise `--r2s-trials` when a drop of a few points matters.
 
-### Expected rows (HOPE-Video scene 0 stage-1 run, `libero_object`)
+### Measured rows (HOPE-Video scene 0 stage-1 run, `libero_object`)
 
-| `--vla` | Tasks (object of interest) | `LIBERO-R2S/public` | `LIBERO-R2S/collision` | `LIBERO-R2S/full` |
-|---|---|---|---|---|
-| `openvla-oft --libero-suite object` | 0, 1, 5, 9 (alphabet soup, cream cheese, tomato sauce, orange juice) × 10 trials | not run yet | not run yet | not run yet |
-| `pi` | same | not run yet | not run yet | not run yet |
+Both runs used the stage-1 run `2026-10-29-0142` (HOPE-Video scene 0), `scale: fit`, `mass: match`, `libero_object` tasks 0, 1, 5, 9 × 10 trials, seed 7, the public fixed initial states, upstream chunk execution; `ap-northeast-2`, 2026-10-31. Brackets are 95% Wilson intervals; the drop is in percentage points vs `public` of the same run.
+
+| `--vla` (run) | `LIBERO-R2S/public` | `LIBERO-R2S/collision` | `LIBERO-R2S/full` |
+|---|---|---|---|
+| `openvla-oft --libero-suite object` (`2026-10-31-0725`, `moojink/openvla-7b-oft-finetuned-libero-object`, MuJoCo 3.3.1) | 40/40 = 1.00 [0.91-1.00] | 35/40 = 0.88 [0.74-0.95] (-12.5) | 38/40 = 0.95 [0.83-0.99] (-5.0) |
+| `pi` (`2026-10-31-0812`, `pi05_libero`, openpi `650c5b0`, MuJoCo 3.2.3) | 39/40 = 0.97 [0.87-1.00] | 38/40 = 0.95 [0.83-0.99] (-2.5) | 29/40 = 0.72 [0.57-0.84] (-25.0) |
+
+Per object (10 trials each, public / collision / full):
+
+| Object of interest (task id) | OpenVLA-OFT | π0.5 |
+|---|---|---|
+| alphabet soup (0) | 10 / 9 / 10 | 9 / 9 / 9 |
+| cream cheese (1) | 10 / 10 / 8 | 10 / 10 / 8 |
+| tomato sauce (5) | 10 / 10 / 10 | 10 / 10 / 10 |
+| orange juice (9) | 10 / 6 / 10 | 10 / 9 / **2** |
+
+Physics check on the instance: milk kept stock (as in the local check), the recheck passed for every replaced object in the 4 selected scenes (48 object checks per run, worst resting-pose drift vs the stock object 2.6 mm, tilt ≤ 0.4°).
+
+Cost and time (On-Demand EC2 only, `ap-northeast-2` prices pinned in `leaderboard.py`; wall time = RUN_ID to the last uploaded object):
+
+| `--vla` | Instance | Wall time | Episodes | USD/run (est.) | USD/episode (est.) |
+|---|---|---:|---:|---:|---:|
+| `openvla-oft --libero-suite object` | `g6.xlarge` (US$0.9896/h) | 41 min | 120 | 0.68 | 0.006 |
+| `pi` | `g5.xlarge` (US$1.237/h) | 57 min | 120 | 1.17 | 0.010 |
+
+`python vlasim.py results --matrix --region ap-northeast-2` shows these runs in the columns `LIBERO-R2S/collision (Object)`, `LIBERO-R2S/full (Object)` and `LIBERO-R2S/public (Object)` (marked †: 40 episodes, a subset of the suite) with the same cost rows; the generated leaderboard block above is refreshed separately with `--write-docs`.
+
+**Reading the numbers.** The two swaps hit the two policies in opposite places. With the reconstructed collision geometry but the stock textured mesh (`collision`), OpenVLA-OFT loses 12.5 points and π0.5 2.5; almost all of OFT's loss is the orange juice carton (6/10), whose reconstructed hull has extent ratios 1.06 / 0.88 / 1.07 against the stock box; the likely cause is that the policy sees the stock carton and closes the gripper for its shape, while the contact shape is different. When the cameras also see the reconstructed hull in a single mean 3DGS colour (`full`), OFT recovers to 38/40 (its picture and its contact shape agree again), while π0.5 drops 25 points, almost entirely on orange juice (2/10): the untextured carton no longer looks like the object named in the instruction. Cream cheese loses 2 of 10 in `full` for both policies; tomato sauce is unaffected everywhere. With 40 episodes per condition the OFT intervals overlap for every pair, so OFT's drops are indicative only; π0.5's `full` interval [0.57-0.84] does not overlap its `public` interval [0.87-1.00]. A textured reconstruction (baking the splat colours instead of one mean colour) is the obvious next condition to separate appearance from shape.
 
 Reference for the `public` column: the same-stack baseline below (LIBERO-Object, 10 tasks × 5 trials) is 50/50 for OpenVLA-OFT and 48/50 for π0.5; `public` here covers 4 of those 10 tasks. Milk (task 7) is kept stock by the physics check on this capture (the reconstructed carton topples), so it has no swapped rows.
 

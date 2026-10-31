@@ -60,8 +60,8 @@ Instance = the first entry of `instance.preferred` (the AZ selector may fall bac
 | `openarm-isaac` | `g6.12xlarge` | not recorded (creation timeout 240 min) | 4.6016 per hour |
 | `smolvla --libero-variant plus` (70 episodes) | `g6.xlarge` | measured ~2 h in total (2026-10-30; the sensor-noise dimension alone ~80 min, CPU-bound fog at 360 px) | ~0.94-1.21, plus ~0.29 NAT processing for the 6.4 GB asset pack |
 | `openvla-oft --libero-suite spatial --libero-variant plus` (70 episodes) | `g6.xlarge` | measured ~1 h (2026-10-30) | ~1.61-2.01, plus ~0.29 NAT processing for the 6.4 GB asset pack |
-| `openvla-oft --libero-suite object --libero-objects real2sim` (4 tasks × 10 trials × 3 conditions = 120 episodes) | `g6.xlarge` | estimate ~2.3 h (install ~45 min as for LIBERO, stage-1 download + object build + physics check ~5 min, 120 episodes at ~45 s) | ~1.85 |
-| `pi --libero-objects real2sim` (120 episodes) | `g5.xlarge` | estimate ~2.5-3 h (install ~30 min, LIBERO client image + physics check ~15 min, 3 compose runs with 120 episodes) | ~2.5-3.0 |
+| `openvla-oft --libero-suite object --libero-objects real2sim` (4 tasks × 10 trials × 3 conditions = 120 episodes) | `g6.xlarge` | measured 41 min (2026-10-31, `ap-northeast-2`, instance boot to the last upload) | ~0.55; 0.68 in `ap-northeast-2` (US$0.9896 per hour there) |
+| `pi --libero-objects real2sim` (120 episodes) | `g5.xlarge` | measured 57 min (2026-10-31, `ap-northeast-2`, instance boot to the last upload) | ~0.96; 1.17 in `ap-northeast-2` (US$1.237 per hour there) |
 | `robolab-cosmos3` (`edge`, default) | `g6e.2xlarge` | measured ~1.9 h (2026-10-30, ap-northeast-2: ~35 min setup incl. a 30 GB server image build, ~75 min eval) | ~9-13 |
 | `robolab-cosmos3` (`nano`) | `g6e.12xlarge` | estimate ~5-8 h (2 shards; Nano ~4 s per inference call on the leaderboard) | ~52-84 |
 | `robolab-cosmos3` (`edge-full`) / `robolab-pi05` (`full`) | `g6e.48xlarge` | estimate ~6-9 h (8 shards over RoboLab-120 × 10; RoboLab quotes ~40 GPU hours for 120 tasks) | ~180-270 |

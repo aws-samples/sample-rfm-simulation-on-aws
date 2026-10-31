@@ -52,7 +52,7 @@ deploy.py --vla <target>
 - Earlier runs are included: after each deploy, `deploy.py` copies videos that are already in the
   target's results bucket (kept by `destroy.py --keep-data`) into the gallery. Files already in the
   gallery are skipped. Runs are listed by the time in their run id, newest first.
-- One gallery per region: targets deployed in another region have their own gallery URL there.
+- One gallery per account: it lives in the region of the first deploy with the gallery on (see "Other regions" below).
 
 ## Opting out
 

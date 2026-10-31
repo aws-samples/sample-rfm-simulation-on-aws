@@ -367,6 +367,10 @@ path = snapshot_download('{{ hf_repo }}')
 print('checkpoint downloaded to:', path)
 " || die "HF checkpoint download failed (see /tmp/molmoact2_hf_download.log)"
 {% endif %}
+{%- if libero_plus %}
+{% with lp=libero_plus, lp_step="5.5/7", lp_log="molmoact2", lp_venv_mode="uv", lp_python="${LEROBOT_DIR}/.venv/bin/python",
+        lp_pip='uv pip install --python "${LEROBOT_DIR}/.venv/bin/python"' %}{% include "_libero-plus-setup.sh.j2" %}{% endwith %}
+{%- endif %}
 
 # ── [6/7] Run LIBERO eval per task entry (in-process lerobot-eval) ──
 # Headless MuJoCo render needs EGL.
@@ -393,6 +397,17 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
     OUT_DIR="${EVAL_BASE_DIR}/task-${TASK_IDX}"
     rm -rf "${OUT_DIR}"
     mkdir -p "${OUT_DIR}"
+{%- if libero_plus %}
+    # LIBERO-Plus: this entry's perturbation dimension → N seeded variant ids → --env.task_ids (1 episode each).
+    COND=$(echo "$TASK" | jq -r '.condition // "S0"')
+    LP_KEY=$(echo "$TASK" | jq -r '.perturbation')
+    LP_CAT=$(echo "$TASK" | jq -r '.perturbation_category')
+    LP_N=$(echo "$TASK" | jq -r '.variants')
+    LP_SEED=$(echo "$TASK" | jq -r '.variant_seed')
+    TASK_IDS_ARR=$(python3 /tmp/lp_select_variants.py "${LP_CLASSIFICATION}" "${SUITE}" "${LP_CAT}" "${LP_N}" "${LP_SEED}" \
+        --manifest "${OUT_DIR}/libero_plus_variants.json") || die "LIBERO-Plus variant selection failed (${LP_CAT})"
+    log "  LIBERO-Plus ${LP_KEY} (${LP_CAT}): ${LP_N} variants (0 = all), seed ${LP_SEED} → task_ids ${TASK_IDS_ARR}"
+{%- endif %}
 
     log "[6/7] Task $((TASK_IDX+1))/${TASK_COUNT}: suite=${SUITE}, n_episodes=${N_EPISODES}/task, task_ids=${TASK_IDS_ARR:-ALL}"
     touch /tmp/molmoact2_task${TASK_IDX}_start.marker
@@ -411,7 +426,7 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
         --policy.use_amp={{ 'true' if use_amp else 'false' }}
         --policy.enable_inference_cuda_graph={{ 'true' if enable_inference_cuda_graph else 'false' }}
         --policy.device=cuda
-        --env.type=libero
+        --env.type=libero{{ '_plus' if libero_plus else '' }}
         --env.task="${SUITE}"
         --env.camera_name_mapping='{{ camera_name_mapping }}'
         --eval.batch_size=1
@@ -431,7 +446,7 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
     trap - ERR
     (
         cd "${LEROBOT_DIR}"
-        uv run --active lerobot-eval "${EVAL_ARGS[@]}"
+        uv run --active{{ ' --no-sync' if libero_plus else '' }} lerobot-eval "${EVAL_ARGS[@]}"
     ) 2>&1 | tee "/tmp/molmoact2_task${TASK_IDX}.log"
     EVAL_EXIT=${PIPESTATUS[0]}
     set -e
@@ -444,8 +459,16 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
     # Collect every mp4 into a flat per-task video dir for upload.
     VIDEO_DIR="${VIDEO_BASE_DIR}/task-${TASK_IDX}"
     mkdir -p "$VIDEO_DIR"
+{%- if libero_plus %}
+    # Several task_ids each restart at eval_episode_0: name the copies {suite}_{task_id}--eval_episode_N.mp4
+    # (same as the lerobot-libero template) so they do not overwrite each other.
+    while IFS= read -r -d '' _mp4; do
+        cp "$_mp4" "${VIDEO_DIR}/$(basename "$(dirname "$_mp4")")--$(basename "$_mp4")" || true
+    done < <(find "${OUT_DIR}/videos" -name "*.mp4" -newer /tmp/molmoact2_task${TASK_IDX}_start.marker -print0 2>/dev/null)
+{%- else %}
     find "${OUT_DIR}/videos" -name "*.mp4" -newer /tmp/molmoact2_task${TASK_IDX}_start.marker \
         -exec cp {} "${VIDEO_DIR}/" \; 2>/dev/null || true
+{%- endif %}
     VIDEO_COUNT=$(find "${VIDEO_DIR}" -name "*.mp4" 2>/dev/null | wc -l)
     log "  Videos collected: ${VIDEO_COUNT}"
 
@@ -469,6 +492,19 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
         echo "n_episodes_per_task: ${N_EPISODES}"
         echo "success_rate: ${SR}"
         echo "description: ${DESCRIPTION}"
+{%- if libero_plus %}
+        echo "n_success: $(jq -r '.overall.n_success // empty' "${INFO_JSON}" 2>/dev/null)"
+        echo "n_episodes: $(jq -r '.overall.n_episodes // empty' "${INFO_JSON}" 2>/dev/null)"
+        echo "condition: ${COND}"
+        echo "benchmark: libero_plus"
+        echo "perturbation: ${LP_KEY}"
+        echo "perturbation_category: ${LP_CAT}"
+        echo "variants: ${LP_N} (seed ${LP_SEED}; ids in libero_plus_variants.json)"
+        echo "stack_lerobot_commit: $(git -C "${LEROBOT_DIR}" rev-parse HEAD 2>/dev/null || echo unknown)"
+        echo "stack_mujoco: $("${LEROBOT_DIR}/.venv/bin/python" -c 'import mujoco; print(mujoco.__version__)' 2>/dev/null || echo unknown)"
+        echo "stack_libero_plus_commit: ${LP_COMMIT}"
+        echo "stack_libero_plus_assets: {{ libero_plus.assets_repo }}@{{ libero_plus.assets_revision[:8] }}"
+{%- endif %}
     } > "/tmp/molmoact2_task${TASK_IDX}_summary.txt"
 
     # S3 upload (videos + per-video context + eval_info.json + log + summary)
@@ -527,9 +563,18 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
     [ -f "/tmp/molmoact2_task${TASK_IDX}_summary.txt" ] && \
         aws s3 cp "/tmp/molmoact2_task${TASK_IDX}_summary.txt" \
         "${S3_TASK_PREFIX}/summary.txt" --region "$REGION" || true
+{%- if libero_plus %}
+    [ -f "${OUT_DIR}/libero_plus_variants.json" ] && \
+        aws s3 cp "${OUT_DIR}/libero_plus_variants.json" \
+        "${S3_TASK_PREFIX}/libero_plus_variants.json" --region "$REGION" || true
+
+    SUMMARY_ALL="${SUMMARY_ALL}
+[Task $((TASK_IDX+1))] ${SUITE} LIBERO-Plus/${LP_KEY} — success_rate=${SR} (${N_EPISODES} ep/variant × ${LP_N} variants)"
+{%- else %}
 
     SUMMARY_ALL="${SUMMARY_ALL}
 [Task $((TASK_IDX+1))] ${SUITE} — success_rate=${SR} (${N_EPISODES} ep/task, task_ids=${TASK_IDS_ARR:-ALL})"
+{%- endif %}
     log "  Task $((TASK_IDX+1)) done"
 
     # Hard-fail after S3 upload if eval crashed or produced no rollouts.
@@ -553,6 +598,9 @@ Checkpoint: {{ hf_repo }} (rev {{ hf_model_revision[:8] if hf_model_revision els
 LeRobot: allenai/lerobot@{{ lerobot_commit[:8] if lerobot_commit else 'HEAD' }} ({{ lerobot_branch }} — fork, NOT upstream)
 License: Apache-2.0
 Simulation: LIBERO (robosuite + MuJoCo, headless EGL)
+{%- if libero_plus %}
+Benchmark: LIBERO-Plus {{ libero_plus.suite }}, {{ libero_plus.perturb|join(',') }} x {{ libero_plus.variants_per_category or 'all' }} variants (python vlasim.py results --robustness --vla molmoact2)
+{%- endif %}
 Instance: ${INSTANCE_TYPE}
 
 ${GALLERY_BLOCK}Download results:

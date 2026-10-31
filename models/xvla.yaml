@@ -38,3 +38,16 @@ tasks:
 
 bridge:
   enabled: false
+
+# LIBERO-Plus robustness sweep (off unless deployed with --libero-variant plus; see docs/targets.md).
+# Same checkpoint as the LIBERO run above, so `vlasim results --robustness --vla xvla` can put the two side by
+# side. Shared lerobot-libero template = the smolvla recipe (LeRobot docker/Dockerfile.benchmark.libero_plus at
+# the same lerobot_commit; --env.type=libero_plus inherits every --env.* arg of LiberoEnv used above).
+libero_plus:
+  suite: libero_spatial
+  perturb: [camera, robot, language, light, background, noise, layout]
+  variants_per_category: 10        # 7 x 10 variants x 1 episode = 70 episodes (~13 s/episode measured on LIBERO)
+  seed: 7
+  pip_pins: "robosuite==1.4.1 bddl==1.0.1 easydict==1.13 mujoco==3.7.0 matplotlib==3.10.8 Wand==0.6.13 scikit-image==0.25.2 gym==0.26.2"
+  creationpolicy_timeout: PT180M   # install ~30 + assets 6.4 GB ~10 + eval ~30 + buffer
+  ebs_gb: 180                      # + 6.4 GB zip and its extracted asset tree

@@ -48,3 +48,17 @@ libero_r2s:
 bridge:
   vpc_id: ""       # e.g. vpc-xxxxxxxxxxxxxxxxx
   nlb_endpoint: "" # e.g. internal-xxx.elb.us-east-1.amazonaws.com:50052
+
+# LIBERO-Plus robustness sweep (off unless deployed with --libero-variant plus; see docs/targets.md).
+# Same pi05_libero checkpoint as the LIBERO run above, so `vlasim results --robustness --vla pi` can put the
+# two side by side. The fork replaces third_party/libero on the host (the client container mounts it); the
+# client image is Python 3.8, so the fork's extra deps are pinned to the last 3.8 wheels below and installed
+# with openpi's examples/libero/requirements.txt as the constraint (numpy 1.22.4, robosuite 1.4.1).
+libero_plus:
+  suite: libero_spatial
+  perturb: [camera, robot, language, light, background, noise, layout]
+  variants_per_category: 10        # 7 x 10 variants x 1 episode = 70 episodes
+  seed: 7
+  pip_pins: "Wand==0.6.13 scikit-image==0.21.0 networkx==3.1 tifffile==2023.7.10 PyWavelets==1.4.1 lazy_loader==0.4"
+  creationpolicy_timeout: PT240M   # install + both images ~45 + assets 6.4 GB ~10 + 7 dims x ~10 min + buffer
+  ebs_gb: 230                      # + 6.4 GB zip and its extracted asset tree

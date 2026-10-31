@@ -83,80 +83,138 @@ python vlasim.py results --write-docs                      # refresh the block b
 For example, in a user-data template: `BOOT_TS=$(date +%s)` next to `RUN_ID=...`, then `echo "run_wall_s: $(( $(date +%s) - BOOT_TS ))"` and `echo "instance_type: ${INSTANCE_TYPE}"` inside the `summary.txt` block.
 
 <!-- leaderboard:begin -->
-_Generated 2026-10-30 by `python vlasim.py results --write-docs` from the results buckets in this account; estimates are labelled as such._
+_Generated 2026-10-31 by `python vlasim.py results --write-docs` from the results buckets in this account; estimates are labelled as such._
 
-| Target | LIBERO-Spatial | LIBERO-Object | LIBERO-Goal | LIBERO-10 | LIBERO-Plus/background (Spatial) | LIBERO-Plus/camera (Spatial) | LIBERO-Plus/language (Spatial) | LIBERO-Plus/layout (Spatial) | LIBERO-Plus/light (Spatial) | LIBERO-Plus/noise (Spatial) | LIBERO-Plus/robot (Spatial) | LIBERO scenes (GR00T) | SimplerEnv-Bridge | RoboCasa-Kitchen | GR1-Tabletop | G1-LocoManip | RoboLab | RoboTwin2/clean (subset) | gr1_tabletop | hope-video-scene-0000 | simpler_google_vm |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| `cosmos-policy` | 1.00 (20/20) [0.84-1.00]‡ | 1.00 (50/50) [0.93-1.00] | 1.00 (50/50) [0.93-1.00] | 0.96 (48/50) [0.87-0.99] |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |
-| `fastwam` | 0.88 (44/50) [0.76-0.94]‡ | 0.98 (49/50) [0.90-1.00]‡ | 0.98 (49/50) [0.90-1.00]‡ | 0.96 (48/50) [0.87-0.99]‡ |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |
-| `gr00t` |  |  |  |  |  |  |  |  |  |  |  | 1.00 (50/50) [0.93-1.00]‡ |  |  |  |  |  |  |  |  |  |
-| `gr00t-bridge` |  |  |  |  |  |  |  |  |  |  |  |  | 0.55 (22/40) [0.40-0.69] |  |  |  |  |  |  |  |  |
-| `gr00t-g1` |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | 0.40 (4/10) [0.17-0.69]‡ |  |  |  |  |  |
-| `gr00t-gr1` |  |  |  |  |  |  |  |  |  |  |  |  |  |  | 0.25 (2/8) [0.07-0.59]‡ |  |  |  |  |  |  |
-| `lap` | 0.92 (rate only)‡ |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |
-| `lingbot-va` |  |  |  | 0.98 (49/50) [0.90-1.00]‡ |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |
-| `lingbot-vla2` |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | 0.80 (20/25) [0.61-0.91] |  |  |  |
-| `molmoact2` |  |  | 1.00 (rate only)‡ |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |
-| `oftb3e1g` |  |  | 0.96 (96/100) [0.90-0.98]‡ |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |
-| `oftb3e1l` |  |  |  | 0.99 (99/100) [0.95-1.00]‡ |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |
-| `openvla-oft` | 0.96 (96/100) [0.90-0.98]‡ | 0.98 (49/50) [0.90-1.00]‡ | 0.98 (49/50) [0.90-1.00]‡ | 0.96 (48/50) [0.87-0.99]‡ | 1.00 (10/10) [0.72-1.00]† | 1.00 (10/10) [0.72-1.00]† | 0.90 (9/10) [0.60-0.98]† | 0.90 (9/10) [0.60-0.98]† | 1.00 (10/10) [0.72-1.00]† | 1.00 (10/10) [0.72-1.00]† | 0.30 (3/10) [0.11-0.60]† |  |  |  |  |  |  |  |  |  |  |
-| `pi` | 0.99 (rate only)‡ | 0.98 (rate only)‡ | 0.96 (rate only)‡ | 0.94 (rate only)‡ |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |
-| `pib3e1` |  |  |  | 0.94 (rate only)‡ |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |
-| `pib3e3s01` | 0.99 (rate only)‡ |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |
-| `pib3e3s02` | 1.00 (rate only)‡ |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |
-| `pib3e3s05` | 1.00 (rate only)‡ |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |
-| `pib3e3s06` | 0.90 (rate only)‡ |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |
-| `pib3e3s07` | 0.85 (rate only)‡ |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |
-| `pib3e3s08` | 1.00 (rate only)‡ |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |
-| `pib3e3s09` | 0.97 (rate only)‡ |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |
-| `pib3e3s10` | 0.97 (rate only)‡ |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |
-| `pib3e3s11` | 0.97 (rate only)‡ |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |
-| `pib3e3s12` | 0.97 (rate only)‡ |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |
-| `real2sim` |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | 0.89 (8/9) [0.56-0.98]‡ |  |
-| `rldx` | 0.98 (rate only)‡ | 1.00 (rate only)‡ | 0.97 (rate only)‡ | 1.00 (rate only)‡ |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |
-| `rldx-bridge` |  |  |  |  |  |  |  |  |  |  |  |  | 0.65 (rate only)‡ |  |  |  |  |  |  |  |  |
-| `rldx-gr1` |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | 0.50 (rate only)‡ |  |  |
-| `rldx-kitchen` |  |  |  |  |  |  |  |  |  |  |  |  |  | 0.70 (rate only)‡ |  |  |  |  |  |  |  |
-| `rldx-simpler` |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | 1.00 (rate only)‡ |
-| `robolab-cosmos3` |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | 0.32 (19/60) [0.21-0.44]‡ |  |  |  |  |
-| `robolab-pi05` |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | 0.40 (24/60) [0.29-0.53]‡ |  |  |  |  |
-| `smolvla` | 0.80 (8/10) [0.49-0.94] |  |  |  | 0.50 (5/10) [0.24-0.76]† | 0.20 (2/10) [0.06-0.51]† | 0.10 (1/10) [0.02-0.40]† | 0.20 (2/10) [0.06-0.51]† | 0.70 (7/10) [0.40-0.89]† | 0.00 (0/10) [0.00-0.28]† | 0.00 (0/10) [0.00-0.28]† |  |  |  |  |  |  |  |  |  |  |
-| `smolvla-robotwin` |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | 0.48 (12/25) [0.30-0.67] |  |  |  |
-| `vla-adapter` | 1.00 (10/10) [0.72-1.00]‡ |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |
-| `xvla` | 0.90 (rate only)‡ |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| Target | LIBERO-Spatial | LIBERO-Object | LIBERO-Goal | LIBERO-10 | LIBERO-Plus/background (10) | LIBERO-Plus/background (Goal) | LIBERO-Plus/background (Spatial) | LIBERO-Plus/camera (10) | LIBERO-Plus/camera (Goal) | LIBERO-Plus/camera (Spatial) | LIBERO-Plus/language (10) | LIBERO-Plus/language (Goal) | LIBERO-Plus/language (Spatial) | LIBERO-Plus/layout (10) | LIBERO-Plus/layout (Goal) | LIBERO-Plus/layout (Spatial) | LIBERO-Plus/light (10) | LIBERO-Plus/light (Goal) | LIBERO-Plus/light (Spatial) | LIBERO-Plus/noise (10) | LIBERO-Plus/noise (Goal) | LIBERO-Plus/noise (Spatial) | LIBERO-Plus/robot (10) | LIBERO-Plus/robot (Goal) | LIBERO-Plus/robot (Spatial) | LIBERO-R2S/collision (Object) | LIBERO-R2S/full (Object) | LIBERO-R2S/public (Object) | LIBERO scenes (GR00T) | SimplerEnv-Bridge | RoboCasa-Kitchen | GR1-Tabletop | G1-LocoManip | RoboLab | RoboTwin2/clean (subset) | gr1_tabletop | hope-video-scene-0000 | simpler_google_vm |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| `cosmos-policy` | 1.00 (100/100) [0.96-1.00]‡ | 1.00 (100/100) [0.96-1.00]‡ | 0.94 (94/100) [0.88-0.97]‡ | 0.98 (98/100) [0.93-0.99]‡ |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| `fastwam` | 0.88 (44/50) [0.76-0.94]‡ | 0.98 (49/50) [0.90-1.00]‡ | 0.98 (49/50) [0.90-1.00]‡ | 0.96 (48/50) [0.87-0.99]‡ |  |  | 0.90 (9/10) [0.60-0.98]† |  |  | 0.10 (1/10) [0.02-0.40]† |  |  | 0.70 (7/10) [0.40-0.89]† |  |  | 0.50 (5/10) [0.24-0.76]† |  |  | 0.90 (9/10) [0.60-0.98]† |  |  | 0.40 (4/10) [0.17-0.69]† |  |  | 0.40 (4/10) [0.17-0.69]† |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| `gr00t` |  |  |  |  |  |  | 1.00 (10/10) [0.72-1.00]† |  |  | 0.60 (6/10) [0.31-0.83]† |  |  | 0.80 (8/10) [0.49-0.94]† |  |  | 0.90 (9/10) [0.60-0.98]† |  |  | 0.80 (8/10) [0.49-0.94]† |  |  | 1.00 (10/10) [0.72-1.00]† |  |  | 0.40 (4/10) [0.17-0.69]† |  |  |  | 1.00 (50/50) [0.93-1.00]‡ |  |  |  |  |  |  |  |  |  |
+| `gr00t-bridge` |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | 0.55 (22/40) [0.40-0.69] |  |  |  |  |  |  |  |  |
+| `gr00t-g1` |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | 0.40 (4/10) [0.17-0.69]‡ |  |  |  |  |  |
+| `gr00t-gr1` |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | 0.25 (2/8) [0.07-0.59]‡ |  |  |  |  |  |  |
+| `lap` | 0.92 (rate only)‡ |  |  |  |  |  | 0.90 (9/10) [0.60-0.98] |  |  | 0.50 (5/10) [0.24-0.76] |  |  | 0.50 (5/10) [0.24-0.76] |  |  | 0.90 (9/10) [0.60-0.98] |  |  | 0.80 (8/10) [0.49-0.94] |  |  | 0.60 (6/10) [0.31-0.83] |  |  | 0.70 (7/10) [0.40-0.89] |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| `lingbot-va` |  |  |  | 0.98 (49/50) [0.90-1.00]‡ | 1.00 (2/2) [0.34-1.00] |  |  | 0.50 (1/2) [0.09-0.91] |  |  | 1.00 (2/2) [0.34-1.00] |  |  | 1.00 (2/2) [0.34-1.00] |  |  | 0.50 (1/2) [0.09-0.91] |  |  | 0.00 (0/2) [0.00-0.66] |  |  | 1.00 (2/2) [0.34-1.00] |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| `lingbot-vla2` |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | 0.80 (20/25) [0.61-0.91] |  |  |  |
+| `molmoact2` |  |  | 1.00 (rate only)‡ |  |  | 1.00 (10/10) [0.72-1.00] |  |  | 1.00 (10/10) [0.72-1.00] |  |  | 0.80 (8/10) [0.49-0.94] |  |  | 0.60 (6/10) [0.31-0.83] |  |  | 0.90 (9/10) [0.60-0.98] |  |  | 0.90 (9/10) [0.60-0.98] |  |  | 0.80 (8/10) [0.49-0.94] |  |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| `oftb3e1g` |  |  | 0.96 (96/100) [0.90-0.98]‡ |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| `oftb3e1l` |  |  |  | 0.99 (99/100) [0.95-1.00]‡ |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| `openvla-oft` | 0.96 (96/100) [0.90-0.98]‡ | 0.98 (49/50) [0.90-1.00]‡ | 0.98 (49/50) [0.90-1.00]‡ | 0.96 (48/50) [0.87-0.99]‡ |  |  | 1.00 (10/10) [0.72-1.00]† |  |  | 1.00 (10/10) [0.72-1.00]† |  |  | 0.90 (9/10) [0.60-0.98]† |  |  | 0.90 (9/10) [0.60-0.98]† |  |  | 1.00 (10/10) [0.72-1.00]† |  |  | 1.00 (10/10) [0.72-1.00]† |  |  | 0.30 (3/10) [0.11-0.60]† | 0.88 (35/40) [0.74-0.95]† | 0.95 (38/40) [0.83-0.99]† | 1.00 (40/40) [0.91-1.00]† |  |  |  |  |  |  |  |  |  |  |
+| `pi` | 0.99 (rate only)‡ | 0.98 (rate only)‡ | 0.96 (rate only)‡ | 0.94 (rate only)‡ |  |  | 1.00 (10/10) [0.72-1.00]† |  |  | 0.70 (7/10) [0.40-0.89]† |  |  | 0.80 (8/10) [0.49-0.94]† |  |  | 1.00 (10/10) [0.72-1.00]† |  |  | 0.90 (9/10) [0.60-0.98]† |  |  | 1.00 (10/10) [0.72-1.00]† |  |  | 0.80 (8/10) [0.49-0.94]† | 0.95 (38/40) [0.83-0.99]† | 0.72 (29/40) [0.57-0.84]† | 0.97 (39/40) [0.87-1.00]† |  |  |  |  |  |  |  |  |  |  |
+| `pib3e1` |  |  | 0.96 (rate only)‡ | 0.91 (rate only)‡ |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| `pib3e3s01` | 0.99 (rate only)‡ |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| `pib3e3s02` | 1.00 (rate only)‡ |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| `pib3e3s03` | 0.99 (rate only)‡ |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| `pib3e3s04` | 1.00 (rate only)‡ |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| `pib3e3s05` | 1.00 (rate only)‡ |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| `pib3e3s06` | 0.90 (rate only)‡ |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| `pib3e3s07` | 0.85 (rate only)‡ |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| `pib3e3s08` | 1.00 (rate only)‡ |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| `pib3e3s09` | 0.97 (rate only)‡ |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| `pib3e3s10` | 0.97 (rate only)‡ |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| `pib3e3s11` | 0.97 (rate only)‡ |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| `pib3e3s12` | 0.97 (rate only)‡ |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| `pib3e3s13` | 1.00 (rate only)‡ |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| `pib3e3s14` | 1.00 (rate only)‡ |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| `pib3e3s15` | 1.00 (rate only)‡ |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| `pib3e3s16` | 1.00 (rate only)‡ |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| `pib3e3s17` | 1.00 (rate only)‡ |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| `pib3e3s18` | 1.00 (rate only)‡ |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| `pib3e3s19` | 1.00 (rate only)‡ |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| `pib3e3s20` | 1.00 (rate only)‡ |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| `pib3e3s22` | 1.00 (rate only)‡ |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| `pib3e3s23` | 1.00 (rate only)‡ |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| `pib3e3s27` | 1.00 (rate only)‡ |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| `pib3e3s29` | 1.00 (rate only)‡ |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| `pib3e3s30` | 1.00 (rate only)‡ |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| `pib3e3s31` | 1.00 (rate only)‡ |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| `pib3e3s32` | 1.00 (rate only)‡ |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| `pib3e3s33` | 1.00 (rate only)‡ |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| `pib3e3s34` | 1.00 (rate only)‡ |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| `real2sim` |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | 0.89 (8/9) [0.56-0.98]‡ |  |
+| `rldx` | 0.98 (rate only)‡ | 1.00 (rate only)‡ | 0.97 (rate only)‡ | 1.00 (rate only)‡ |  |  | 0.90 (9/10) [0.60-0.98]† |  |  | 0.80 (8/10) [0.49-0.94]† |  |  | 0.90 (9/10) [0.60-0.98]† |  |  | 1.00 (10/10) [0.72-1.00]† |  |  | 1.00 (10/10) [0.72-1.00]† |  |  | 0.90 (9/10) [0.60-0.98]† |  |  | 1.00 (10/10) [0.72-1.00]† |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| `rldx-bridge` |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | 0.65 (rate only)‡ |  |  |  |  |  |  |  |  |
+| `rldx-gr1` |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | 0.50 (rate only)‡ |  |  |
+| `rldx-kitchen` |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | 0.70 (rate only)‡ |  |  |  |  |  |  |  |
+| `rldx-simpler` |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | 1.00 (rate only)‡ |
+| `rlinf-oft-libero` |  |  | 0.40 (8/20) [0.22-0.61] |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| `robolab-cosmos3` |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | 0.40 (48/120) [0.32-0.49]‡ |  |  |  |  |
+| `robolab-pi05` |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | 0.28 (34/120) [0.21-0.37]‡ |  |  |  |  |
+| `smolvla` | 0.80 (8/10) [0.49-0.94] |  |  |  |  |  | 0.50 (5/10) [0.24-0.76]† |  |  | 0.20 (2/10) [0.06-0.51]† |  |  | 0.10 (1/10) [0.02-0.40]† |  |  | 0.20 (2/10) [0.06-0.51]† |  |  | 0.70 (7/10) [0.40-0.89]† |  |  | 0.00 (0/10) [0.00-0.28]† |  |  | 0.00 (0/10) [0.00-0.28]† |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| `smolvla-robotwin` |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | 0.48 (12/25) [0.30-0.67] |  |  |  |
+| `vla-adapter` | 1.00 (10/10) [0.72-1.00]‡ |  |  |  |  |  | 1.00 (10/10) [0.72-1.00] |  |  | 0.70 (7/10) [0.40-0.89] |  |  | 1.00 (10/10) [0.72-1.00] |  |  | 0.80 (8/10) [0.49-0.94] |  |  | 1.00 (10/10) [0.72-1.00] |  |  | 1.00 (10/10) [0.72-1.00] |  |  | 0.30 (3/10) [0.11-0.60] |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| `xvla` | 0.90 (rate only)‡ |  |  |  |  |  | 0.90 (9/10) [0.60-0.98]† |  |  | 0.00 (0/10) [0.00-0.28]† |  |  | 0.80 (8/10) [0.49-0.94]† |  |  | 0.80 (8/10) [0.49-0.94]† |  |  | 1.00 (10/10) [0.72-1.00]† |  |  | 0.90 (9/10) [0.60-0.98]† |  |  | 0.60 (6/10) [0.31-0.83]† |  |  |  |  |  |  |  |  |  |  |  |  |  |
 
 Cell = latest run under a baseline condition: rate (k/n) [95% Wilson interval]. † = a stack fingerprint key differs from another cell in the same column (see below); ‡ = no stack fingerprint or no condition recorded (older summary; comparability unknown). Compare cells only when episode count, init states, step cap and chunk execution match.
 
 Stack differences per column:
 
-- LIBERO-Plus/camera (Spatial): `stack_mujoco`: `openvla-oft`=3.3.1, `smolvla`=3.7.0
-- LIBERO-Plus/robot (Spatial): `stack_mujoco`: `openvla-oft`=3.3.1, `smolvla`=3.7.0
-- LIBERO-Plus/language (Spatial): `stack_mujoco`: `openvla-oft`=3.3.1, `smolvla`=3.7.0
-- LIBERO-Plus/light (Spatial): `stack_mujoco`: `openvla-oft`=3.3.1, `smolvla`=3.7.0
-- LIBERO-Plus/background (Spatial): `stack_mujoco`: `openvla-oft`=3.3.1, `smolvla`=3.7.0
-- LIBERO-Plus/noise (Spatial): `stack_mujoco`: `openvla-oft`=3.3.1, `smolvla`=3.7.0
-- LIBERO-Plus/layout (Spatial): `stack_mujoco`: `openvla-oft`=3.3.1, `smolvla`=3.7.0
+- LIBERO-Plus/camera (Spatial): `stack_mujoco`: `fastwam`=3.7.0, `gr00t`=3.3.1, `openvla-oft`=3.3.1, `pi`=3.2.3, `rldx`=3.3.1, `smolvla`=3.7.0, `xvla`=3.7.0
+- LIBERO-Plus/robot (Spatial): `stack_mujoco`: `fastwam`=3.7.0, `gr00t`=3.3.1, `openvla-oft`=3.3.1, `pi`=3.2.3, `rldx`=3.3.1, `smolvla`=3.7.0, `xvla`=3.7.0
+- LIBERO-Plus/language (Spatial): `stack_mujoco`: `fastwam`=3.7.0, `gr00t`=3.3.1, `openvla-oft`=3.3.1, `pi`=3.2.3, `rldx`=3.3.1, `smolvla`=3.7.0, `xvla`=3.7.0
+- LIBERO-Plus/light (Spatial): `stack_mujoco`: `fastwam`=3.7.0, `gr00t`=3.3.1, `openvla-oft`=3.3.1, `pi`=3.2.3, `rldx`=3.3.1, `smolvla`=3.7.0, `xvla`=3.7.0
+- LIBERO-Plus/background (Spatial): `stack_mujoco`: `fastwam`=3.7.0, `gr00t`=3.3.1, `openvla-oft`=3.3.1, `pi`=3.2.3, `rldx`=3.3.1, `smolvla`=3.7.0, `xvla`=3.7.0
+- LIBERO-Plus/noise (Spatial): `stack_mujoco`: `fastwam`=3.7.0, `gr00t`=3.3.1, `openvla-oft`=3.3.1, `pi`=3.2.3, `rldx`=3.3.1, `smolvla`=3.7.0, `xvla`=3.7.0
+- LIBERO-Plus/layout (Spatial): `stack_mujoco`: `fastwam`=3.7.0, `gr00t`=3.3.1, `openvla-oft`=3.3.1, `pi`=3.2.3, `rldx`=3.3.1, `smolvla`=3.7.0, `xvla`=3.7.0
+- LIBERO-R2S/public (Object): `stack_mujoco`: `openvla-oft`=3.3.1, `pi`=3.2.3
+- LIBERO-R2S/collision (Object): `stack_mujoco`: `openvla-oft`=3.3.1, `pi`=3.2.3
+- LIBERO-R2S/full (Object): `stack_mujoco`: `openvla-oft`=3.3.1, `pi`=3.2.3
 
 Cost and time per cell (**estimates**: EC2 On-Demand only, prices pinned 2026-10-30 from the AWS Price List API):
 
 | Target | Benchmark | Runs | Instance | Instance-min (est.) | USD/run (est.) | USD/episode (est.) | s/episode | ms/step |
 |---|---|---:|---|---:|---:|---:|---:|---:|
-| `cosmos-policy` | LIBERO-Spatial | 1 | g6e.xlarge | 20 | 0.76 | 0.038 | - | - |
-| `cosmos-policy` | LIBERO-Object | 1 | g6e.xlarge | 129 | 4.93 | 0.020 | - | - |
-| `cosmos-policy` | LIBERO-Goal | 1 | g6e.xlarge | 122 | 4.66 | 0.019 | - | - |
-| `cosmos-policy` | LIBERO-10 | 1 | g6e.xlarge | 263 | 10.04 | 0.040 | - | - |
+| `cosmos-policy` | LIBERO-Spatial | 1 | g6e.xlarge | 65 | 2.49 | 0.012 | - | - |
+| `cosmos-policy` | LIBERO-Object | 1 | g6e.xlarge | 65 | 2.49 | 0.012 | - | - |
+| `cosmos-policy` | LIBERO-Goal | 1 | g6e.xlarge | 84 | 3.20 | 0.016 | - | - |
+| `cosmos-policy` | LIBERO-10 | 1 | g6e.xlarge | 84 | 3.20 | 0.016 | - | - |
 | `fastwam` | LIBERO-Spatial | 1 | g6e.2xlarge | 155 | 8.42 | 0.034 | 13.4 | - |
 | `fastwam` | LIBERO-Object | 1 | g6e.2xlarge | 360 | 19.53 | 0.078 | 13.4 | - |
 | `fastwam` | LIBERO-Goal | 1 | g6e.2xlarge | 146 | 6.72 | 0.027 | 11.3 | - |
 | `fastwam` | LIBERO-10 | 1 | g6e.2xlarge | 331 | 17.93 | 0.072 | 23.4 | - |
+| `fastwam` | LIBERO-Plus/background (Spatial) | 1 | g6e.2xlarge | 88 | 4.06 | 0.058 | 16.4 | - |
+| `fastwam` | LIBERO-Plus/camera (Spatial) | 1 | g6e.2xlarge | 88 | 4.06 | 0.058 | 33.6 | - |
+| `fastwam` | LIBERO-Plus/language (Spatial) | 1 | g6e.2xlarge | 88 | 4.06 | 0.058 | 18.0 | - |
+| `fastwam` | LIBERO-Plus/layout (Spatial) | 1 | g6e.2xlarge | 88 | 4.06 | 0.058 | 25.1 | - |
+| `fastwam` | LIBERO-Plus/light (Spatial) | 1 | g6e.2xlarge | 88 | 4.06 | 0.058 | 13.1 | - |
+| `fastwam` | LIBERO-Plus/noise (Spatial) | 1 | g6e.2xlarge | 88 | 4.06 | 0.058 | 133.2 | - |
+| `fastwam` | LIBERO-Plus/robot (Spatial) | 1 | g6e.2xlarge | 88 | 4.06 | 0.058 | 22.3 | - |
+| `gr00t` | LIBERO-Plus/background (Spatial) | 1 | g6.12xlarge | 76 | 7.15 | 0.102 | 25.2 | - |
+| `gr00t` | LIBERO-Plus/camera (Spatial) | 1 | g6.12xlarge | 76 | 7.15 | 0.102 | 36.9 | - |
+| `gr00t` | LIBERO-Plus/language (Spatial) | 1 | g6.12xlarge | 76 | 7.15 | 0.102 | 31.2 | - |
+| `gr00t` | LIBERO-Plus/layout (Spatial) | 1 | g6.12xlarge | 76 | 7.15 | 0.102 | 33.7 | - |
+| `gr00t` | LIBERO-Plus/light (Spatial) | 1 | g6.12xlarge | 76 | 7.15 | 0.102 | 30.5 | - |
+| `gr00t` | LIBERO-Plus/noise (Spatial) | 1 | g6.12xlarge | 76 | 7.15 | 0.102 | 72.5 | - |
+| `gr00t` | LIBERO-Plus/robot (Spatial) | 1 | g6.12xlarge | 76 | 7.15 | 0.102 | 40.3 | - |
 | `gr00t` | LIBERO scenes (GR00T) | 1 | g6.2xlarge | 73 | 1.19 | 0.005 | 7.9 | - |
 | `gr00t-bridge` | SimplerEnv-Bridge | 1 | g6.2xlarge | 28 | 0.56 | 0.014 | 16.0 | - |
 | `gr00t-g1` | G1-LocoManip | 1 | g6.12xlarge | 32 | 3.02 | 0.302 | 46.3 | - |
 | `gr00t-gr1` | GR1-Tabletop | 1 | g6.12xlarge | 25 | 2.36 | 0.295 | 21.9 | - |
 | `lap` | LIBERO-Spatial | 1 | g5.xlarge | 32 | - | - | - | - |
+| `lap` | LIBERO-Plus/background (Spatial) | 1 | g6.xlarge | 52 | 0.85 | 0.012 | - | - |
+| `lap` | LIBERO-Plus/camera (Spatial) | 1 | g6.xlarge | 52 | 0.85 | 0.012 | - | - |
+| `lap` | LIBERO-Plus/language (Spatial) | 1 | g6.xlarge | 52 | 0.85 | 0.012 | - | - |
+| `lap` | LIBERO-Plus/layout (Spatial) | 1 | g6.xlarge | 52 | 0.85 | 0.012 | - | - |
+| `lap` | LIBERO-Plus/light (Spatial) | 1 | g6.xlarge | 52 | 0.85 | 0.012 | - | - |
+| `lap` | LIBERO-Plus/noise (Spatial) | 1 | g6.xlarge | 52 | 0.85 | 0.012 | - | - |
+| `lap` | LIBERO-Plus/robot (Spatial) | 1 | g6.xlarge | 52 | 0.85 | 0.012 | - | - |
 | `lingbot-va` | LIBERO-10 | 10 | g6e.2xlarge | 2985 | 13.71 | 0.914 | 1213.5 | - |
+| `lingbot-va` | LIBERO-Plus/background (10) | 1 | g6e.2xlarge | 284 | 13.06 | 0.933 | 1100.8 | - |
+| `lingbot-va` | LIBERO-Plus/camera (10) | 1 | g6e.2xlarge | 284 | 13.06 | 0.933 | 1318.1 | - |
+| `lingbot-va` | LIBERO-Plus/language (10) | 1 | g6e.2xlarge | 284 | 13.06 | 0.933 | 1076.5 | - |
+| `lingbot-va` | LIBERO-Plus/layout (10) | 1 | g6e.2xlarge | 284 | 13.06 | 0.933 | 1105.5 | - |
+| `lingbot-va` | LIBERO-Plus/light (10) | 1 | g6e.2xlarge | 284 | 13.06 | 0.933 | 1142.6 | - |
+| `lingbot-va` | LIBERO-Plus/noise (10) | 1 | g6e.2xlarge | 284 | 13.06 | 0.933 | 1214.6 | - |
+| `lingbot-va` | LIBERO-Plus/robot (10) | 1 | g6e.2xlarge | 284 | 13.06 | 0.933 | 1117.1 | - |
 | `lingbot-vla2` | RoboTwin2/clean (subset) | 1 | g6e.2xlarge | 48 | 2.19 | 0.088 | 39.8 | - |
 | `molmoact2` | LIBERO-Goal | 1 | g6e.2xlarge | 10 | 0.47 | 0.047 | 13.5 | - |
+| `molmoact2` | LIBERO-Plus/background (Goal) | 1 | g6e.2xlarge | 46 | 2.11 | 0.030 | 11.2 | - |
+| `molmoact2` | LIBERO-Plus/camera (Goal) | 1 | g6e.2xlarge | 46 | 2.11 | 0.030 | 18.9 | - |
+| `molmoact2` | LIBERO-Plus/language (Goal) | 1 | g6e.2xlarge | 46 | 2.11 | 0.030 | 14.3 | - |
+| `molmoact2` | LIBERO-Plus/layout (Goal) | 1 | g6e.2xlarge | 46 | 2.11 | 0.030 | 19.7 | - |
+| `molmoact2` | LIBERO-Plus/light (Goal) | 1 | g6e.2xlarge | 46 | 2.11 | 0.030 | 16.2 | - |
+| `molmoact2` | LIBERO-Plus/noise (Goal) | 1 | g6e.2xlarge | 46 | 2.11 | 0.030 | 68.4 | - |
+| `molmoact2` | LIBERO-Plus/robot (Goal) | 1 | g6e.2xlarge | 46 | 2.11 | 0.030 | 15.9 | - |
 | `oftb3e1g` | LIBERO-Goal | 1 | g6.xlarge | 32 | 0.53 | 0.005 | - | - |
 | `oftb3e1l` | LIBERO-10 | 1 | g6.xlarge | 46 | 0.75 | 0.008 | - | - |
 | `openvla-oft` | LIBERO-Spatial | 1 | g6.xlarge | 60 | 0.80 | 0.008 | - | - |
@@ -170,13 +228,29 @@ Cost and time per cell (**estimates**: EC2 On-Demand only, prices pinned 2026-10
 | `openvla-oft` | LIBERO-Plus/light (Spatial) | 1 | g6.xlarge | 55 | 0.91 | 0.013 | - | - |
 | `openvla-oft` | LIBERO-Plus/noise (Spatial) | 1 | g6.xlarge | 55 | 0.91 | 0.013 | - | - |
 | `openvla-oft` | LIBERO-Plus/robot (Spatial) | 1 | g6.xlarge | 55 | 0.91 | 0.013 | - | - |
+| `openvla-oft` | LIBERO-R2S/collision (Object) | 1 | g6.xlarge | 41 | 0.68 | 0.006 | - | - |
+| `openvla-oft` | LIBERO-R2S/full (Object) | 1 | g6.xlarge | 41 | 0.68 | 0.006 | - | - |
+| `openvla-oft` | LIBERO-R2S/public (Object) | 1 | g6.xlarge | 41 | 0.68 | 0.006 | - | - |
 | `pi` | LIBERO-Spatial | 1 | g5.2xlarge | 37 | 0.76 | 0.008 | - | - |
 | `pi` | LIBERO-Object | 1 | g5.xlarge | 86 | 1.77 | 0.009 | - | - |
 | `pi` | LIBERO-Goal | 1 | g5.xlarge | 86 | 1.77 | 0.009 | - | - |
 | `pi` | LIBERO-10 | 1 | g5.xlarge | 86 | 1.77 | 0.009 | - | - |
-| `pib3e1` | LIBERO-10 | 1 | g5.xlarge | 41 | 0.84 | 0.017 | - | - |
+| `pi` | LIBERO-Plus/background (Spatial) | 1 | g5.xlarge | 75 | 1.55 | 0.022 | - | - |
+| `pi` | LIBERO-Plus/camera (Spatial) | 1 | g5.xlarge | 75 | 1.55 | 0.022 | - | - |
+| `pi` | LIBERO-Plus/language (Spatial) | 1 | g5.xlarge | 75 | 1.55 | 0.022 | - | - |
+| `pi` | LIBERO-Plus/layout (Spatial) | 1 | g5.xlarge | 75 | 1.55 | 0.022 | - | - |
+| `pi` | LIBERO-Plus/light (Spatial) | 1 | g5.xlarge | 75 | 1.55 | 0.022 | - | - |
+| `pi` | LIBERO-Plus/noise (Spatial) | 1 | g5.xlarge | 75 | 1.55 | 0.022 | - | - |
+| `pi` | LIBERO-Plus/robot (Spatial) | 1 | g5.xlarge | 75 | 1.55 | 0.022 | - | - |
+| `pi` | LIBERO-R2S/collision (Object) | 1 | g5.xlarge | 57 | 1.17 | 0.010 | - | - |
+| `pi` | LIBERO-R2S/full (Object) | 1 | g5.xlarge | 57 | 1.17 | 0.010 | - | - |
+| `pi` | LIBERO-R2S/public (Object) | 1 | g5.xlarge | 57 | 1.17 | 0.010 | - | - |
+| `pib3e1` | LIBERO-Goal | 1 | g5.xlarge | 86 | 1.78 | 0.009 | - | - |
+| `pib3e1` | LIBERO-10 | 1 | g5.xlarge | 86 | 1.78 | 0.009 | - | - |
 | `pib3e3s01` | LIBERO-Spatial | 1 | g5.xlarge | 31 | 0.64 | 0.008 | - | - |
-| `pib3e3s02` | LIBERO-Spatial | 1 | g5.xlarge | 25 | 0.41 | 0.021 | - | - |
+| `pib3e3s02` | LIBERO-Spatial | 1 | g5.xlarge | 38 | 0.78 | 0.010 | - | - |
+| `pib3e3s03` | LIBERO-Spatial | 1 | g5.xlarge | 54 | 0.90 | 0.006 | - | - |
+| `pib3e3s04` | LIBERO-Spatial | 1 | g5.xlarge | 35 | 0.73 | 0.036 | - | - |
 | `pib3e3s05` | LIBERO-Spatial | 1 | g5.xlarge | 31 | 0.52 | 0.026 | - | - |
 | `pib3e3s06` | LIBERO-Spatial | 1 | g5.xlarge | 25 | 0.41 | 0.021 | - | - |
 | `pib3e3s07` | LIBERO-Spatial | 1 | g5.xlarge | 33 | 0.55 | 0.027 | - | - |
@@ -185,17 +259,42 @@ Cost and time per cell (**estimates**: EC2 On-Demand only, prices pinned 2026-10
 | `pib3e3s10` | LIBERO-Spatial | 1 | g5.xlarge | 33 | 0.55 | 0.014 | - | - |
 | `pib3e3s11` | LIBERO-Spatial | 1 | g5.xlarge | 33 | 0.55 | 0.014 | - | - |
 | `pib3e3s12` | LIBERO-Spatial | 1 | g5.xlarge | 33 | 0.55 | 0.014 | - | - |
+| `pib3e3s13` | LIBERO-Spatial | 1 | g5.xlarge | 21 | 0.36 | 0.036 | - | - |
+| `pib3e3s14` | LIBERO-Spatial | 1 | g5.xlarge | 21 | 0.35 | 0.035 | - | - |
+| `pib3e3s15` | LIBERO-Spatial | 1 | g5.xlarge | 22 | 0.37 | 0.037 | - | - |
+| `pib3e3s16` | LIBERO-Spatial | 1 | g5.xlarge | 22 | 0.37 | 0.037 | - | - |
+| `pib3e3s17` | LIBERO-Spatial | 1 | g5.xlarge | 24 | 0.41 | 0.041 | - | - |
+| `pib3e3s18` | LIBERO-Spatial | 1 | g5.xlarge | 23 | 0.39 | 0.039 | - | - |
+| `pib3e3s19` | LIBERO-Spatial | 1 | g5.xlarge | 23 | 0.39 | 0.039 | - | - |
+| `pib3e3s20` | LIBERO-Spatial | 1 | g5.xlarge | 23 | 0.38 | 0.038 | - | - |
+| `pib3e3s22` | LIBERO-Spatial | 1 | g5.xlarge | 24 | 0.50 | 0.050 | - | - |
+| `pib3e3s23` | LIBERO-Spatial | 1 | g5.xlarge | 26 | 0.53 | 0.053 | - | - |
+| `pib3e3s27` | LIBERO-Spatial | 1 | g5.xlarge | 26 | 0.53 | 0.053 | - | - |
+| `pib3e3s29` | LIBERO-Spatial | 1 | g5.xlarge | 23 | 0.39 | 0.039 | - | - |
+| `pib3e3s30` | LIBERO-Spatial | 1 | g5.xlarge | 21 | 0.35 | 0.035 | - | - |
+| `pib3e3s31` | LIBERO-Spatial | 1 | g5.xlarge | 21 | 0.36 | 0.036 | - | - |
+| `pib3e3s32` | LIBERO-Spatial | 1 | g5.xlarge | 21 | 0.35 | 0.035 | - | - |
+| `pib3e3s33` | LIBERO-Spatial | 1 | g5.xlarge | 21 | 0.36 | 0.036 | - | - |
+| `pib3e3s34` | LIBERO-Spatial | 1 | g5.xlarge | 27 | 0.45 | 0.022 | - | - |
 | `real2sim` | hope-video-scene-0000 | 1 | g5.2xlarge | 12 | 0.30 | 0.034 | - | - |
 | `rldx` | LIBERO-Spatial | 1 | g6.xlarge | 56 | 0.92 | 0.004 | - | - |
 | `rldx` | LIBERO-Object | 1 | g6.xlarge | 56 | 1.08 | 0.004 | - | - |
 | `rldx` | LIBERO-Goal | 1 | g5.xlarge | 97 | 1.62 | 0.006 | - | - |
 | `rldx` | LIBERO-10 | 1 | g6.xlarge | 18 | 0.30 | 0.030 | - | - |
+| `rldx` | LIBERO-Plus/background (Spatial) | 1 | g6.xlarge | 94 | 1.54 | 0.022 | - | - |
+| `rldx` | LIBERO-Plus/camera (Spatial) | 1 | g6.xlarge | 94 | 1.54 | 0.022 | - | - |
+| `rldx` | LIBERO-Plus/language (Spatial) | 1 | g6.xlarge | 94 | 1.54 | 0.022 | - | - |
+| `rldx` | LIBERO-Plus/layout (Spatial) | 1 | g6.xlarge | 94 | 1.54 | 0.022 | - | - |
+| `rldx` | LIBERO-Plus/light (Spatial) | 1 | g6.xlarge | 94 | 1.54 | 0.022 | - | - |
+| `rldx` | LIBERO-Plus/noise (Spatial) | 1 | g6.xlarge | 94 | 1.54 | 0.022 | - | - |
+| `rldx` | LIBERO-Plus/robot (Spatial) | 1 | g6.xlarge | 94 | 1.54 | 0.022 | - | - |
 | `rldx-bridge` | SimplerEnv-Bridge | 1 | g6.2xlarge | 38 | 0.77 | 0.019 | - | - |
 | `rldx-gr1` | gr1_tabletop | 1 | g5.xlarge | 30 | 0.51 | 0.051 | - | - |
 | `rldx-kitchen` | RoboCasa-Kitchen | 1 | g6.2xlarge | 26 | 0.52 | 0.052 | - | - |
 | `rldx-simpler` | simpler_google_vm | 1 | g5.2xlarge | 27 | 0.54 | 0.054 | - | - |
-| `robolab-cosmos3` | RoboLab | 1 | g6e.2xlarge | 111 | 5.11 | 0.085 | - | - |
-| `robolab-pi05` | RoboLab | 1 | g6e.2xlarge | 82 | 3.77 | 0.063 | - | - |
+| `rlinf-oft-libero` | LIBERO-Goal | 1 | g6e.8xlarge | 62 | - | - | - | - |
+| `robolab-cosmos3` | RoboLab | 1 | g6e.2xlarge | 175 | 9.47 | 0.079 | - | - |
+| `robolab-pi05` | RoboLab | 1 | g6e.4xlarge | 164 | 8.23 | 0.069 | - | - |
 | `smolvla` | LIBERO-Spatial | 1 | g6.xlarge | 9 | 0.15 | 0.015 | 14.6 | - |
 | `smolvla` | LIBERO-Plus/background (Spatial) | 1 | g6.xlarge | 39 | 0.64 | 0.013 | 8.8 | - |
 | `smolvla` | LIBERO-Plus/camera (Spatial) | 1 | g6.xlarge | 39 | 0.64 | 0.013 | 16.9 | - |
@@ -206,11 +305,25 @@ Cost and time per cell (**estimates**: EC2 On-Demand only, prices pinned 2026-10
 | `smolvla` | LIBERO-Plus/robot (Spatial) | 1 | g6.xlarge | 39 | 0.64 | 0.013 | 11.5 | - |
 | `smolvla-robotwin` | RoboTwin2/clean (subset) | 1 | g6.2xlarge | 54 | 1.07 | 0.043 | 94.2 | - |
 | `vla-adapter` | LIBERO-Spatial | 1 | g6.xlarge | 10 | 0.17 | 0.017 | - | - |
+| `vla-adapter` | LIBERO-Plus/background (Spatial) | 1 | g6.xlarge | 37 | 0.62 | 0.009 | - | - |
+| `vla-adapter` | LIBERO-Plus/camera (Spatial) | 1 | g6.xlarge | 37 | 0.62 | 0.009 | - | - |
+| `vla-adapter` | LIBERO-Plus/language (Spatial) | 1 | g6.xlarge | 37 | 0.62 | 0.009 | - | - |
+| `vla-adapter` | LIBERO-Plus/layout (Spatial) | 1 | g6.xlarge | 37 | 0.62 | 0.009 | - | - |
+| `vla-adapter` | LIBERO-Plus/light (Spatial) | 1 | g6.xlarge | 37 | 0.62 | 0.009 | - | - |
+| `vla-adapter` | LIBERO-Plus/noise (Spatial) | 1 | g6.xlarge | 37 | 0.62 | 0.009 | - | - |
+| `vla-adapter` | LIBERO-Plus/robot (Spatial) | 1 | g6.xlarge | 37 | 0.62 | 0.009 | - | - |
 | `xvla` | LIBERO-Spatial | 1 | g6.2xlarge | 8 | 0.17 | 0.017 | 12.8 | - |
+| `xvla` | LIBERO-Plus/background (Spatial) | 1 | g6.2xlarge | 45 | 0.89 | 0.013 | 8.9 | - |
+| `xvla` | LIBERO-Plus/camera (Spatial) | 1 | g6.2xlarge | 45 | 0.89 | 0.013 | 30.7 | - |
+| `xvla` | LIBERO-Plus/language (Spatial) | 1 | g6.2xlarge | 45 | 0.89 | 0.013 | 11.4 | - |
+| `xvla` | LIBERO-Plus/layout (Spatial) | 1 | g6.2xlarge | 45 | 0.89 | 0.013 | 16.2 | - |
+| `xvla` | LIBERO-Plus/light (Spatial) | 1 | g6.2xlarge | 45 | 0.89 | 0.013 | 6.5 | - |
+| `xvla` | LIBERO-Plus/noise (Spatial) | 1 | g6.2xlarge | 45 | 0.89 | 0.013 | 92.3 | - |
+| `xvla` | LIBERO-Plus/robot (Spatial) | 1 | g6.2xlarge | 45 | 0.89 | 0.013 | 15.3 | - |
 
 Instance-min = sum over the pooled runs of RUN_ID (instance boot) to the last object the run uploaded, or `run_wall_s` from `summary.txt`; USD/episode divides by every episode of those runs (all suites of a run share its instance); stack create/delete, NAT gateway, EBS and data transfer are not included. USD/run is per pooled run. s/episode comes from `episode_wall_s`, LeRobot `eval_info.json` (`eval_ep_s`) or the GR00T rollout log; ms/step only from `policy_ms_per_step`.
 
-Sources: `cosmos-policy` LIBERO-Spatial: cosmos-policy-demo@ap-northeast-2 2026-10-17-0254; `cosmos-policy` LIBERO-Object: cosmos-w-o@ap-northeast-2 2026-10-15-1429; `cosmos-policy` LIBERO-Goal: cosmos-w-g@ap-northeast-2 2026-10-15-1430; `cosmos-policy` LIBERO-10: cosmos-w-l@ap-northeast-2 2026-10-15-1431; `fastwam` LIBERO-Spatial: fastwam-s@ap-northeast-1 2026-10-15-1356; `fastwam` LIBERO-Object: fastwam-o@ap-northeast-1 2026-10-15-1356; `fastwam` LIBERO-Goal: fastwam-g@ap-northeast-2 2026-10-15-1428; `fastwam` LIBERO-10: fastwam-l@ap-northeast-1 2026-10-15-1355; `gr00t` LIBERO scenes (GR00T): gr00t-demo@us-east-1 2026-10-15-0847; `gr00t-bridge` SimplerEnv-Bridge: gr00t-bridge-demo@ap-northeast-2 2026-10-30-1519; `gr00t-g1` G1-LocoManip: gr00t-g1-demo@ap-northeast-2 2026-10-09-1435; `gr00t-gr1` GR1-Tabletop: gr00t-gr1-demo@ap-northeast-2 2026-10-09-1339; `lap` LIBERO-Spatial: lap-demo@us-west-2 2026-10-09-1444; `lingbot-va` LIBERO-10: lingbot-t9@ap-northeast-2 2026-10-15-1707, lingbot-t8@ap-northeast-2 2026-10-15-1706, lingbot-t7@ap-northeast-2 2026-10-15-1705, lingbot-t6@ap-northeast-2 2026-10-15-1704, lingbot-t5@ap-northeast-2 2026-10-15-1703, lingbot-t4@ap-northeast-2 2026-10-15-1703, lingbot-t3@ap-northeast-2 2026-10-15-1702, lingbot-t2@ap-northeast-2 2026-10-15-1701, lingbot-t1@ap-northeast-2 2026-10-15-1700, lingbot-t0@ap-northeast-2 2026-10-15-1659; `lingbot-vla2` RoboTwin2/clean (subset): lingbot-vla2-demo@ap-northeast-2 2026-10-30-1728; `molmoact2` LIBERO-Goal: molmoact2-demo@ap-northeast-2 2026-10-09-1348; `oftb3e1g` LIBERO-Goal: oftb3e1g@ap-northeast-2 2026-10-30-1818; `oftb3e1l` LIBERO-10: oftb3e1l@ap-northeast-2 2026-10-30-1818; `openvla-oft` LIBERO-Spatial: oft-spatial-h@us-east-1 2026-10-15-1149; `openvla-oft` LIBERO-Object: openvla-oft-object-demo@us-east-1 2026-10-15-1147; `openvla-oft` LIBERO-Goal: openvla-oft-goal-demo@us-east-1 2026-10-15-0854; `openvla-oft` LIBERO-10: openvla-oft-demo@ap-northeast-1 2026-10-15-0947; `openvla-oft` LIBERO-Plus/background (Spatial): openvla-oft-spatial@ap-northeast-2 2026-10-30-1516; `openvla-oft` LIBERO-Plus/camera (Spatial): openvla-oft-spatial@ap-northeast-2 2026-10-30-1516; `openvla-oft` LIBERO-Plus/language (Spatial): openvla-oft-spatial@ap-northeast-2 2026-10-30-1516; `openvla-oft` LIBERO-Plus/layout (Spatial): openvla-oft-spatial@ap-northeast-2 2026-10-30-1516; `openvla-oft` LIBERO-Plus/light (Spatial): openvla-oft-spatial@ap-northeast-2 2026-10-30-1516; `openvla-oft` LIBERO-Plus/noise (Spatial): openvla-oft-spatial@ap-northeast-2 2026-10-30-1516; `openvla-oft` LIBERO-Plus/robot (Spatial): openvla-oft-spatial@ap-northeast-2 2026-10-30-1516; `pi` LIBERO-Spatial: pi-demo@us-east-1 2026-10-26-1911; `pi` LIBERO-Object: pi-demo@ap-northeast-2 2026-10-15-0948; `pi` LIBERO-Goal: pi-demo@ap-northeast-2 2026-10-15-0948; `pi` LIBERO-10: pi-demo@ap-northeast-2 2026-10-15-0948; `pib3e1` LIBERO-10: pib3e1@ap-northeast-2 2026-10-30-1812; `pib3e3s01` LIBERO-Spatial: pib3e3s01@ap-northeast-2 2026-10-30-1829; `pib3e3s02` LIBERO-Spatial: pib3e3s02@us-east-1 2026-10-30-1815; `pib3e3s05` LIBERO-Spatial: pib3e3s05@us-east-1 2026-10-30-1816; `pib3e3s06` LIBERO-Spatial: pib3e3s06@us-east-1 2026-10-30-1815; `pib3e3s07` LIBERO-Spatial: pib3e3s07@us-east-1 2026-10-30-1816; `pib3e3s08` LIBERO-Spatial: pib3e3s08@us-east-1 2026-10-30-1816; `pib3e3s09` LIBERO-Spatial: pib3e3s09@us-west-2 2026-10-30-1829; `pib3e3s10` LIBERO-Spatial: pib3e3s10@us-west-2 2026-10-30-1829; `pib3e3s11` LIBERO-Spatial: pib3e3s11@us-west-2 2026-10-30-1829; `pib3e3s12` LIBERO-Spatial: pib3e3s12@us-west-2 2026-10-30-1829; `real2sim` hope-video-scene-0000: real2sim-demo@ap-northeast-2 2026-10-29-0142; `rldx` LIBERO-Spatial: rldx-demo@ap-northeast-2 2026-08-19-0959; `rldx` LIBERO-Object: rldx-demo@ap-northeast-1 2026-08-19-0855; `rldx` LIBERO-Goal: rldx-demo@us-east-1 2026-08-19-0855; `rldx` LIBERO-10: rldx-demo@ap-northeast-2 2026-10-09-1346; `rldx-bridge` SimplerEnv-Bridge: rldx-bridge-demo@ap-northeast-2 2026-10-30-1332; `rldx-gr1` gr1_tabletop: rldx-gr1-demo@us-west-2 2026-10-09-1333; `rldx-kitchen` RoboCasa-Kitchen: rldx-kitchen-demo@ap-northeast-2 2026-10-09-1343; `rldx-simpler` simpler_google_vm: rldx-simpler-demo@us-east-1 2026-10-09-1327; `robolab-cosmos3` RoboLab: robolab-cosmos3@ap-northeast-2 2026-10-30-1509; `robolab-pi05` RoboLab: robolab-pi05-demo@ap-northeast-2 2026-10-30-1610; `smolvla` LIBERO-Spatial: smolvla-demo@ap-northeast-2 2026-10-27-0514; `smolvla` LIBERO-Plus/background (Spatial): smolvla-demo@ap-northeast-2 2026-10-30-1516; `smolvla` LIBERO-Plus/camera (Spatial): smolvla-demo@ap-northeast-2 2026-10-30-1516; `smolvla` LIBERO-Plus/language (Spatial): smolvla-demo@ap-northeast-2 2026-10-30-1516; `smolvla` LIBERO-Plus/layout (Spatial): smolvla-demo@ap-northeast-2 2026-10-30-1610; `smolvla` LIBERO-Plus/light (Spatial): smolvla-demo@ap-northeast-2 2026-10-30-1516; `smolvla` LIBERO-Plus/noise (Spatial): smolvla-demo@ap-northeast-2 2026-10-30-1610; `smolvla` LIBERO-Plus/robot (Spatial): smolvla-demo@ap-northeast-2 2026-10-30-1516; `smolvla-robotwin` RoboTwin2/clean (subset): smolvla-robotwin@ap-northeast-2 2026-10-30-1728; `vla-adapter` LIBERO-Spatial: vla-adapter-demo@ap-northeast-2 2026-10-14-1337; `xvla` LIBERO-Spatial: xvla-demo@ap-northeast-2 2026-10-14-0642.
+Sources: `cosmos-policy` LIBERO-Spatial: cosmos-t1-a@ap-northeast-2 2026-10-31-0211; `cosmos-policy` LIBERO-Object: cosmos-t1-a@ap-northeast-2 2026-10-31-0211; `cosmos-policy` LIBERO-Goal: cosmos-t1-b@ap-northeast-2 2026-10-31-0213; `cosmos-policy` LIBERO-10: cosmos-t1-b@ap-northeast-2 2026-10-31-0213; `fastwam` LIBERO-Spatial: fastwam-s@ap-northeast-1 2026-10-15-1356; `fastwam` LIBERO-Object: fastwam-o@ap-northeast-1 2026-10-15-1356; `fastwam` LIBERO-Goal: fastwam-g@ap-northeast-2 2026-10-15-1428; `fastwam` LIBERO-10: fastwam-l@ap-northeast-1 2026-10-15-1355; `fastwam` LIBERO-Plus/background (Spatial): fastwam-demo@ap-northeast-2 2026-10-31-1103; `fastwam` LIBERO-Plus/camera (Spatial): fastwam-demo@ap-northeast-2 2026-10-31-1103; `fastwam` LIBERO-Plus/language (Spatial): fastwam-demo@ap-northeast-2 2026-10-31-1103; `fastwam` LIBERO-Plus/layout (Spatial): fastwam-demo@ap-northeast-2 2026-10-31-1103; `fastwam` LIBERO-Plus/light (Spatial): fastwam-demo@ap-northeast-2 2026-10-31-1103; `fastwam` LIBERO-Plus/noise (Spatial): fastwam-demo@ap-northeast-2 2026-10-31-1103; `fastwam` LIBERO-Plus/robot (Spatial): fastwam-demo@ap-northeast-2 2026-10-31-1103; `gr00t` LIBERO-Plus/background (Spatial): gr00t-demo@ap-northeast-2 2026-10-31-1330; `gr00t` LIBERO-Plus/camera (Spatial): gr00t-demo@ap-northeast-2 2026-10-31-1330; `gr00t` LIBERO-Plus/language (Spatial): gr00t-demo@ap-northeast-2 2026-10-31-1330; `gr00t` LIBERO-Plus/layout (Spatial): gr00t-demo@ap-northeast-2 2026-10-31-1330; `gr00t` LIBERO-Plus/light (Spatial): gr00t-demo@ap-northeast-2 2026-10-31-1330; `gr00t` LIBERO-Plus/noise (Spatial): gr00t-demo@ap-northeast-2 2026-10-31-1330; `gr00t` LIBERO-Plus/robot (Spatial): gr00t-demo@ap-northeast-2 2026-10-31-1330; `gr00t` LIBERO scenes (GR00T): gr00t-demo@us-east-1 2026-10-15-0847; `gr00t-bridge` SimplerEnv-Bridge: gr00t-bridge-demo@ap-northeast-2 2026-10-30-1519; `gr00t-g1` G1-LocoManip: gr00t-g1-demo@ap-northeast-2 2026-10-09-1435; `gr00t-gr1` GR1-Tabletop: gr00t-gr1-demo@ap-northeast-2 2026-10-09-1339; `lap` LIBERO-Spatial: lap-demo@us-west-2 2026-10-09-1444; `lap` LIBERO-Plus/background (Spatial): lap-demo@ap-northeast-2 2026-10-31-1238; `lap` LIBERO-Plus/camera (Spatial): lap-demo@ap-northeast-2 2026-10-31-1238; `lap` LIBERO-Plus/language (Spatial): lap-demo@ap-northeast-2 2026-10-31-1238; `lap` LIBERO-Plus/layout (Spatial): lap-demo@ap-northeast-2 2026-10-31-1238; `lap` LIBERO-Plus/light (Spatial): lap-demo@ap-northeast-2 2026-10-31-1238; `lap` LIBERO-Plus/noise (Spatial): lap-demo@ap-northeast-2 2026-10-31-1238; `lap` LIBERO-Plus/robot (Spatial): lap-demo@ap-northeast-2 2026-10-31-1238; `lingbot-va` LIBERO-10: lingbot-t9@ap-northeast-2 2026-10-15-1707, lingbot-t8@ap-northeast-2 2026-10-15-1706, lingbot-t7@ap-northeast-2 2026-10-15-1705, lingbot-t6@ap-northeast-2 2026-10-15-1704, lingbot-t5@ap-northeast-2 2026-10-15-1703, lingbot-t4@ap-northeast-2 2026-10-15-1703, lingbot-t3@ap-northeast-2 2026-10-15-1702, lingbot-t2@ap-northeast-2 2026-10-15-1701, lingbot-t1@ap-northeast-2 2026-10-15-1700, lingbot-t0@ap-northeast-2 2026-10-15-1659; `lingbot-va` LIBERO-Plus/background (10): lingbot-va-demo@ap-northeast-2 2026-10-31-1454; `lingbot-va` LIBERO-Plus/camera (10): lingbot-va-demo@ap-northeast-2 2026-10-31-1454; `lingbot-va` LIBERO-Plus/language (10): lingbot-va-demo@ap-northeast-2 2026-10-31-1454; `lingbot-va` LIBERO-Plus/layout (10): lingbot-va-demo@ap-northeast-2 2026-10-31-1454; `lingbot-va` LIBERO-Plus/light (10): lingbot-va-demo@ap-northeast-2 2026-10-31-1454; `lingbot-va` LIBERO-Plus/noise (10): lingbot-va-demo@ap-northeast-2 2026-10-31-1454; `lingbot-va` LIBERO-Plus/robot (10): lingbot-va-demo@ap-northeast-2 2026-10-31-1454; `lingbot-vla2` RoboTwin2/clean (subset): lingbot-vla2-demo@ap-northeast-2 2026-10-30-1728; `molmoact2` LIBERO-Goal: molmoact2-demo@ap-northeast-2 2026-10-09-1348; `molmoact2` LIBERO-Plus/background (Goal): molmoact2-demo@ap-northeast-2 2026-10-31-1238; `molmoact2` LIBERO-Plus/camera (Goal): molmoact2-demo@ap-northeast-2 2026-10-31-1238; `molmoact2` LIBERO-Plus/language (Goal): molmoact2-demo@ap-northeast-2 2026-10-31-1238; `molmoact2` LIBERO-Plus/layout (Goal): molmoact2-demo@ap-northeast-2 2026-10-31-1238; `molmoact2` LIBERO-Plus/light (Goal): molmoact2-demo@ap-northeast-2 2026-10-31-1238; `molmoact2` LIBERO-Plus/noise (Goal): molmoact2-demo@ap-northeast-2 2026-10-31-1238; `molmoact2` LIBERO-Plus/robot (Goal): molmoact2-demo@ap-northeast-2 2026-10-31-1238; `oftb3e1g` LIBERO-Goal: oftb3e1g@ap-northeast-2 2026-10-30-1818; `oftb3e1l` LIBERO-10: oftb3e1l@ap-northeast-2 2026-10-30-1818; `openvla-oft` LIBERO-Spatial: oft-spatial-h@us-east-1 2026-10-15-1149; `openvla-oft` LIBERO-Object: openvla-oft-object-demo@us-east-1 2026-10-15-1147; `openvla-oft` LIBERO-Goal: openvla-oft-goal-demo@us-east-1 2026-10-15-0854; `openvla-oft` LIBERO-10: openvla-oft-demo@ap-northeast-1 2026-10-15-0947; `openvla-oft` LIBERO-Plus/background (Spatial): openvla-oft-spatial@ap-northeast-2 2026-10-30-1516; `openvla-oft` LIBERO-Plus/camera (Spatial): openvla-oft-spatial@ap-northeast-2 2026-10-30-1516; `openvla-oft` LIBERO-Plus/language (Spatial): openvla-oft-spatial@ap-northeast-2 2026-10-30-1516; `openvla-oft` LIBERO-Plus/layout (Spatial): openvla-oft-spatial@ap-northeast-2 2026-10-30-1516; `openvla-oft` LIBERO-Plus/light (Spatial): openvla-oft-spatial@ap-northeast-2 2026-10-30-1516; `openvla-oft` LIBERO-Plus/noise (Spatial): openvla-oft-spatial@ap-northeast-2 2026-10-30-1516; `openvla-oft` LIBERO-Plus/robot (Spatial): openvla-oft-spatial@ap-northeast-2 2026-10-30-1516; `openvla-oft` LIBERO-R2S/collision (Object): openvla-oft-object@ap-northeast-2 2026-10-31-0725; `openvla-oft` LIBERO-R2S/full (Object): openvla-oft-object@ap-northeast-2 2026-10-31-0725; `openvla-oft` LIBERO-R2S/public (Object): openvla-oft-object@ap-northeast-2 2026-10-31-0725; `pi` LIBERO-Spatial: pi-demo@us-east-1 2026-10-26-1911; `pi` LIBERO-Object: pi-demo@ap-northeast-2 2026-10-15-0948; `pi` LIBERO-Goal: pi-demo@ap-northeast-2 2026-10-15-0948; `pi` LIBERO-10: pi-demo@ap-northeast-2 2026-10-15-0948; `pi` LIBERO-Plus/background (Spatial): pi-demo@ap-northeast-2 2026-10-31-1336; `pi` LIBERO-Plus/camera (Spatial): pi-demo@ap-northeast-2 2026-10-31-1336; `pi` LIBERO-Plus/language (Spatial): pi-demo@ap-northeast-2 2026-10-31-1336; `pi` LIBERO-Plus/layout (Spatial): pi-demo@ap-northeast-2 2026-10-31-1336; `pi` LIBERO-Plus/light (Spatial): pi-demo@ap-northeast-2 2026-10-31-1336; `pi` LIBERO-Plus/noise (Spatial): pi-demo@ap-northeast-2 2026-10-31-1336; `pi` LIBERO-Plus/robot (Spatial): pi-demo@ap-northeast-2 2026-10-31-1336; `pi` LIBERO-R2S/collision (Object): pi-demo@ap-northeast-2 2026-10-31-0812; `pi` LIBERO-R2S/full (Object): pi-demo@ap-northeast-2 2026-10-31-0812; `pi` LIBERO-R2S/public (Object): pi-demo@ap-northeast-2 2026-10-31-0812; `pib3e1` LIBERO-Goal: pib3e1@ap-northeast-2 2026-10-30-1812; `pib3e1` LIBERO-10: pib3e1@ap-northeast-2 2026-10-30-1812; `pib3e3s01` LIBERO-Spatial: pib3e3s01@ap-northeast-2 2026-10-30-1829; `pib3e3s02` LIBERO-Spatial: pib3e3s02@ap-northeast-2 2026-10-30-1829; `pib3e3s03` LIBERO-Spatial: pib3e3s03@us-west-2 2026-10-30-1818; `pib3e3s04` LIBERO-Spatial: pib3e3s04@ap-northeast-2 2026-10-30-1844; `pib3e3s05` LIBERO-Spatial: pib3e3s05@us-east-1 2026-10-30-1816; `pib3e3s06` LIBERO-Spatial: pib3e3s06@us-east-1 2026-10-30-1815; `pib3e3s07` LIBERO-Spatial: pib3e3s07@us-east-1 2026-10-30-1816; `pib3e3s08` LIBERO-Spatial: pib3e3s08@us-east-1 2026-10-30-1816; `pib3e3s09` LIBERO-Spatial: pib3e3s09@us-west-2 2026-10-30-1829; `pib3e3s10` LIBERO-Spatial: pib3e3s10@us-west-2 2026-10-30-1829; `pib3e3s11` LIBERO-Spatial: pib3e3s11@us-west-2 2026-10-30-1829; `pib3e3s12` LIBERO-Spatial: pib3e3s12@us-west-2 2026-10-30-1829; `pib3e3s13` LIBERO-Spatial: pib3e3s13@us-east-1 2026-10-30-1907; `pib3e3s14` LIBERO-Spatial: pib3e3s14@us-east-1 2026-10-30-1907; `pib3e3s15` LIBERO-Spatial: pib3e3s15@us-east-1 2026-10-30-1906; `pib3e3s16` LIBERO-Spatial: pib3e3s16@us-east-1 2026-10-30-1906; `pib3e3s17` LIBERO-Spatial: pib3e3s17@us-east-1 2026-10-30-1903; `pib3e3s18` LIBERO-Spatial: pib3e3s18@us-east-1 2026-10-30-1903; `pib3e3s19` LIBERO-Spatial: pib3e3s19@us-east-1 2026-10-30-1903; `pib3e3s20` LIBERO-Spatial: pib3e3s20@us-east-1 2026-10-30-1903; `pib3e3s22` LIBERO-Spatial: pib3e3s22@ap-northeast-2 2026-10-30-1903; `pib3e3s23` LIBERO-Spatial: pib3e3s23@ap-northeast-2 2026-10-30-1903; `pib3e3s27` LIBERO-Spatial: pib3e3s27@ap-northeast-2 2026-10-30-1903; `pib3e3s29` LIBERO-Spatial: pib3e3s29@us-east-1 2026-10-30-1906; `pib3e3s30` LIBERO-Spatial: pib3e3s30@us-east-1 2026-10-30-1908; `pib3e3s31` LIBERO-Spatial: pib3e3s31@us-east-1 2026-10-30-1906; `pib3e3s32` LIBERO-Spatial: pib3e3s32@us-east-1 2026-10-30-1907; `pib3e3s33` LIBERO-Spatial: pib3e3s33@us-east-1 2026-10-30-1906; `pib3e3s34` LIBERO-Spatial: pib3e3s34@us-east-1 2026-10-30-1921; `real2sim` hope-video-scene-0000: real2sim-demo@ap-northeast-2 2026-10-29-0142; `rldx` LIBERO-Spatial: rldx-demo@ap-northeast-2 2026-08-19-0959; `rldx` LIBERO-Object: rldx-demo@ap-northeast-1 2026-08-19-0855; `rldx` LIBERO-Goal: rldx-demo@us-east-1 2026-08-19-0855; `rldx` LIBERO-10: rldx-demo@ap-northeast-2 2026-10-09-1346; `rldx` LIBERO-Plus/background (Spatial): rldx-demo@ap-northeast-2 2026-10-31-0923; `rldx` LIBERO-Plus/camera (Spatial): rldx-demo@ap-northeast-2 2026-10-31-0923; `rldx` LIBERO-Plus/language (Spatial): rldx-demo@ap-northeast-2 2026-10-31-0923; `rldx` LIBERO-Plus/layout (Spatial): rldx-demo@ap-northeast-2 2026-10-31-0923; `rldx` LIBERO-Plus/light (Spatial): rldx-demo@ap-northeast-2 2026-10-31-0923; `rldx` LIBERO-Plus/noise (Spatial): rldx-demo@ap-northeast-2 2026-10-31-0923; `rldx` LIBERO-Plus/robot (Spatial): rldx-demo@ap-northeast-2 2026-10-31-0923; `rldx-bridge` SimplerEnv-Bridge: rldx-bridge-demo@ap-northeast-2 2026-10-30-1332; `rldx-gr1` gr1_tabletop: rldx-gr1-demo@us-west-2 2026-10-09-1333; `rldx-kitchen` RoboCasa-Kitchen: rldx-kitchen-demo@ap-northeast-2 2026-10-09-1343; `rldx-simpler` simpler_google_vm: rldx-simpler-demo@us-east-1 2026-10-09-1327; `rlinf-oft-libero` LIBERO-Goal: rlinf-oft-libero@ap-northeast-2 2026-10-31-1828; `robolab-cosmos3` RoboLab: robolab-cosmos3@ap-northeast-1 2026-10-31-1058; `robolab-pi05` RoboLab: robolab-pi05-demo@us-west-2 2026-10-31-1532; `smolvla` LIBERO-Spatial: smolvla-demo@ap-northeast-2 2026-10-27-0514; `smolvla` LIBERO-Plus/background (Spatial): smolvla-demo@ap-northeast-2 2026-10-30-1516; `smolvla` LIBERO-Plus/camera (Spatial): smolvla-demo@ap-northeast-2 2026-10-30-1516; `smolvla` LIBERO-Plus/language (Spatial): smolvla-demo@ap-northeast-2 2026-10-30-1516; `smolvla` LIBERO-Plus/layout (Spatial): smolvla-demo@ap-northeast-2 2026-10-30-1610; `smolvla` LIBERO-Plus/light (Spatial): smolvla-demo@ap-northeast-2 2026-10-30-1516; `smolvla` LIBERO-Plus/noise (Spatial): smolvla-demo@ap-northeast-2 2026-10-30-1610; `smolvla` LIBERO-Plus/robot (Spatial): smolvla-demo@ap-northeast-2 2026-10-30-1516; `smolvla-robotwin` RoboTwin2/clean (subset): smolvla-robotwin@ap-northeast-2 2026-10-30-1728; `vla-adapter` LIBERO-Spatial: vla-adapter-demo@ap-northeast-2 2026-10-14-1337; `vla-adapter` LIBERO-Plus/background (Spatial): vla-adapter-demo@ap-northeast-2 2026-10-31-0817; `vla-adapter` LIBERO-Plus/camera (Spatial): vla-adapter-demo@ap-northeast-2 2026-10-31-0817; `vla-adapter` LIBERO-Plus/language (Spatial): vla-adapter-demo@ap-northeast-2 2026-10-31-0817; `vla-adapter` LIBERO-Plus/layout (Spatial): vla-adapter-demo@ap-northeast-2 2026-10-31-0817; `vla-adapter` LIBERO-Plus/light (Spatial): vla-adapter-demo@ap-northeast-2 2026-10-31-0817; `vla-adapter` LIBERO-Plus/noise (Spatial): vla-adapter-demo@ap-northeast-2 2026-10-31-0817; `vla-adapter` LIBERO-Plus/robot (Spatial): vla-adapter-demo@ap-northeast-2 2026-10-31-0817; `xvla` LIBERO-Spatial: xvla-demo@ap-northeast-2 2026-10-14-0642; `xvla` LIBERO-Plus/background (Spatial): xvla-demo@ap-northeast-2 2026-10-31-0726; `xvla` LIBERO-Plus/camera (Spatial): xvla-demo@ap-northeast-2 2026-10-31-0726; `xvla` LIBERO-Plus/language (Spatial): xvla-demo@ap-northeast-2 2026-10-31-0726; `xvla` LIBERO-Plus/layout (Spatial): xvla-demo@ap-northeast-2 2026-10-31-0726; `xvla` LIBERO-Plus/light (Spatial): xvla-demo@ap-northeast-2 2026-10-31-0726; `xvla` LIBERO-Plus/noise (Spatial): xvla-demo@ap-northeast-2 2026-10-31-0726; `xvla` LIBERO-Plus/robot (Spatial): xvla-demo@ap-northeast-2 2026-10-31-0726.
 <!-- leaderboard:end -->
 
 ## Post-run judge (judge.json)
@@ -249,8 +362,19 @@ With 10 variants per dimension the 95% interval of one dimension is roughly ±0.
 |---|---|---|---|---|---|---|---|---|---|---|
 | `smolvla` | libero_spatial, 10 variants x 1 ep (2026-10-30, `g6.xlarge`) | 0.20 | 0.00 | 0.10 | 0.70 | 0.50 | 0.00 | 0.20 | 0.24 (17/70) | 0.80 (8/10, 2 tasks x 5 ep, 2026-10-14) |
 | `openvla-oft --libero-suite spatial` | libero_spatial, 10 variants x 1 ep (2026-10-30, `g6.xlarge`) | 1.00 | 0.30 | 0.90 | 1.00 | 1.00 | 1.00 | 0.90 | 0.87 (61/70) | 0.92 (46/50, 2026-06-01) |
+| `pi` (pi0.5) | libero_spatial, 10 variants x 1 ep (2026-10-31) | 0.70 | 0.80 | 0.80 | 0.90 | 1.00 | 1.00 | 1.00 | 0.89 (62/70) | LIBERO-Spatial rate-only row |
+| `rldx` | libero_spatial, 10 variants x 1 ep (2026-10-31) | 0.80 | 1.00 | 0.90 | 1.00 | 0.90 | 0.90 | 1.00 | 0.93 (65/70) | LIBERO-Spatial rate-only row |
+| `molmoact2` | libero_goal, 10 variants x 1 ep (2026-10-31) | 1.00 | 0.80 | 0.80 | 0.90 | 1.00 | 0.90 | 0.60 | 0.86 (60/70) | LIBERO-Goal smoke row (10/10) |
+| `vla-adapter` | libero_spatial, 10 variants x 1 ep (2026-10-31) | 0.70 | 0.30 | 1.00 | 1.00 | 1.00 | 1.00 | 0.80 | 0.83 (58/70) | 1.00 (10/10, smoke row) |
+| `gr00t` | libero_spatial, 10 variants x 1 ep (2026-10-31) | 0.60 | 0.40 | 0.80 | 0.80 | 1.00 | 1.00 | 0.90 | 0.79 (55/70) | none on Spatial |
+| `xvla` | libero_spatial, 10 variants x 1 ep (2026-10-31) | 0.00 | 0.60 | 0.80 | 1.00 | 0.90 | 0.90 | 0.80 | 0.71 (50/70) | LIBERO-Spatial smoke row |
+| `lap` | libero_spatial, 10 variants x 1 ep (2026-10-31) | 0.50 | 0.70 | 0.50 | 0.80 | 0.90 | 0.60 | 0.90 | 0.70 (49/70) | LIBERO-Spatial rate-only row |
+| `fastwam` | libero_spatial, 10 variants x 1 ep (2026-10-31) | 0.10 | 0.40 | 0.70 | 0.90 | 0.90 | 0.40 | 0.50 | 0.56 (39/70) | LIBERO-Spatial row |
+| `lingbot-va` | libero_10, 2 variants x 1 ep (2026-10-31, ~4.7 h: the model generates video with its actions) | 0.50 | 1.00 | 1.00 | 0.50 | 1.00 | 0.00 | 1.00 | 0.71 (10/14) | 1.00 (6/6, 2 tasks x 3 ep, 2026-10-14) |
 
-Both sweeps ran in ap-northeast-2 on 2026-10-30 with the default plan (seeded draw of 10 variants per dimension). With 10 variants per dimension, a single cell is a coarse signal; the pattern is what to read: OpenVLA-OFT keeps its LIBERO-Spatial skill under every dimension except the robot initial state, while SmolVLA drops on almost all of them. The sensor-noise dimension is CPU-bound on the LeRobot target (the fork recomputes its fog map in Python on every frame at 360 px): about 1.8 s per step, ~80 min for 10 episodes, against ~3 min for the other dimensions.
+All sweeps ran in ap-northeast-2 (2026-10-30 and 2026-10-31) with the default plan (seeded draw of 10 variants per dimension, seed 7, so every LIBERO-Spatial row saw the same 70 variants), each on the first instance type of its target's list. The baseline column points to the LIBERO table below where a same-stack run exists; it is not a 70-episode run on the same states. With 10 variants per dimension, a single cell is a coarse signal; the pattern is what to read: OpenVLA-OFT keeps its LIBERO-Spatial skill under every dimension except the robot initial state, while SmolVLA drops on almost all of them. Across the ten targets, background and light change little; camera viewpoint and robot initial state separate the policies most (X-VLA 0/10 and FastWAM 1/10 on camera; OpenVLA-OFT and VLA-Adapter 3/10 on robot), which matches the shape of the paper's leaderboard below. The `lingbot-va` row is 2 episodes per dimension (one cell is 0, 0.5 or 1), so read only its total. For `rldx`, RLDX-1 publishes 84.3% total over all variants of the four suites with the same checkpoint ([RLDX-1 `run_scripts/eval/libero_plus/README.md`](https://github.com/RLWRLD/RLDX-1/blob/ecbfaf80cd031dcc892186ed30465de3591047e6/run_scripts/eval/libero_plus/README.md)); the 0.93 here is the LIBERO-Spatial 70-episode default, not that protocol. The sensor-noise dimension is CPU-bound on the LeRobot target (the fork recomputes its fog map in Python on every frame at 360 px): about 1.8 s per step, ~80 min for 10 episodes, against ~3 min for the other dimensions.
+
+`cosmos-policy` and `aspire` are not wired (reasons in [targets](targets.md#libero-plus-robustness-sweep)).
 
 ### Reported in the LIBERO-Plus paper
 

@@ -2,7 +2,10 @@
     templates only when generate.py passes a libero_plus context, so a default render does not change.
     Caller sets: lp_python (interpreter of the eval env), lp_pip (pip command for that env), lp_log (log prefix),
     lp_venv_mode ("uv": uv venv, the fork replaces hf-libero; "conda": the fork is cloned into LIBERO_DIR by the
-    caller), lp_step (step label), and must have defined hf_dl_guard and die(). -#}
+    caller; "docker": the eval env is a container image built later from a host checkout, so the fork is cloned
+    into lp_dir on the host, the pins are left to the caller's image build, the assets are fetched with curl and
+    the import check runs in the container), lp_step (step label), and must have defined die() (and hf_dl_guard
+    unless lp_venv_mode is "docker"). -#}
 # ── [{{ lp_step }}] LIBERO-Plus robustness fork + asset pack (--libero-variant plus) ──
 # LIBERO-Plus (arXiv:2510.13626) installs under the same `libero` package as LIBERO and replaces each suite's
 # 10 tasks with ~2,400 perturbed variants. Code: {{ lp.repo_url }} @ {{ lp.repo_commit[:8] }} (no license declared:
@@ -18,8 +21,8 @@ until apt-get install -y --no-install-recommends -o DPkg::Lock::Timeout=300 \
     log "[warn] LIBERO-Plus apt-get install failed (attempt $APT_RETRY), retrying in 30s..."
     sleep 30
 done
-{%- if lp_venv_mode == "uv" %}
-LIBERO_PLUS_DIR=/home/ubuntu/LIBERO-plus
+{%- if lp_venv_mode in ("uv", "docker") %}
+LIBERO_PLUS_DIR={{ lp_dir if lp_venv_mode == "docker" else "/home/ubuntu/LIBERO-plus" }}
 log "[{{ lp_step }}] Cloning LIBERO-Plus @ {{ lp.repo_commit[:8] }}..."
 if [ ! -d "${LIBERO_PLUS_DIR}" ]; then
     git clone {{ lp.repo_url }} "${LIBERO_PLUS_DIR}" 2>&1 | tee /tmp/{{ lp_log }}_lp_clone.log \
@@ -53,10 +56,12 @@ if new not in s:
     open(p, "w").write(s.replace(old, new))
 print("fog map-size patch OK")
 LP_FOG_EOF
+{%- if lp_venv_mode != "docker" %}
 
 log "[{{ lp_step }}] LIBERO-Plus runtime pins: {{ lp.pip_pins }}"
 {{ lp_pip }} {{ lp.pip_pins }} 2>&1 | tee /tmp/{{ lp_log }}_lp_pip.log \
     || die "LIBERO-Plus pip pins failed (see /tmp/{{ lp_log }}_lp_pip.log)"
+{%- endif %}
 {%- if lp_venv_mode == "uv" %}
 # The fork ships as a namespace package that a PEP 660 editable install cannot resolve, and hf-libero (pulled by
 # the libero extra) would shadow it: install it --no-deps, drop hf-libero and put the clone first on PYTHONPATH
@@ -74,12 +79,21 @@ export PYTHONPATH="${LIBERO_PLUS_DIR}${PYTHONPATH:+:${PYTHONPATH}}"
 LP_DL=/home/ubuntu/libero-plus-dl
 mkdir -p "${LP_DL}"
 log "[{{ lp_step }}] Downloading LIBERO-Plus assets ({{ lp.assets_file }}, {{ lp.assets_gb }} GB)..."
+{%- if lp_venv_mode == "docker" %}
+# No Python env with huggingface_hub on this host (the eval env is a container): plain HTTPS from the dataset's
+# resolve endpoint at the pinned revision; --retry + -C - resume a dropped transfer, the sha256 below is the gate.
+curl -fsSL --retry 5 --retry-delay 15 --retry-all-errors -C - -o "${LP_DL}/{{ lp.assets_file }}" \
+    "https://huggingface.co/datasets/{{ lp.assets_repo }}/resolve/{{ lp.assets_revision }}/{{ lp.assets_file }}" \
+    2>&1 | tail -5 | tee /tmp/{{ lp_log }}_lp_assets.log \
+    || die "LIBERO-Plus asset download failed (see /tmp/{{ lp_log }}_lp_assets.log)"
+{%- else %}
 hf_dl_guard "LIBERO-Plus assets" /tmp/{{ lp_log }}_lp_assets.log \
     -- "{{ lp_python }}" -c "
 from huggingface_hub import hf_hub_download
 print(hf_hub_download(repo_id='{{ lp.assets_repo }}', repo_type='dataset', filename='{{ lp.assets_file }}',
                       revision='{{ lp.assets_revision }}', local_dir='${LP_DL}'))
 " || die "LIBERO-Plus asset download failed (see /tmp/{{ lp_log }}_lp_assets.log)"
+{%- endif %}
 echo "{{ lp.assets_sha256 }}  ${LP_DL}/{{ lp.assets_file }}" | sha256sum -c - 2>&1 | tee -a /tmp/{{ lp_log }}_lp_assets.log \
     || die "LIBERO-Plus {{ lp.assets_file }} sha256 mismatch"
 unzip -q "${LP_DL}/{{ lp.assets_file }}" -d "${LP_DL}/extract" || die "LIBERO-Plus unzip failed"
@@ -94,6 +108,7 @@ rm -rf "${LP_PKG}/assets"
 mv "${LP_ASSETS_SRC}" "${LP_PKG}/assets" || die "LIBERO-Plus: moving the asset tree failed"
 rm -rf "${LP_DL}"
 log "  LIBERO-Plus assets: ${LP_PKG}/assets ($(du -sh "${LP_PKG}/assets" 2>/dev/null | cut -f1))"
+{%- if lp_venv_mode != "docker" %}
 
 # Point ~/.libero/config.yaml at the fork (the vanilla config written earlier points at the LIBERO package).
 mkdir -p /root/.libero
@@ -104,9 +119,11 @@ benchmark_root: ${LP_PKG}
 datasets: ${LP_PKG}/../datasets
 init_states: ${LP_PKG}/init_files
 LPCFG
+{%- endif %}
 
 LP_CLASSIFICATION="${LP_PKG}/benchmark/task_classification.json"
 [ -f "${LP_CLASSIFICATION}" ] || die "LIBERO-Plus: ${LP_CLASSIFICATION} missing"
+{%- if lp_venv_mode != "docker" %}
 log "[{{ lp_step }}] Verifying LIBERO-Plus (import libero resolves to the fork, {{ lp.suite }} has the variants)..."
 "{{ lp_python }}" -c "
 import libero, robosuite
@@ -124,6 +141,7 @@ print('lerobot env: libero_plus OK')
 {%- endif %}
 " 2>&1 | tee /tmp/{{ lp_log }}_lp_verify.log \
     || die "LIBERO-Plus verification failed (see /tmp/{{ lp_log }}_lp_verify.log)"
+{%- endif %}
 
 cat > /tmp/lp_select_variants.py <<'LPSELECT_EOF'
 {{ lp.select_py }}LPSELECT_EOF

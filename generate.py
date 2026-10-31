@@ -82,7 +82,7 @@ def oft_stack_name(suite: str) -> str:
 
 # --libero-variant plus: targets whose template carries the LIBERO-Plus switch (each also needs a
 # `libero_plus:` block in models/<id>.yaml). See libero_plus.py and docs/targets.md.
-LIBERO_PLUS_TEMPLATE_TARGETS = ("openvla-oft", "xvla", "smolvla", "lingbot-va", "fastwam")
+LIBERO_PLUS_TEMPLATE_TARGETS = ("openvla-oft", "xvla", "smolvla", "lingbot-va", "fastwam", "pi")
 
 
 def libero_plus_supported(vla: str, config: dict) -> bool:
@@ -130,6 +130,8 @@ def _libero_plus_ctx(config: dict, vla: str, perturb, n, suite=None) -> tuple:
         "hf_model_revision": _shell_safe(str(cfg.get("hf_model_revision", "") or ""), "libero_plus.hf_model_revision"),
         "select_py": (asset_dir / "select_variants.py").read_text(),
         "oft_patch_py": (asset_dir / "oft_task_ids_patch.py").read_text(),
+        "openpi_patch_py": (asset_dir / "openpi_task_ids_patch.py").read_text(),
+        "openpi_verify_py": (asset_dir / "openpi_verify.py").read_text(),
     }
     return ctx, tasks
 
@@ -1202,11 +1204,21 @@ def generate_flora_judge(config: dict, dry_run: bool, judge: str = "flora-judge"
     return env.get_template(f"{judge}-userdata.sh.j2").render(**ctx)
 
 
-def generate_pi(config: dict, resolved_vpc: str, resolved_nlb: str, dry_run: bool) -> str:
+def generate_pi(config: dict, resolved_vpc: str, resolved_nlb: str, dry_run: bool, plus: tuple = None) -> str:
     tasks = config.get("tasks", [])
     if not tasks:
         print("[error] models/pi.yaml has no tasks entry.", file=sys.stderr)
         sys.exit(1)
+    lp_ctx = None
+    if plus is not None:
+        # --libero-variant plus: one task entry per perturbation dimension (variant ids picked on the
+        # instance); num_episodes = trials per variant. Same pi05_libero checkpoint as the LIBERO run.
+        lp_ctx, lp_tasks = _libero_plus_ctx(config, "pi", *plus)
+        if lp_ctx["hf_repo"]:
+            print("[error] models/pi.yaml: libero_plus.hf_repo is not supported (openpi serves the "
+                  "pi05_libero checkpoint itself).", file=sys.stderr)
+            sys.exit(1)
+        tasks = [dict(t, num_episodes=lp_ctx["episodes_per_variant"]) for t in lp_tasks]
 
     tasks_json = _tasks_json_for_bash(tasks)
     deployment = config.get("deployment", {})
@@ -1224,6 +1236,7 @@ def generate_pi(config: dict, resolved_vpc: str, resolved_nlb: str, dry_run: boo
         "pi_grpc_bridge_py": pi_grpc_bridge_path.read_text() if pi_grpc_bridge_path.exists() else "",
         "stackpatch_py": (BASE_DIR / "assets" / "stack-knobs" / "stackpatch.py").read_text(),
         "mujoco_pin": str(model.get("mujoco_pin", "") or "").strip(),
+        "libero_plus": lp_ctx,
     }
 
     env = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)), keep_trailing_newline=True)  # nosec B701 - shell script template, autoescape not applicable
@@ -1331,7 +1344,7 @@ def main():
     elif args.vla in ROBOLAB_TARGETS:
         rendered = generate_robolab(config, args.dry_run, vla=args.vla)
     else:
-        rendered = generate_pi(config, args.resolved_vpc, args.resolved_nlb, args.dry_run)
+        rendered = generate_pi(config, args.resolved_vpc, args.resolved_nlb, args.dry_run, plus=plus)
 
     if args.dry_run:
         print("=" * 60)

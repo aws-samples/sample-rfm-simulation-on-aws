@@ -271,6 +271,50 @@ sed -i "s/^mujoco==.*/{{ mujoco_pin }}/" "${OPENPI_DIR}/examples/libero/requirem
 grep -qx "{{ mujoco_pin }}" "${OPENPI_DIR}/examples/libero/requirements.txt" || die "mujoco pin {{ mujoco_pin }} not applied"
 log "  stack knob: LIBERO client mujoco pinned to {{ mujoco_pin }}"
 {%- endif %}
+{%- if libero_plus %}
+
+# --libero-variant plus: the LIBERO client container imports `libero` from the host checkout mounted at
+# /app/third_party/libero (examples/libero/Dockerfile PYTHONPATH + /tmp/libero/config.yaml), so the fork
+# replaces that submodule checkout on the host and its asset pack is unpacked inside it. The client image is
+# Python 3.8: the fork's own requirements.txt pins robosuite 1.4.0 (openpi pins 1.4.1, which the fork needs
+# for single_arm_env) and lists usd-core>=25.5 (no Python 3.8 wheel, only used by the fork's training code)
+# and unpinned wand / scikit-image, so the image installs a filtered copy of it and the pins below instead.
+[ -d "${OPENPI_DIR}/third_party/libero" ] || die "openpi third_party/libero submodule missing"
+rm -rf "${OPENPI_DIR}/third_party/libero"
+{% with lp=libero_plus, lp_step="3.2/5", lp_log="pi", lp_venv_mode="docker", lp_python="python3",
+        lp_pip="", lp_dir="${OPENPI_DIR}/third_party/libero" %}{% include "_libero-plus-setup.sh.j2" %}{% endwith %}
+grep -vE '^[[:space:]]*(robosuite|usd-core|wand|scikit-image)([[:space:]=<>!~;]|$)' "${LIBERO_PLUS_DIR}/requirements.txt" \
+    > "${LIBERO_PLUS_DIR}/requirements.openpi.txt"
+! grep -qiE '^[[:space:]]*(robosuite|usd-core|wand|scikit-image)' "${LIBERO_PLUS_DIR}/requirements.openpi.txt" \
+    || die "LIBERO-Plus: filtering the fork requirements failed"
+LIBERO_DF="${OPENPI_DIR}/examples/libero/Dockerfile"
+python3 - "${LIBERO_DF}" <<'LP_DF_EOF' || die "LIBERO-Plus: examples/libero/Dockerfile patch failed (openpi commit drifted?)"
+import sys
+p = sys.argv[1]
+s = open(p).read()
+edits = [
+    ("COPY ./third_party/libero/requirements.txt /tmp/requirements-libero.txt\n",
+     "COPY ./third_party/libero/requirements.openpi.txt /tmp/requirements-libero.txt\n"),
+    ("    libxext6\n", "    libxext6 \\\n    libmagickwand-dev \\\n    libexpat1 \\\n    libfontconfig1-dev\n"),
+    ("ENV PYTHONPATH=/app:/app/packages/openpi-client/src:/app/third_party/libero\n",
+     "ENV PYTHONPATH=/app:/app/packages/openpi-client/src:/app/third_party/libero\n"
+     "# LIBERO-Plus: the fork's sensor-noise / blur perturbations import wand (ImageMagick) and scikit-image;\n"
+     "# openpi's own pins are the constraint so numpy / robosuite / mujoco cannot move.\n"
+     "RUN uv pip install --python /.venv/bin/python -c /tmp/requirements.txt {{ libero_plus.pip_pins }} && \\\n"
+     "    /.venv/bin/python -c \"import numpy, robosuite; assert (numpy.__version__, robosuite.__version__) == ('1.22.4', '1.4.1'), (numpy.__version__, robosuite.__version__)\"\n"),
+]
+for old, new in edits:
+    assert s.count(old) == 1, "anchor not found once: " + old.strip()
+    s = s.replace(old, new)
+open(p, "w").write(s)
+print("LIBERO client Dockerfile patched for LIBERO-Plus")
+LP_DF_EOF
+log "  LIBERO client image: fork requirements (filtered) + ImageMagick + {{ libero_plus.pip_pins }}"
+cat > /tmp/pi_lp_task_ids_patch.py <<'LPPATCH_EOF'
+{{ libero_plus.openpi_patch_py }}LPPATCH_EOF
+cat > "${OPENPI_DIR}/examples/libero/lp_verify.py" <<'LPVERIFY_EOF'
+{{ libero_plus.openpi_verify_py }}LPVERIFY_EOF
+{%- endif %}
 
 if [ "${BRIDGE_MODE}" = "true" ]; then
     # Bridge mode: skip serve_policy (no local model) — build and start pi_grpc_bridge container
@@ -361,6 +405,28 @@ export PYOPENGL_PLATFORM=egl
 TASKS_JSON='{{ tasks_json }}'
 TASK_COUNT=$(echo "$TASKS_JSON" | jq length)
 SUMMARY_ALL=""
+{%- if libero_plus %}
+
+# LIBERO-Plus: pick every task entry's variants up front (seeded, host-side, stdlib) so the client image can
+# be checked on one variant of each dimension before the sweep starts.
+LP_VERIFY_IDS=""
+for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
+    TASK=$(echo "$TASKS_JSON" | jq -r ".[$TASK_IDX]")
+    LP_IDS=$(python3 /tmp/lp_select_variants.py "${LP_CLASSIFICATION}" "$(echo "$TASK" | jq -r '.suite')" \
+        "$(echo "$TASK" | jq -r '.perturbation_category')" "$(echo "$TASK" | jq -r '.variants')" \
+        "$(echo "$TASK" | jq -r '.variant_seed')" --format csv --manifest "/tmp/pi_task${TASK_IDX}_libero_plus_variants.json") \
+        || die "LIBERO-Plus variant selection failed (task ${TASK_IDX})"
+    echo "${LP_IDS}" > "/tmp/pi_task${TASK_IDX}_lp_ids.csv"
+    LP_VERIFY_IDS="${LP_VERIFY_IDS:+${LP_VERIFY_IDS},}${LP_IDS%%,*}"
+done
+log "[3.9/5] Building the LIBERO client image and checking LIBERO-Plus inside it (variants ${LP_VERIFY_IDS})..."
+(cd "${OPENPI_DIR}" && docker compose -f examples/libero/compose.yml build runtime) 2>&1 | tee /tmp/pi_lp_build.log \
+    || die "LIBERO client image build failed (see /tmp/pi_lp_build.log)"
+(cd "${OPENPI_DIR}" && docker compose -f examples/libero/compose.yml run --rm --no-deps -T runtime \
+    /bin/bash -c "source /.venv/bin/activate && python examples/libero/lp_verify.py {{ libero_plus.suite }} ${LP_VERIFY_IDS}") \
+    2>&1 | tee /tmp/pi_lp_verify.log || die "LIBERO-Plus check in the client image failed (see /tmp/pi_lp_verify.log)"
+grep -q 'LIBERO-PLUS VERIFY OK' /tmp/pi_lp_verify.log || die "LIBERO-Plus check printed no OK line (see /tmp/pi_lp_verify.log)"
+{%- endif %}
 
 # Stack knobs (per-task fields in models/<id>.yaml; absent = upstream default). A success rate is only
 # comparable with the stack that produced it ("Same Policy, Different Numbers", AMLC 2026 workshop).
@@ -383,6 +449,19 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
     K_REPLAN_HEAD=false
     python3 /tmp/stackpatch.py "${OPENPI_DIR}/examples/libero/main.py" "${K_STEP_SCALE}" "${K_RANDOM_INIT}" "${K_REPLAN_HEAD}" \
         || die "stack patch failed (task ${TASK_IDX} ${K_COND})"
+{%- if libero_plus %}
+    # LIBERO-Plus: this entry's perturbation dimension → the variant ids picked above; main.py's task loop is
+    # rewritten to run exactly those (num_trials_per_task trials each).
+    LP_KEY=$(echo "$TASK" | jq -r '.perturbation')
+    LP_CAT=$(echo "$TASK" | jq -r '.perturbation_category')
+    LP_N=$(echo "$TASK" | jq -r '.variants')
+    LP_SEED=$(echo "$TASK" | jq -r '.variant_seed')
+    LP_IDS=$(cat "/tmp/pi_task${TASK_IDX}_lp_ids.csv")
+    LP_COUNT=$(echo "${LP_IDS}" | tr ',' '\n' | grep -c .)
+    python3 /tmp/pi_lp_task_ids_patch.py "${OPENPI_DIR}/examples/libero/main.py" "${LP_IDS}" \
+        || die "LIBERO-Plus task-loop patch failed (task ${TASK_IDX})"
+    log "  LIBERO-Plus ${LP_KEY} (${LP_CAT}): ${LP_COUNT} variants (seed ${LP_SEED}) → task ids ${LP_IDS}"
+{%- endif %}
     K_ARGS=""
     [ -n "${K_REPLAN}" ] && K_ARGS="${K_ARGS} --args.replan-steps ${K_REPLAN}"
     [ -n "${K_SEED}" ] && K_ARGS="${K_ARGS} --args.seed ${K_SEED}"
@@ -445,7 +524,13 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
     # LIBERO eval typically prints: "success rate: 0.80" or "task_X success_rate: 0.8"
     SR=$(grep -oiE 'success.rate[: ]+[0-9.]+' /tmp/pi_task${TASK_IDX}.log 2>/dev/null | \
         tail -1 | grep -oE '[0-9.]+$' || echo "unknown")
+{%- if libero_plus %}
+    # k/n from the client's own counters (its final block prints the totals of the variants it ran).
+    N_EP=$(grep -oE 'Total episodes:[[:space:]]+[0-9]+' /tmp/pi_task${TASK_IDX}.log 2>/dev/null | tail -1 | awk '{print $NF}' || true)
+    N_SUCCESS=$(grep -oE '# successes:[[:space:]]+[0-9]+' /tmp/pi_task${TASK_IDX}.log 2>/dev/null | tail -1 | awk '{print $NF}' || true)
+{%- else %}
     N_SUCCESS=$(awk "BEGIN { printf \"%d\", ${NUM_EPISODES} * 10 * ${SR:-0} }" 2>/dev/null || echo "?")
+{%- endif %}
     log "  success_rate=${SR}"
     [ "${SR}" = "unknown" ] && FAILED_SUITES="${FAILED_SUITES} ${SUITE}"
 
@@ -454,7 +539,7 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
         echo "suite: ${SUITE}"
         echo "success_rate: ${SR}"
         echo "num_episodes_per_task: ${NUM_EPISODES}"
-        echo "n_tasks: 10"
+        echo "n_tasks: {{ '${LP_COUNT}' if libero_plus else '10' }}"
         echo "condition: ${K_COND}"
         echo "replan: ${K_REPLAN:-default}"
         echo "seed: ${K_SEED:-default}"
@@ -464,6 +549,16 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
         echo "stack_openpi_commit: $(git -C "${OPENPI_DIR}" rev-parse HEAD 2>/dev/null || echo unknown)"
         echo "stack_mujoco: $(grep -E '^mujoco==' "${OPENPI_DIR}/examples/libero/requirements.txt" 2>/dev/null | cut -d= -f3 || echo unknown)"
         echo "description: ${DESCRIPTION}"
+{%- if libero_plus %}
+        echo "n_episodes: ${N_EP}"
+        echo "n_success: ${N_SUCCESS}"
+        echo "benchmark: libero_plus"
+        echo "perturbation: ${LP_KEY}"
+        echo "perturbation_category: ${LP_CAT}"
+        echo "variants: ${LP_N} (seed ${LP_SEED}; ids in libero_plus_variants.json)"
+        echo "stack_libero_plus_commit: ${LP_COMMIT}"
+        echo "stack_libero_plus_assets: {{ libero_plus.assets_repo }}@{{ libero_plus.assets_revision[:8] }}"
+{%- endif %}
     } > "/tmp/pi_task${TASK_IDX}_summary.txt"
 
     # S3 upload
@@ -496,6 +591,9 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
                 cmd_part="$fname_noext"
             fi
             cmd_part="${cmd_part#rollout_}"
+{%- if libero_plus %}
+            cmd_part="${cmd_part#[0-9][0-9][0-9][0-9][0-9]_}"  # LIBERO-Plus: drop the variant id prefix
+{%- endif %}
             language_cmd="${cmd_part//_/ }"
             txt_fname="${fname_noext}.txt"
             txt_path="/tmp/${txt_fname}"
@@ -519,6 +617,11 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
     [ -f "/tmp/pi_task${TASK_IDX}_summary.txt" ] && \
         aws s3 cp "/tmp/pi_task${TASK_IDX}_summary.txt" \
         "${S3_TASK_PREFIX}/summary.txt" --region "$REGION" || true
+{%- if libero_plus %}
+    [ -f "/tmp/pi_task${TASK_IDX}_libero_plus_variants.json" ] && \
+        aws s3 cp "/tmp/pi_task${TASK_IDX}_libero_plus_variants.json" \
+        "${S3_TASK_PREFIX}/libero_plus_variants.json" --region "$REGION" || true
+{%- endif %}
 
     log "  Videos uploaded: ${VIDEO_COUNT}"
 
@@ -542,6 +645,9 @@ ${SUMMARY_ALL}
 
 Model: π0.5 (pi05_libero checkpoint — gs://openpi-assets/checkpoints/pi05_libero)
 Simulation: LIBERO (robosuite + MuJoCo, headless EGL)
+{%- if libero_plus %}
+Benchmark: LIBERO-Plus {{ libero_plus.suite }}, {{ libero_plus.perturb|join(',') }} x {{ libero_plus.variants_per_category or 'all' }} variants (python vlasim.py results --robustness --vla pi)
+{%- endif %}
 Instance: ${INSTANCE_TYPE}
 
 ${GALLERY_BLOCK}Download results:

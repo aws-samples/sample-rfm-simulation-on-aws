@@ -82,11 +82,11 @@ RoboTwin rows: prices checked 2026-10-30 (same API; `g5.4xlarge` and `g6.4xlarge
 
 ## RL post-training (`rlinf-oft-libero`)
 
-Prices: AWS Price List API, Linux On-Demand, shared tenancy, checked **2026-10-31** (the six rows added above). Runtimes are **estimates**: RLinf publishes no time per GRPO step for this recipe, so the first `smoke` and `full` runs measure them (STEP B). Assumptions: setup (17.6 GB image, 15 GB SFT checkpoint, verify) ~30-45 min; one eval of 100 episodes ~20-40 min and of 500 episodes ~45-90 min; `full` training ~6-15 min per step on 8 × H100, extrapolated from an RLinf user report (4 × A100 80 GB, 2 rollout epochs: ~90 h projected for 1000 steps) to 16 rollout epochs on twice the GPUs; L40S and A100 assumed ~2-3 × slower than H100.
+Prices: AWS Price List API, Linux On-Demand, shared tenancy, checked **2026-10-31** (the six rows added above). Runtimes are **estimates** except the measured `smoke` row: RLinf publishes no time per GRPO step for this recipe. The `smoke` run (2026-10-31) measured 355-521 s per LoRA step on one L40S with 16 trajectories; the first `full` run measures the 8-GPU step. Assumptions: setup (17.6 GB image, 15 GB SFT checkpoint, verify) ~30-45 min; one eval of 100 episodes ~20-40 min and of 500 episodes ~45-90 min; `full` training ~6-15 min per step on 8 × H100, extrapolated from an RLinf user report (4 × A100 80 GB, 2 rollout epochs: ~90 h projected for 1000 steps) to 16 rollout epochs on twice the GPUs; L40S and A100 assumed ~2-3 × slower than H100.
 
 | Profile | Instance | us-east-1 USD/h | ap-northeast-2 USD/h | Estimated runtime | Approx. EC2 cost us-east-1 / ap-northeast-2 (USD) | At the wall-clock cap |
 |---|---|---:|---:|---|---:|---:|
-| `smoke` (1 GPU, 5 LoRA steps) | `g6e.8xlarge` | 4.52856 | 5.56762 | ~2-4 h | ~9-18 / ~11-22 | 6 h: ~27 / ~33 |
+| `smoke` (1 GPU, 5 LoRA steps) | `g6e.8xlarge` | 4.52856 | 5.56762 | **56 min measured** (2026-10-31, ap-northeast-2) | ~4.2 / **~5.2 measured** | 6 h: ~27 / ~33 |
 | `smoke` fallback | `g6e.4xlarge` (16 vCPU: 8 envs fit) | 3.00424 | 3.69355 | ~2-4 h | ~6-12 / ~7-15 | 6 h: ~18 / ~22 |
 | `full` (8 GPU, 100 steps) | `p5.48xlarge` | 55.04 | 75.9552 | ~12-28 h | ~660-1,540 / ~910-2,130 | 40 h: ~2,200 / ~3,040 |
 | `full` fallback | `p4de.24xlarge` | 27.44705 | not offered | likely reaches the cap | ~1,100 / — | 40 h: ~1,100 / — |

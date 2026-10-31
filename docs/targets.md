@@ -384,8 +384,8 @@ python vlasim.py deploy --vla smolvla-robotwin --email you@example.com   # 5 tas
 python vlasim.py deploy --vla lingbot-vla2 --email you@example.com       # LingBot-VLA 2.0, same subset, g6e (measured ~49 min, 80%)
 # Official protocol (49 tasks x 100 ep) in 12-hour shards; deploy.py prints N if the plan does not fit
 python vlasim.py deploy --vla smolvla-robotwin --robotwin-protocol clean --robotwin-shard 1/19 --email you@example.com
-# RL post-training with RLinf: eval SFT -> GRPO -> eval RL checkpoint (note 16; time per step not measured yet)
-python vlasim.py deploy --vla rlinf-oft-libero --email you@example.com                     # smoke: 1 GPU, LoRA, 5 steps (~2-4 h)
+# RL post-training with RLinf: eval SFT -> GRPO -> eval RL checkpoint (note 16; smoke measured 56 min, ~6 min per step)
+python vlasim.py deploy --vla rlinf-oft-libero --email you@example.com                     # smoke: 1 GPU, LoRA, 5 steps (56 min measured)
 python vlasim.py deploy --vla rlinf-oft-libero --rl-profile full --email you@example.com   # 8 GPU, recipe defaults, 100 steps (stack completes after the baseline)
 python vlasim.py deploy --vla rlinf-oft-libero --rl-eval-run RUN_ID --email you@example.com  # re-evaluate a saved RL checkpoint
 

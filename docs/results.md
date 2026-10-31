@@ -373,10 +373,12 @@ Published by RLinf (model cards `RLinf/RLinf-OpenVLAOFT-GRPO-LIBERO-*`, e.g. [`-
 
 | Suite | SFT (one demo per task) | RLinf GRPO | SimpleVLA-RL, same SFT checkpoints ([arXiv 2509.09674](https://arxiv.org/abs/2509.09674)) | Measured on AWS |
 |---|---|---|---|---|
-| LIBERO-Goal (`model.suite: goal`, default) | 49.40% | 93.96% | 59.6% -> 98.8% | pending (STEP B) |
+| LIBERO-Goal (`model.suite: goal`, default) | 49.40% | 93.96% | 59.6% -> 98.8% | `smoke`: 45.0% (9/20) -> 50.0% (10/20) after 5 LoRA steps, intervals overlap (2026-10-31, `g6e.8xlarge`, ap-northeast-2); `full`: running |
 | LIBERO-Spatial | 52.22% | 94.76% | 63.6% -> 98.2% | not wired (no OFT eval config upstream at v0.4) |
 | LIBERO-Object (`model.suite: object`) | 28.83% | 97.68% | 54.9% -> 98.7% | pending |
 | LIBERO-10 (`model.suite: "10"`) | 14.92% | 90.93% | 17.3% -> 91.7% | pending |
+
+Measured `smoke` run (`2026-10-31-1959`, ap-northeast-2, `g6e.8xlarge`, 1 × L40S 48 GB, 20 eval envs): SFT baseline 45.0% (9/20, 95% CI 25.8-65.8%), RL checkpoint after 5 GRPO steps 50.0% (10/20, 29.9-70.1%), +5.0 points with overlapping intervals, as expected for 5 steps. Training success per step (16 trajectories): 0.44, 0.38, 0.88, 0.88, 0.69. One GRPO step took 355-521 s (median 358 s); the whole deploy (setup, two evals, training, upload of the 31 GB checkpoint) took 56 min (`run_wall_s` 3366), about US$5.2 of EC2.
 
 Read these with three caveats. (1) The card's SFT row is greedy decoding; the RL row and this target's evals sample at temperature 1.6 (the upstream eval config), so the baseline measured here is not expected to equal 49.40%. (2) The two projects measure the same SFT checkpoints 5-26 points apart (MuJoCo version and eval protocol; an RLinf user measured 25.78% on Object); compare the two rows of one run, not a run with a card. (3) The published RL numbers come from the full recipe trained to convergence; the `smoke` profile (5 LoRA steps on one GPU) checks the pipeline and is not expected to show a gain, and how many `full` steps reach the published number is not published. RLinf also reports π0.5 few-shot SFT -> PPO on LIBERO-Goal at 84.6% -> 98.8% (not wired here).
 

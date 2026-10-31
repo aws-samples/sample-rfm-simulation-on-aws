@@ -111,12 +111,14 @@ profiles:
     overrides: []
     early_signal: true
     max_wall_hours: 40
+    # 80 GB GPUs only: the 500 eval envs are 62.5 renderers per GPU next to a policy copy, and one 44 GB L40S
+    # already ran out of memory at 40 eval envs in the smoke profile (2026-10-31), so 48 GB g6e.48xlarge is out.
     instance:
-      preferred: [p5.48xlarge, g6e.48xlarge, p4de.24xlarge, p5en.48xlarge]
+      preferred: [p5.48xlarge, p4de.24xlarge, p5en.48xlarge]
       ebs_gb: 1500
       creationpolicy_timeout: PT240M  # verify + baseline eval only (early_signal)
       min_gpus: 8
-      min_gpu_mib: 44000
+      min_gpu_mib: 79000
       min_host_mib: 900000
 
 # Top-level instance = the default (smoke) profile, read by vlasim doctor's quota check.

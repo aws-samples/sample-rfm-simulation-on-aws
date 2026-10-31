@@ -110,7 +110,7 @@ describe('rlinf-oft-libero', () => {
   test.each([
     [undefined, 'g6e.8xlarge,g6e.4xlarge,g6e.16xlarge,p5.4xlarge', 300, 500],
     ['smoke', 'g6e.8xlarge,g6e.4xlarge,g6e.16xlarge,p5.4xlarge', 300, 500],
-    ['full', 'p5.48xlarge,g6e.48xlarge,p4de.24xlarge,p5en.48xlarge', 240, 1500],
+    ['full', 'p5.48xlarge,p4de.24xlarge,p5en.48xlarge', 240, 1500],
   ])('rl_profile=%s launches its instance list, timeout and EBS', (profile, types, minutes, ebs) => {
     const template = synth(profile);
     template.hasResourceProperties('AWS::CloudFormation::CustomResource', { InstanceTypes: types, EbsGb: String(ebs) });

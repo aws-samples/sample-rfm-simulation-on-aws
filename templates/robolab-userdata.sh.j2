@@ -392,7 +392,7 @@ TASKS=({% for t in tasks %}{{ t }} {% endfor %})
 if [ "${{ '{#' }}TASKS[@]}" -eq 0 ]; then
     mapfile -t TASKS < <(jq -r '.[].task_name' "${ROBOLAB_DIR}/robolab/tasks/_metadata/task_metadata.json" | sort)
 fi
-log "[7/9] {{ label }}: ${{ '{#' }}TASKS[@]} task(s) x {{ num_envs }} env(s) x {{ num_runs }} run(s), ${SHARDS} shard(s)"
+log "[7/9] {{ label }}: ${{ '{#' }}TASKS[@]} task(s) x {{ num_envs }} env(s) x {{ num_runs }} run(s), ${SHARDS} shard(s), {{ repeats }} repeat(s)"
 run_shard() {
     local _s=$1 _gpu _port _t _i
     _gpu=$(sim_gpu "$_s"); _port=$((8000 + _s))
@@ -417,6 +417,22 @@ run_shard() {
         --num-envs {{ num_envs }} --num-runs {{ num_runs }} --seed {{ seed }} \
         --instruction-type {{ instruction_type }} --video-mode {{ video_mode }} --output-folder-name run
 }
+# Repeats (generate.py --repeats; repeatability.py): the whole evaluation runs {{ repeats }} time(s) on this
+# instance with the same servers, seed and start states, each under its own RUN_ID, so `results --compare`
+# sees {{ repeats }} run(s) of one fingerprint (GPU physics does not repeat an identical run).
+REPEATS={{ repeats }}
+RUN_IDS=()
+REPEAT_FAILED=()
+RUN_KN=()
+for REP in $(seq 1 "$REPEATS"); do
+if [ "$REP" -gt 1 ]; then
+    _prev_run="$RUN_ID"
+    RUN_ID=$(date '+%Y-%m-%d-%H%M')
+    while [ "$RUN_ID" = "$_prev_run" ]; do sleep 20; RUN_ID=$(date '+%Y-%m-%d-%H%M'); done
+    for _s in $(seq 0 $((SHARDS - 1))); do rm -rf "${OUT_DIR}/shard-${_s}/run"; done
+fi
+RUN_IDS+=("$RUN_ID")
+log "  repeat ${REP}/${REPEATS}: RUN_ID ${RUN_ID}"
 set +e
 trap - ERR
 SHARD_PIDS=()
@@ -434,10 +450,6 @@ for _s in "${!SHARD_PIDS[@]}"; do
 done
 set -e
 trap '_trap_handler' ERR
-for _s in $(seq 0 $((SHARDS - 1))); do
-    docker logs "policy-shard-${_s}" > "/tmp/{{ vla }}_server${_s}.log" 2>&1 || true
-    docker rm -f "policy-shard-${_s}" > /dev/null 2>&1 || true
-done
 
 # ── [8/9] Report (summary.txt + robolab_results.json + videos with success= in the name) ───────
 log "[8/9] Report + S3 upload..."
@@ -463,12 +475,14 @@ KN=$(python3 "${WORK}/robolab_report.py" "${RUN_DIRS[@]}" --upload-dir "$UPLOAD_
     --meta "stack_isaac_lab={{ isaac_lab_tag.split('@')[0] }}" \
     --meta "stack_server={{ server_commit[:8] }}" \
     --meta "shards=${SHARDS}" \
-    --meta "instance=${INSTANCE_TYPE}" 2> /tmp/{{ vla }}_report.log | tail -1) || die "report failed (see /tmp/{{ vla }}_report.log)"
+    --meta "instance=${INSTANCE_TYPE}" 2> /tmp/{{ vla }}_report.log | tail -1) || { [ "$REP" -gt 1 ] || die "report failed (see /tmp/{{ vla }}_report.log)"; \
+    log "[warn] repeat ${REP} report failed (see /tmp/{{ vla }}_report.log)"; KN="0/0"; }
 N_EPISODES=${KN#*/}
 log "  {{ label }}: ${KN} episodes succeeded ($(jq -r '.success_rate // "n/a"' "${UPLOAD_DIR}/robolab_results.json"))"
 
 S3_TASK_PREFIX="s3://${S3_BUCKET}/${RUN_ID}/task-0"
 aws s3 cp "${UPLOAD_DIR}/summary.txt" "${S3_TASK_PREFIX}/summary.txt" --region "$REGION" || true
+PC_REPEAT_INDEX="${REP}/${REPEATS}"
 {% from "_protocol-card.sh.j2" import protocol_card with context %}{{ protocol_card('"${UPLOAD_DIR}/summary.txt"', '"${S3_TASK_PREFIX}"') }}
 aws s3 cp "${UPLOAD_DIR}/robolab_results.json" "${S3_TASK_PREFIX}/robolab_results.json" --region "$REGION" || true
 for _s in $(seq 0 $((SHARDS - 1))); do
@@ -489,18 +503,40 @@ done < <(find "${UPLOAD_DIR}/videos" -name '*.mp4' | sort)
 log "  videos uploaded: ${UPLOAD_COUNT}/${VIDEO_COUNT}"
 upload_diag
 
-if [ "${N_EPISODES:-0}" -eq 0 ]; then
-    die "no RoboLab episode finished (see ${S3_TASK_PREFIX}/logs/)"
+if [ "$REP" -eq 1 ]; then
+    if [ "${N_EPISODES:-0}" -eq 0 ]; then
+        die "no RoboLab episode finished (see ${S3_TASK_PREFIX}/logs/)"
+    fi
+    if [ "$EVAL_FAILED" -ne 0 ]; then
+        die "a RoboLab shard failed or timed out after ${KN} episodes; partial results are in ${S3_TASK_PREFIX}/"
+    fi
+elif [ "${N_EPISODES:-0}" -eq 0 ] || [ "$EVAL_FAILED" -ne 0 ]; then
+    # the first run is already reported; a failed repeat is reported, not fatal
+    log "[warn] repeat ${REP}/${REPEATS} (RUN_ID ${RUN_ID}) failed or timed out after ${KN} episodes"
+    REPEAT_FAILED+=("${RUN_ID}")
 fi
-if [ "$EVAL_FAILED" -ne 0 ]; then
-    die "a RoboLab shard failed or timed out after ${KN} episodes; partial results are in ${S3_TASK_PREFIX}/"
-fi
+RUN_KN+=("${RUN_ID}: ${KN}")
+done
+for _s in $(seq 0 $((SHARDS - 1))); do
+    docker logs "policy-shard-${_s}" > "/tmp/{{ vla }}_server${_s}.log" 2>&1 || true
+    docker rm -f "policy-shard-${_s}" > /dev/null 2>&1 || true
+done
 
 # ── [9/9] SNS + cfn-signal ─────────────────────────────────────────────────────────────────────
 log "[9/9] SNS notification..."
 {% include "_gallery-sns.sh.j2" %}
-SNS_MESSAGE="[${STACK_NAME}] {{ display_name }} complete (RUN_ID: ${RUN_ID})
-{{ label }} (variant {{ variant }}): ${KN} episodes succeeded, success_rate=$(jq -r '.success_rate // "n/a"' "${UPLOAD_DIR}/robolab_results.json")
+RUNS_LINE=""
+EARLIER_RUNS_SYNC=""
+for _r in "${RUN_IDS[@]}"; do
+    [ "$_r" = "$RUN_ID" ] || EARLIER_RUNS_SYNC="${EARLIER_RUNS_SYNC}
+  aws s3 sync s3://${S3_BUCKET}/${_r}/ ./{{ vla }}-results/${_r}/ --region ${REGION}"
+done
+if [ "$REPEATS" -gt 1 ]; then
+    RUNS_LINE="Runs (same stack, seed and start states; results --compare reads them as re-runs): ${RUN_KN[*]}${REPEAT_FAILED:+ - failed: ${REPEAT_FAILED[*]}}
+"
+fi
+SNS_MESSAGE="[${STACK_NAME}] {{ display_name }} complete (RUN_ID: ${RUN_IDS[*]})
+${RUNS_LINE}{{ label }} (variant {{ variant }}): ${KN} episodes succeeded, success_rate=$(jq -r '.success_rate // "n/a"' "${UPLOAD_DIR}/robolab_results.json")
 Leaderboard reference (RoboLab-120, 10 ep/task): {{ leaderboard }}
 
 Policy: {{ policy_label }} ({{ checkpoint_ref }})
@@ -509,7 +545,7 @@ License: {{ license }}
 Instance: ${INSTANCE_TYPE}, shards: ${SHARDS}
 
 ${GALLERY_BLOCK}Download results:
-  aws s3 sync s3://${S3_BUCKET}/${RUN_ID}/ ./{{ vla }}-results/${RUN_ID}/ --region ${REGION}
+  aws s3 sync s3://${S3_BUCKET}/${RUN_ID}/ ./{{ vla }}-results/${RUN_ID}/ --region ${REGION}${EARLIER_RUNS_SYNC}
 
 Teardown:
   python destroy.py --vla {{ vla }}"

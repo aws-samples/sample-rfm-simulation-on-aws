@@ -104,6 +104,10 @@ def protocol_static(config: dict, target: str) -> dict:
     rerun_null = {k: re.sub(r"['\n\r]", "", str(rep.get(k, ""))) for k in ("simulator", "repeatable", "evidence")}
     # finished runs of one stack, suite and condition that results --compare needs before it calls a winner
     rerun_null["runs_for_a_verdict"] = 2 if rep.get("repeatable") == "no" else 1
+    # runs this deploy makes (generate.py / deploy.py --repeats; a new RUN_ID per run, same stack and seed)
+    rp = config.get("repeat_plan") or {}
+    rerun_null["repeats"] = int(rp.get("repeats", 1))
+    rerun_null["repeats_reason"] = re.sub(r"['\n\r]", "", str(rp.get("reason", "")))
     return dict(target=target if SAFE_VALUE_RE.match(target) else "unknown", tool_commit=_tool_commit(),
                 checkpoints=checkpoints, code_pins=dict(sorted(pins.items())), seed_plan=plan, rerun_null=rerun_null)
 
@@ -1223,6 +1227,23 @@ def resolve_variant(config: dict, vla: str) -> tuple:
     return name, dict(variants[name] or {})
 
 
+def robolab_plan(config: dict, vla: str) -> dict:
+    """Episodes per run and time limits of the selected RoboLab variant (deploy.py prints the plan from it).
+    Reads the same keys as generate_robolab(); returns {} when the model has no RoboLab protocol."""
+    variants = config.get("variants") or {}
+    var = dict(variants.get(str((config.get("model") or {}).get("variant", "")).strip()) or {})
+    proto = (config.get("protocols") or {}).get(var.get("protocol")) or {}
+    if not proto:
+        return {}
+    tasks = list(proto.get("tasks") or [])
+    per_task = int(proto.get("num_envs", 1)) * int(proto.get("num_runs", 1))
+    timeout = str((var.get("instance") or config.get("instance") or {}).get("creationpolicy_timeout", "PT180M"))
+    m = re.fullmatch(r"PT(?:(\d+)H)?(?:(\d+)M)?", timeout)
+    minutes = (int(m.group(1) or 0) * 60 + int(m.group(2) or 0)) if m else None
+    return dict(episodes=len(tasks) * per_task if tasks else None, shards=int(var.get("shards", 1)),
+                eval_timeout_min=int(var.get("eval_timeout_min", 300)), deploy_timeout_min=minutes)
+
+
 def generate_robolab(config: dict, dry_run: bool, vla: str) -> str:
     """NVIDIA RoboLab (Isaac Lab, DROID Franka) x a DROID policy server, both on one instance.
 
@@ -1334,6 +1355,7 @@ def generate_robolab(config: dict, dry_run: bool, vla: str) -> str:
         "min_gpu_mib": int(var.get("min_gpu_mib", 44000)),
         "min_host_mib": int(var.get("min_host_mib", 60000)),
         "report_py_b64": base64.encodebytes(asset.read_bytes()).decode(),
+        "repeats": int((config.get("repeat_plan") or {}).get("repeats", 1)),
     }
     env = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)), keep_trailing_newline=True)  # nosec B701 - shell script template
     return env.get_template("robolab-userdata.sh.j2").render(**_with_protocol(ctx, config))
@@ -1619,6 +1641,10 @@ def main():
                              "auto = draw one now (secrets.randbits(31)); N = reuse a published seed. "
                              "Use the same value for every target you compare (docs/results.md \"Shared seed\").")
     parser.add_argument("--seed-drawn-utc", default=None, help=argparse.SUPPRESS)
+    parser.add_argument("--repeats", default="auto", metavar="auto|N",
+                        help="Runs of the whole evaluation in one deploy (a new RUN_ID each, same stack, seed and "
+                             "start states). auto = 2 on simulators where an identical re-run does not repeat "
+                             "(repeatability.py: RoboLab) and 1 elsewhere; 1 turns it off")
     parser.add_argument("--rl-profile", default="smoke", choices=list(RL_PROFILES),
                         help="rlinf-oft-libero: smoke = 1 GPU, LoRA, a few GRPO steps; full = 8 GPU, recipe defaults "
                              "(models/<vla>.yaml profiles)")
@@ -1649,6 +1675,16 @@ def main():
     except ValueError as e:
         parser.error(str(e))
     config = seeds.apply(config, name, seed_plan)
+    if not args.judge_target:
+        try:
+            n_rep, why = repeatability.resolve_repeats(name, args.repeats)
+        except ValueError as e:
+            parser.error(str(e))
+        config["repeat_plan"] = dict(repeats=n_rep, reason=why)
+        if n_rep > 1:
+            print(f"Runs:   {n_rep} per deploy ({why})")
+        elif repeatability.for_target(name)["repeatable"] == "no":
+            print(f"[warn] one run per deploy: {why}", file=sys.stderr)
     sp = config["seed_plan"]
     if sp["status"] == "applied":
         print(f"Seed:   {sp['value']} ({sp['mode']}) -> every task of {name}")

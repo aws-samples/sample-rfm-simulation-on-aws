@@ -333,6 +333,9 @@ def run_compare(a, boto3=None):
         print("No suite/condition row exists on both sides.")
         return 1
     compare.print_rows(a.compare[0], a.compare[1], rows, null, a.alpha, a.raw_p, repeat_info=repeat_info)
+    if not a.from_csv and not a.all_runs and any(r.get("verdict") == "needs re-run" for r in rows):
+        # deploy.py --repeats writes the runs of one deploy into one bucket; without --all-runs only the latest is read
+        print("hint: earlier runs in the same bucket (deploy --repeats, or a second deploy) are read with --all-runs")
     if a.csv:
         cols = ["suite", "condition_a", "condition_b", "k_a", "n_a", "k_b", "n_b", "p", "q", "verdict",
                 "paired_n", "only_a", "only_b", "p_mcnemar", "rerun_class", "single_run_verdict", "one_run_verdict"]

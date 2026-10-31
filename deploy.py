@@ -50,16 +50,19 @@ from botocore.exceptions import ClientError
 import gallery
 import libero_plus
 import libero_r2s
+import repeatability
 import robotwin_plan
 import seeds
 from generate import (
     OFT_DEFAULT_SUITE,
     OFT_LIBERO_SUITES,
+    ROBOLAB_TARGETS,
     libero_plus_supported,
     libero_r2s_supported,
     normalise_libero_suite,
     oft_stack_name,
     r2s_default_suite,
+    robolab_plan,
 )
 from targets import JUDGE_TARGETS, VLA_TARGETS
 
@@ -432,6 +435,11 @@ def main():
                         help="Seed for every task of this run: model = models/<vla>.yaml seeds (default); auto = draw "
                              "one now and print it; N = reuse it. Give every target of a comparison the same N "
                              "(docs/results.md \"Shared seed\"); protocol.yaml records it.")
+    parser.add_argument("--repeats", default="auto", metavar="auto|N",
+                        help="Runs of the whole evaluation in this deploy, each under its own RUN_ID (same stack, "
+                             "seed and start states). auto (default) = 2 where an identical re-run does not repeat "
+                             "(GPU physics: RoboLab; repeatability.py), 1 elsewhere; --repeats 1 turns it off. "
+                             "results --compare needs two runs per side there before it calls a winner.")
     parser.add_argument("--rl-profile", default="smoke", choices=list(RL_PROFILES),
                         help="rlinf-oft-libero: smoke = 1 GPU, LoRA, a few GRPO steps (~2-4 h); full = 8 GPU, recipe "
                              "defaults, the stack completes after the baseline eval and training continues up to "
@@ -582,6 +590,21 @@ def main():
             print(f"[seed] {args.vla} cannot be seeded by the tool: {ctl.get('reason')} "
                   "(protocol.yaml records it as not-controllable)")
 
+    try:
+        n_repeats, repeats_why = repeatability.resolve_repeats(args.vla, args.repeats)
+    except ValueError as e:
+        parser.error(str(e))
+    repeat_args = ["--repeats", str(n_repeats)]
+    rplan = robolab_plan(config, args.vla) if args.vla in ROBOLAB_TARGETS else {}
+    if n_repeats > 1:
+        print(f"[runs] {n_repeats} runs in this deploy: {repeats_why}")
+        fit_error = repeatability.check_fit(args.vla, n_repeats, rplan)
+        if fit_error:
+            print(f"[error] {fit_error}", file=sys.stderr)
+            sys.exit(1)
+    elif repeatability.for_target(args.vla)["repeatable"] == "no":
+        print(f"[warn] one run in this deploy: {repeats_why}")
+
     if args.bridge:
         if args.vla == "openvla-oft":
             print("[error] Bridge mode not supported for openvla-oft (local only).", file=sys.stderr)
@@ -712,6 +735,9 @@ def main():
               f"{robotwin_plan.episodes(robotwin_units)} episodes")
     if vpc_id:
         print(f"[deploy] VPC:    {vpc_id}")
+    runs_line = repeatability.plan_line(args.vla, n_repeats, rplan.get("episodes"))
+    if runs_line:
+        print(f"[deploy] Runs:   {runs_line}")
     print()
 
     # 1. Generate UserData
@@ -751,6 +777,7 @@ def main():
             *plus_args,
             *generate_extra,
             *seed_args,
+            *repeat_args,
         ],
         cwd=str(BASE_DIR),
         check=True,
@@ -840,7 +867,8 @@ def main():
         elif args.vla in ("robolab-cosmos3", "robolab-pi05"):
             print("  Estimated time: ~4-6 h for the default 12-task subset (ECC-off reboot + RoboLab LFS assets ~6 GB + "
                   "Isaac Lab / policy-server image builds ~45-75 min + checkpoint DL + 12 tasks x 5 episodes ~2-3 h); "
-                  "model.variant in models/<vla>.yaml selects nano / the full RoboLab-120 protocol (see docs/targets.md)")
+                  "model.variant in models/<vla>.yaml selects nano / the full RoboLab-120 protocol (see docs/targets.md)"
+                  + (f"; the episode part runs {n_repeats} times (--repeats)" if n_repeats > 1 else ""))
         elif args.vla in RLINF_TARGETS:
             prof = (config.get("profiles") or {}).get(args.rl_profile) or {}
             steps = args.rl_steps or prof.get("steps")

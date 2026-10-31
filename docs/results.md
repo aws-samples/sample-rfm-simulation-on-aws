@@ -456,6 +456,33 @@ The protocol card records the simulator class next to every result (`rerun_null`
 `evidence`, `runs_for_a_verdict` = 2 where the simulator does not repeat), so a reader of one result file knows
 whether one run of it can carry a verdict.
 
+### Two runs per deploy where re-runs do not repeat (`--repeats`)
+
+So that the second run is not forgotten, `deploy.py` runs the whole evaluation twice by default on the targets
+whose simulator class is `no` and whose UserData supports it (RoboLab: `robolab-pi05`, `robolab-cosmos3`): one
+deploy, the same instance, servers, seed and start states, a new `RUN_ID` per run. Before the deploy it prints the
+plan and the instance hours expected from measured runs, and it refuses a plan that would not fit the variant's
+deploy limit (`instance.creationpolicy_timeout`):
+
+```
+$ python deploy.py --vla robolab-pi05
+[runs] 2 runs in this deploy: default for RoboLab (Isaac Lab, GPU physics): an identical re-run does not repeat, so one run cannot call a winner
+[deploy] Runs:   2 run(s) x 60 episodes = 120 episodes, ~2.1-2.2 instance-h (scaled from measured 120-episode runs of 2.08-2.25 h; set-up is shared, so this is an upper bound)
+```
+
+`--repeats 1` turns it off (with a warning: `results --compare` will then say `needs re-run` for that side);
+`--repeats N` (up to 3) asks for more. Targets that run once per deploy (every other template, including
+`openarm-isaac`) refuse `--repeats 2` and are re-run by deploying again. Both runs land in the same results bucket,
+so read them with `results --compare A B --all-runs`. The protocol card of each run records `repeats`,
+`repeat_index` (`1/2`, `2/2`) and the reason. A repeat that fails after the first run is reported in the completion
+e-mail and does not fail the deploy. The name is `--repeats`, not `num_runs`: RoboLab already uses `num_runs` for
+sequential episodes per task inside one run.
+
+Why the default is two (measured with this tool, RoboLab "specific" instructions, 12 tasks x 10 episodes,
+pi0.5-DROID vs Cosmos3, `tests/fixtures/robolab_cs_two_runs.*`): the first run per policy said Cosmos3 better,
+51 vs 27 of 120 (Fisher p = 0.001). The second runs gave 48 and 39 (28 of 120 pi0.5 episodes changed), and
+`results --compare` on both runs prints `unstable` (run pairs: B>A 2, tie 2).
+
 ## Post-run judge (judge.json)
 
 `python vlasim.py judge --vla <target> [--run RUN_ID]` ([targets](targets.md#post-run-judge-flora-rewarder)) scores every rollout video of a finished run with NVIDIA Flora-Rewarder and writes, next to the run:

@@ -74,3 +74,84 @@ def for_simulator(sim: str) -> dict:
 def worst(*classes: str) -> str:
     """The less repeatable of several classes (`no` < `unmeasured` < `yes`)."""
     return min(classes, key=lambda c: _ORDER.get(c, 1))
+
+
+# ── Re-runs per deploy (deploy.py / generate.py --repeats) ─────────────────────────────────────────────
+# Targets whose UserData can run the whole evaluation more than once in one deploy (a new RUN_ID per repeat,
+# same stack, seed and start states), so results --compare finds two runs of the same fingerprint.
+REPEATS_SUPPORTED = ("robolab-cosmos3", "robolab-pi05")
+MAX_REPEATS = 3
+
+# Measured instance hours of one run of the RoboLab subset (one L40S, 1 shard), from boot to summary upload,
+# with the number of episodes of that run (2026-10-31, 5 runs per policy, g6e.2xlarge / g6e.4xlarge).
+MEASURED_RUN_HOURS = {
+    "robolab-pi05": dict(episodes=120, hours_min=2.08, hours_max=2.25),
+    "robolab-cosmos3": dict(episodes=120, hours_min=2.83, hours_max=2.94),
+}
+
+
+def default_repeats(target: str | None) -> int:
+    """Runs per deploy when --repeats is not given: 2 where an identical re-run is known not to repeat
+    (repeatable = no) and the template supports it, else 1."""
+    if for_target(target)["repeatable"] == "no" and (target or "") in REPEATS_SUPPORTED:
+        return 2
+    return 1
+
+
+def resolve_repeats(target: str, value: str | int | None) -> tuple[int, str]:
+    """(runs, reason) for `--repeats auto|N`. Raises ValueError for a value the target cannot take."""
+    rep = for_target(target)
+    if value in (None, "", "auto"):
+        n = default_repeats(target)
+        if n > 1:
+            return n, f"default for {rep['label']}: an identical re-run does not repeat, so one run cannot call a winner"
+        if rep["repeatable"] == "no":
+            return 1, (f"{rep['label']} does not repeat, but this target runs once per deploy; "
+                       "deploy it again for the re-run")
+        return 1, f"{rep['label']}: repeatable = {rep['repeatable']}"
+    try:
+        n = int(value)
+    except (TypeError, ValueError):
+        raise ValueError(f"--repeats must be auto or an integer 1..{MAX_REPEATS}, got {value!r}") from None
+    if not 1 <= n <= MAX_REPEATS:
+        raise ValueError(f"--repeats must be 1..{MAX_REPEATS}, got {n}")
+    if n > 1 and target not in REPEATS_SUPPORTED:
+        raise ValueError(f"--repeats {n}: {target} runs once per deploy (supported: {', '.join(REPEATS_SUPPORTED)}); "
+                         "deploy it again for a re-run")
+    if n == 1 and rep["repeatable"] == "no":
+        return 1, f"--repeats 1 on {rep['label']}: results --compare will say 'needs re-run' for this side"
+    return n, f"--repeats {n}"
+
+
+def plan_line(target: str, repeats: int, episodes_per_run: int | None) -> str | None:
+    """One line before deploy: runs x episodes and the instance hours expected from measured runs (None when
+    the episode count is unknown)."""
+    if not episodes_per_run:
+        return None
+    total = repeats * episodes_per_run
+    line = f"{repeats} run(s) x {episodes_per_run} episodes = {total} episodes"
+    m = MEASURED_RUN_HOURS.get(target)
+    if m:
+        lo, hi = (round(total / m["episodes"] * m[k], 1) for k in ("hours_min", "hours_max"))
+        line += (f", ~{lo}-{hi} instance-h (scaled from measured {m['episodes']}-episode runs of "
+                 f"{m['hours_min']}-{m['hours_max']} h; set-up is shared, so this is an upper bound)")
+    return line
+
+
+def check_fit(target: str, repeats: int, plan: dict) -> str | None:
+    """Error text when `repeats` runs are not expected to fit one deploy (instance.creationpolicy_timeout of the
+    variant), else None. Only the 1-shard RoboLab subset has measured run times; other variants take 1 run."""
+    if repeats <= 1 or not plan:
+        return None
+    if plan.get("shards", 1) > 1:
+        return (f"--repeats {repeats}: run time is measured only for the 1-shard subset, this variant runs "
+                f"{plan['shards']} shards; use --repeats 1 and deploy again for the re-run.")
+    m = MEASURED_RUN_HOURS.get(target)
+    if not (m and plan.get("episodes") and plan.get("deploy_timeout_min")):
+        return None
+    need_min = repeats * plan["episodes"] / m["episodes"] * m["hours_max"] * 60
+    if need_min > plan["deploy_timeout_min"]:
+        return (f"--repeats {repeats}: ~{need_min / 60:.1f} h expected, more than this variant's deploy limit "
+                f"({plan['deploy_timeout_min'] / 60:.1f} h, instance.creationpolicy_timeout). "
+                "Use --repeats 1 and deploy again for the re-run.")
+    return None

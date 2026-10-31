@@ -115,6 +115,10 @@ profiles:
     # already ran out of memory at 40 eval envs in the smoke profile (2026-10-31), so 48 GB g6e.48xlarge is out.
     instance:
       preferred: [p5.48xlarge, p4de.24xlarge, p5en.48xlarge]
+      # On 2026-10-31 no On-Demand 8 x 80 GB capacity was free in us-east-1, us-west-2, ap-northeast-1 (and
+      # ap-northeast-2 / eu-central-1, see docs/cost.md); then the same list is tried as one-time Spot
+      # (about half the On-Demand price; an interruption terminates the instance and loses the run).
+      spot_fallback: true
       ebs_gb: 1500
       creationpolicy_timeout: PT240M  # verify + baseline eval only (early_signal)
       min_gpus: 8

@@ -260,6 +260,18 @@ pip install --no-cache-dir "flash-attn==2.5.5" --no-build-isolation \
     || log "[warn] flash-attn install failed — eval may fail or run slower (continuing)"
 
 # ── [4/6] LIBERO repo clone + install ──────────────────────────────
+{%- if libero_plus %}
+# --libero-variant plus: the LIBERO-Plus fork (same `libero` package, ~2,400 perturbed variants per suite)
+# is installed in place of LIBERO; its asset pack is fetched after the checkpoint in [5/6].
+log "[4/6] Cloning LIBERO-Plus @ {{ libero_plus.repo_commit[:8] }} (in place of LIBERO)..."
+if [ ! -d "${LIBERO_DIR}" ]; then
+    git clone {{ libero_plus.repo_url }} "${LIBERO_DIR}" \
+        2>&1 | tee /tmp/oft_libero_clone.log \
+        || die "LIBERO-Plus clone failed"
+    git -C "${LIBERO_DIR}" checkout "{{ libero_plus.repo_commit }}" \
+        || die "LIBERO-Plus: checkout pinned commit {{ libero_plus.repo_commit[:8] }} failed"
+fi
+{%- else %}
 log "[4/6] Cloning LIBERO repo..."
 if [ ! -d "${LIBERO_DIR}" ]; then
     git clone https://github.com/Lifelong-Robot-Learning/LIBERO.git "${LIBERO_DIR}" \
@@ -270,6 +282,7 @@ if [ ! -d "${LIBERO_DIR}" ]; then
         || die "LIBERO: checkout {{ libero_commit }} failed"
 {%- endif %}
 fi
+{%- endif %}
 log "  LIBERO commit: $(git -C "${LIBERO_DIR}" rev-parse HEAD)"
 
 log "[4/6] pip install -e LIBERO + libero_requirements.txt..."
@@ -338,6 +351,17 @@ datasets: ${LIBERO_PKG_DIR}/../datasets
 init_states: ${LIBERO_PKG_DIR}/init_files
 LIBEROCFG
 log "  LIBERO config: /root/.libero/config.yaml"
+{%- if libero_plus %}
+
+# LIBERO-Plus: the fork's `libero` package imports Wand (ImageMagick) at import time, so its system package and
+# pip pins must be in place before the import check below (the full fork setup runs in [5.5/6]; repeating the
+# apt/pip install there is a no-op). Same order as openvla-oft, where the first GPU run died on "No module named 'wand'".
+log "[4/6] LIBERO-Plus: ImageMagick + {{ libero_plus.pip_pins }} before the import check..."
+apt-get install -y --no-install-recommends -o DPkg::Lock::Timeout=300 libmagickwand-dev \
+    2>&1 | tee /tmp/oft_lp_apt_early.log || die "LIBERO-Plus: apt-get install libmagickwand-dev failed"
+pip install --no-cache-dir {{ libero_plus.pip_pins }} 2>&1 | tee /tmp/oft_lp_pip_early.log \
+    || die "LIBERO-Plus: early pip pins failed (see /tmp/oft_lp_pip_early.log)"
+{%- endif %}
 
 # Final import verification — all required modules must load before we proceed to eval.
 log "[4/6] Verifying imports (libero, prismatic, tensorflow, torch, numpy)..."
@@ -441,6 +465,16 @@ log "  checkpoint snapshot: ${CKPT_LOCAL}"
 {% else %}
 log "[5/6] HF revision not pinned — run_libero_eval.py will download on demand"
 {% endif %}
+{%- if libero_plus %}
+{% with lp=libero_plus, lp_step="5.5/6", lp_log="oft", lp_venv_mode="conda", lp_python="python",
+        lp_pip="pip install --no-cache-dir" %}{% include "_libero-plus-setup.sh.j2" %}{% endwith %}
+cat > /tmp/lp_oft_task_ids_patch.py <<'LPPATCH_EOF'
+{{ libero_plus.oft_patch_py }}LPPATCH_EOF
+# This template has no stackpatch.py (which restores the eval script for openvla-oft), so keep a pristine copy
+# and restore it before each dimension's patch.
+LP_EVAL_PY="${OFT_DIR}/experiments/robot/libero/run_libero_eval.py"
+[ -f "${LP_EVAL_PY}.lporig" ] || cp "${LP_EVAL_PY}" "${LP_EVAL_PY}.lporig"
+{%- endif %}
 
 TASKS_JSON='{{ tasks_json }}'
 TASK_COUNT=$(echo "$TASKS_JSON" | jq length)
@@ -451,6 +485,22 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
     SUITE=$(echo "$TASK" | jq -r '.suite')
     NUM_TRIALS=$(echo "$TASK" | jq -r '.num_trials_per_task')
     DESCRIPTION=$(echo "$TASK" | jq -r '.description // ""')
+{%- if libero_plus %}
+    # LIBERO-Plus: this entry's perturbation dimension → N seeded variant ids; the task loop of
+    # run_libero_eval.py is rewritten to run exactly those (num_trials_per_task trials each).
+    K_COND=$(echo "$TASK" | jq -r '.condition // "S0"')
+    LP_KEY=$(echo "$TASK" | jq -r '.perturbation')
+    LP_CAT=$(echo "$TASK" | jq -r '.perturbation_category')
+    LP_N=$(echo "$TASK" | jq -r '.variants')
+    LP_SEED=$(echo "$TASK" | jq -r '.variant_seed')
+    LP_MANIFEST="/tmp/oft_task${TASK_IDX}_libero_plus_variants.json"
+    LIBERO_PLUS_TASK_IDS=$(python3 /tmp/lp_select_variants.py "${LP_CLASSIFICATION}" "${SUITE}" "${LP_CAT}" "${LP_N}" "${LP_SEED}" \
+        --format csv --manifest "${LP_MANIFEST}") || die "LIBERO-Plus variant selection failed (${LP_CAT})"
+    export LIBERO_PLUS_TASK_IDS
+    cp "${LP_EVAL_PY}.lporig" "${LP_EVAL_PY}"
+    python3 /tmp/lp_oft_task_ids_patch.py "${LP_EVAL_PY}" || die "LIBERO-Plus task-loop patch failed (task ${TASK_IDX})"
+    log "  LIBERO-Plus ${LP_KEY} (${LP_CAT}): ${LP_N} variants (0 = all), seed ${LP_SEED} → task ids ${LIBERO_PLUS_TASK_IDS}"
+{%- endif %}
 
     VIDEO_DIR="${VIDEO_BASE_DIR}/task-${TASK_IDX}"
     mkdir -p "$VIDEO_DIR"
@@ -518,6 +568,19 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
         echo "num_trials_per_task: ${NUM_TRIALS}"
         echo "success_rate: ${SR}"
         echo "description: ${DESCRIPTION}"
+{%- if libero_plus %}
+        # k/n from the eval log's final block (videos carry success=True/False too, as a fallback).
+        echo "n_episodes: $(grep -oE 'Total episodes:[[:space:]]+[0-9]+' "${EVAL_LOG}" 2>/dev/null | tail -1 | awk '{print $NF}' || true)"
+        echo "n_success: $(grep -oE 'Total successes:[[:space:]]+[0-9]+' "${EVAL_LOG}" 2>/dev/null | tail -1 | awk '{print $NF}' || true)"
+        echo "condition: ${K_COND}"
+        echo "benchmark: libero_plus"
+        echo "perturbation: ${LP_KEY}"
+        echo "perturbation_category: ${LP_CAT}"
+        echo "variants: ${LP_N} (seed ${LP_SEED}; ids in libero_plus_variants.json)"
+        echo "stack_repo_commit: $(git -C "${OFT_DIR}" rev-parse HEAD 2>/dev/null || echo unknown)"
+        echo "stack_libero_plus_commit: ${LP_COMMIT}"
+        echo "stack_libero_plus_assets: {{ libero_plus.assets_repo }}@{{ libero_plus.assets_revision[:8] }}"
+{%- endif %}
     } > "/tmp/oft_task${TASK_IDX}_summary.txt"
 
     # S3 upload (videos + logs + summary)
@@ -579,9 +642,17 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
     [ -f "/tmp/oft_task${TASK_IDX}_summary.txt" ] && \
         aws s3 cp "/tmp/oft_task${TASK_IDX}_summary.txt" \
         "${S3_TASK_PREFIX}/summary.txt" --region "$REGION" || true
+{%- if libero_plus %}
+    [ -f "${LP_MANIFEST}" ] && \
+        aws s3 cp "${LP_MANIFEST}" "${S3_TASK_PREFIX}/libero_plus_variants.json" --region "$REGION" || true
+
+    SUMMARY_ALL="${SUMMARY_ALL}
+[Task $((TASK_IDX+1))] ${SUITE} LIBERO-Plus/${LP_KEY} — success_rate=${SR} (${NUM_TRIALS} trial/variant × ${LP_N} variants)"
+{%- else %}
 
     SUMMARY_ALL="${SUMMARY_ALL}
 [Task $((TASK_IDX+1))] ${SUITE} — success_rate=${SR} (${NUM_TRIALS} trials/task × 10 tasks)"
+{%- endif %}
     log "  Task $((TASK_IDX+1)) done"
 
     # Hard-fail after S3 upload if eval crashed. This prevents silent CFN SUCCESS when
@@ -603,6 +674,9 @@ ${SUMMARY_ALL}
 
 Model: {{ policy_desc }}
 Simulation: LIBERO (robosuite + MuJoCo, headless EGL)
+{%- if libero_plus %}
+Benchmark: LIBERO-Plus {{ libero_plus.suite }}, {{ libero_plus.perturb|join(',') }} x {{ libero_plus.variants_per_category or 'all' }} variants (python vlasim.py results --robustness --vla {{ vla }})
+{%- endif %}
 Instance: ${INSTANCE_TYPE}
 
 ${GALLERY_BLOCK}Download results:

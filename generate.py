@@ -41,6 +41,7 @@ import yaml
 from jinja2 import Environment, FileSystemLoader
 
 import libero_plus
+import libero_r2s
 import robotwin_plan
 from targets import JUDGE_TARGETS, VLA_TARGETS
 
@@ -83,7 +84,8 @@ def oft_stack_name(suite: str) -> str:
 
 # --libero-variant plus: targets whose template carries the LIBERO-Plus switch (each also needs a
 # `libero_plus:` block in models/<id>.yaml). See libero_plus.py and docs/targets.md.
-LIBERO_PLUS_TEMPLATE_TARGETS = ("openvla-oft", "xvla", "smolvla", "lingbot-va", "fastwam")
+LIBERO_PLUS_TEMPLATE_TARGETS = ("openvla-oft", "xvla", "smolvla", "lingbot-va", "fastwam", "pi", "gr00t",
+                                "vla-adapter", "molmoact2", "rldx", "lap")
 
 
 def libero_plus_supported(vla: str, config: dict) -> bool:
@@ -131,8 +133,63 @@ def _libero_plus_ctx(config: dict, vla: str, perturb, n, suite=None) -> tuple:
         "hf_model_revision": _shell_safe(str(cfg.get("hf_model_revision", "") or ""), "libero_plus.hf_model_revision"),
         "select_py": (asset_dir / "select_variants.py").read_text(),
         "oft_patch_py": (asset_dir / "oft_task_ids_patch.py").read_text(),
+        "openpi_patch_py": (asset_dir / "openpi_task_ids_patch.py").read_text(),
+        "openpi_verify_py": (asset_dir / "openpi_verify.py").read_text(),
     }
     return ctx, tasks
+
+
+# --libero-objects real2sim: targets whose template carries the LIBERO-R2S switch (each also needs a
+# `libero_r2s:` block in models/<id>.yaml). See libero_r2s.py and docs/targets.md.
+LIBERO_R2S_TEMPLATE_TARGETS = ("openvla-oft", "pi")
+
+
+def libero_r2s_supported(vla: str, config: dict) -> bool:
+    return vla in LIBERO_R2S_TEMPLATE_TARGETS and bool(config.get("libero_r2s"))
+
+
+def _libero_r2s_ctx(config: dict, vla: str, r2s: tuple, suite: str) -> tuple:
+    """(template context, task entries) for a --libero-objects real2sim render. Exits on a bad setting.
+    r2s = (run uri, conditions or None, trials per task or None)."""
+    if not libero_r2s_supported(vla, config):
+        print(f"[error] --libero-objects real2sim is not available for --vla {vla} (supported: "
+              f"{', '.join(LIBERO_R2S_TEMPLATE_TARGETS)}; needs a libero_r2s block in models/<vla>.yaml).",
+              file=sys.stderr)
+        sys.exit(1)
+    run, conds, trials = r2s
+    try:
+        cfg, tasks = libero_r2s.plan(config["libero_r2s"], run, suite, conditions=conds, trials=trials)
+    except ValueError as e:
+        print(f"[error] models/{vla}.yaml libero_r2s: {e}", file=sys.stderr)
+        sys.exit(1)
+    asset_dir = BASE_DIR / "assets" / "libero-r2s"
+    ctx = {
+        "run_uri": _shell_safe(cfg["run_uri"], "--real2sim-run"),
+        "run_id": cfg["run_prefix"].split("/", 1)[0],
+        "suite": suite,
+        "conditions": cfg["conditions"],
+        "modes": [c for c in cfg["conditions"] if c != "public"],
+        "trials_per_task": cfg["trials_per_task"],
+        "scale": cfg["scale"],
+        "mass": cfg["mass"],
+        "select": cfg["select"],
+        "objects": str(cfg["objects"] or ""),
+        "seed": cfg["seed"],
+        "build_py": (asset_dir / "build_r2s_objects.py").read_text(),
+        "select_py": (asset_dir / "r2s_select.py").read_text(),
+        "check_py": (asset_dir / "check_scene.py").read_text(),
+        "report_py": (asset_dir / "r2s_libero_report.py").read_text(),
+    }
+    return ctx, tasks
+
+
+def r2s_default_suite(config: dict, vla: str, libero_suite: str = OFT_DEFAULT_SUITE) -> str:
+    """LIBERO suite of a --libero-objects real2sim run: openvla-oft follows --libero-suite (one checkpoint per
+    suite); pi takes libero_r2s.suite (default libero_object; pi05_libero covers every suite)."""
+    if vla == "openvla-oft":
+        suites = (config.get("model") or {}).get("suites") or {}
+        return (suites.get(normalise_libero_suite(libero_suite)) or {}).get("task_suite_name", "")
+    return str((config.get("libero_r2s") or {}).get("suite", "libero_object"))
 
 
 def _load_merged_config(simulator_config_path: Path, vla: str) -> dict:
@@ -242,10 +299,29 @@ def _gr00t_sim_ctx(config: dict, vla: str) -> dict:
     }
 
 
-def generate_gr00t(config: dict, resolved_grpc: str, resolved_vpc: str, dry_run: bool, vla: str = "gr00t") -> str:
+def generate_gr00t(config: dict, resolved_grpc: str, resolved_vpc: str, dry_run: bool, vla: str = "gr00t",
+                   plus: tuple = None) -> str:
     """GR00T N1.7 x {LIBERO (gr00t) | SimplerEnv WidowX/Bridge (gr00t-bridge)} — shared gr00t-userdata.sh.j2."""
+    lp_ctx = None
+    if plus is not None:
+        # --libero-variant plus: one task entry per perturbation dimension; the variant ids are picked on the
+        # instance and each variant runs as its own gym id. The checkpoint subfolder follows the sweep suite
+        # (nvidia/GR00T-N1.7-LIBERO ships libero_spatial / _object / _goal / _10).
+        lp_ctx, lp_tasks = _libero_plus_ctx(config, vla, *plus)
+        if lp_ctx["hf_repo"] or resolved_grpc:
+            print(f"[error] models/{vla}.yaml: libero_plus.hf_repo / bridge mode are not supported for gr00t.",
+                  file=sys.stderr)
+            sys.exit(1)
+        t0 = config["tasks"][0]
+        keep = {k: t0[k] for k in ("embodiment", "n_envs", "video_fps", "video_crf", "steps_per_render") if k in t0}
+        steps = int(config["libero_plus"].get("max_episode_steps", t0.get("max_episode_steps", 720)))
+        config = {**config, "tasks": [dict(t, env_name=f"libero_plus/{t['perturbation']}", **keep,
+                                           n_episodes=lp_ctx["episodes_per_variant"], max_episode_steps=steps)
+                                      for t in lp_tasks],
+                  "model": {**config["model"], "hf_subfolder": lp_ctx["suite"]}}
     ctx = _build_gr00t_ctx(config, resolved_grpc, vla)
     ctx.update(_gr00t_sim_ctx(config, vla))
+    ctx["libero_plus"] = lp_ctx
     if ctx["sim_id"] != "libero" and resolved_grpc:
         print(f"[error] {vla}: bridge mode (remote gRPC inference) is LIBERO-only.", file=sys.stderr)
         sys.exit(1)
@@ -330,8 +406,9 @@ def generate_gr00t_g1(config: dict, resolved_grpc: str, resolved_vpc: str, dry_r
     return env.get_template("gr00t-g1-userdata.sh.j2").render(**ctx)
 
 
-def generate_openvla_oft(config: dict, libero_suite: str, dry_run: bool, plus: tuple = None) -> str:
-    """plus = (perturb, n) for --libero-variant plus (the sweep runs on the selected suite), else None."""
+def generate_openvla_oft(config: dict, libero_suite: str, dry_run: bool, plus: tuple = None, r2s: tuple = None) -> str:
+    """plus = (perturb, n) for --libero-variant plus (the sweep runs on the selected suite), else None.
+    r2s = (run uri, conditions, trials) for --libero-objects real2sim (the selected suite), else None."""
     suite = normalise_libero_suite(libero_suite)
     model = config.get("model", {})
     suites = model.get("suites", {})
@@ -360,6 +437,11 @@ def generate_openvla_oft(config: dict, libero_suite: str, dry_run: bool, plus: t
             sys.exit(1)
         tasks = [dict(t, num_trials_per_task=lp_ctx["episodes_per_variant"]) for t in lp_tasks]
 
+    r2s_ctx = None
+    if r2s is not None:
+        r2s_ctx, r2s_tasks = _libero_r2s_ctx(config, "openvla-oft", r2s, suite_cfg["task_suite_name"])
+        tasks = [dict(t, num_trials_per_task=r2s_ctx["trials_per_task"]) for t in r2s_tasks]
+
     tasks_json = _tasks_json_for_bash(tasks)
     deployment = config.get("deployment", {})
 
@@ -381,13 +463,14 @@ def generate_openvla_oft(config: dict, libero_suite: str, dry_run: bool, plus: t
         # generated code needs, so the resolver can pick a version that cannot import here).
         "tfmd_version": model.get("tfmd_version", ""),
         "libero_plus": lp_ctx,
+        "libero_r2s": r2s_ctx,
     }
 
     env = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)), keep_trailing_newline=True)  # nosec B701 - shell script template
     return env.get_template("openvla-oft-userdata.sh.j2").render(**ctx)
 
 
-def generate_rldx(config: dict, dry_run: bool, vla: str = "rldx") -> str:
+def generate_rldx(config: dict, dry_run: bool, vla: str = "rldx", plus: tuple = None) -> str:
     """RLDX-1 (RLWRLD): MSAT/Qwen3-VL-8B × {LIBERO | SimplerEnv | ...}. Local mode only.
 
     ONE shared template (rldx-userdata.sh.j2) parameterised by `sim_id` (openvla-oft
@@ -414,6 +497,17 @@ def generate_rldx(config: dict, dry_run: bool, vla: str = "rldx") -> str:
     if model.get("simpler_robot", "google") not in ("google", "widowx"):
         print(f"[error] models/{vla}.yaml: model.simpler_robot must be google or widowx", file=sys.stderr)
         sys.exit(1)
+    lp_ctx = None
+    if plus is not None:
+        # --libero-variant plus: RLDX-1's own LIBERO-Plus path at rldx_commit (rldx/eval/sim/LIBERO_PLUS,
+        # libero_plus_sim/<variant> gym ids, setup_libero_plus.sh). One rollout per variant, 1 episode each.
+        lp_ctx, lp_tasks = _libero_plus_ctx(config, vla, *plus)
+        if lp_ctx["hf_repo"] or model.get("sim_id", "libero") != "libero":
+            print(f"[error] models/{vla}.yaml: libero_plus needs the LIBERO sim and the model's own hf_repo",
+                  file=sys.stderr)
+            sys.exit(1)
+        tasks = [dict(t, num_episodes=lp_ctx["episodes_per_variant"]) for t in lp_tasks]
+        tasks_json = _tasks_json_for_bash(tasks)
 
     ctx = {
         "tasks_json": tasks_json,
@@ -494,17 +588,27 @@ def generate_rldx(config: dict, dry_run: bool, vla: str = "rldx") -> str:
         # ~17-18min cold. Raised for SIMPLER so the watchdog doesn't kill a healthy load
         # mid-shard. Stays well under creationpolicy_timeout (PT180M).
         "server_warmup_timeout": int(model.get("server_warmup_timeout", 900)),
+        "libero_plus": lp_ctx,
     }
 
     env = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)), keep_trailing_newline=True)  # nosec B701 - shell script template
     return env.get_template("rldx-userdata.sh.j2").render(**ctx)
 
 
-def generate_lap(config: dict, resolved_nlb: str, dry_run: bool) -> str:
+def generate_lap(config: dict, resolved_nlb: str, dry_run: bool, plus: tuple = None) -> str:
     tasks = config.get("tasks", [])
     if not tasks:
         print("[error] models/lap.yaml has no tasks entry.", file=sys.stderr)
         sys.exit(1)
+    lp_ctx = None
+    if plus is not None:
+        # --libero-variant plus: same Python 3.8 LIBERO client stack as pi (openpi's third_party/libero), so
+        # the pi recipe applies: fork in place of that submodule, filtered requirements, openpi task-loop patch.
+        lp_ctx, lp_tasks = _libero_plus_ctx(config, "lap", *plus)
+        if lp_ctx["hf_repo"]:
+            print("[error] models/lap.yaml: libero_plus.hf_repo is not supported", file=sys.stderr)
+            sys.exit(1)
+        tasks = [dict(t, num_trials_per_task=lp_ctx["episodes_per_variant"]) for t in lp_tasks]
 
     tasks_json = _tasks_json_for_bash(tasks)
     deployment = config.get("deployment", {})
@@ -526,6 +630,7 @@ def generate_lap(config: dict, resolved_nlb: str, dry_run: bool) -> str:
         "policy_type": model.get("policy_type", "flow"),
         "lap_proto": lap_proto_path.read_text() if lap_proto_path.exists() else "",
         "lap_grpc_bridge_py": lap_grpc_bridge_path.read_text() if lap_grpc_bridge_path.exists() else "",
+        "libero_plus": lp_ctx,
     }
 
     env = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)), keep_trailing_newline=True)  # nosec B701 - shell script template
@@ -624,7 +729,7 @@ def generate_openarm_lift_act(config: dict, dry_run: bool) -> str:
     return env.get_template("openarm-lift-act-userdata.sh.j2").render(**ctx)
 
 
-def generate_molmoact2(config: dict, dry_run: bool) -> str:
+def generate_molmoact2(config: dict, dry_run: bool, plus: tuple = None) -> str:
     """MolmoAct2 (Ai2) × LIBERO eval. Local in-process LeRobot inference (no policy server).
 
     MolmoAct2 is NOT in upstream LeRobot — installed from the allenai/lerobot FORK at a pinned
@@ -637,6 +742,17 @@ def generate_molmoact2(config: dict, dry_run: bool) -> str:
     if not tasks:
         print("[error] models/molmoact2.yaml has no tasks entry.", file=sys.stderr)
         sys.exit(1)
+    lp_ctx = None
+    if plus is not None:
+        # --libero-variant plus: same recipe as the lerobot-libero targets (the allenai fork carries
+        # LiberoPlusEnv and docker/Dockerfile.benchmark.libero_plus). The eval seed of the first LIBERO
+        # task entry is kept so only the scene changes.
+        lp_ctx, lp_tasks = _libero_plus_ctx(config, "molmoact2", *plus)
+        if lp_ctx["hf_repo"]:
+            print("[error] models/molmoact2.yaml: libero_plus.hf_repo is not supported", file=sys.stderr)
+            sys.exit(1)
+        seed = tasks[0].get("seed", 1000)
+        tasks = [dict(t, n_episodes=lp_ctx["episodes_per_variant"], seed=seed) for t in lp_tasks]
 
     tasks_json = _tasks_json_for_bash(tasks)
     deployment = config.get("deployment", {})
@@ -660,6 +776,7 @@ def generate_molmoact2(config: dict, dry_run: bool) -> str:
             "camera_name_mapping",
             '{"agentview_image":"image","robot0_eye_in_hand_image":"wrist_image"}',
         ),
+        "libero_plus": lp_ctx,
     }
 
     env = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)), keep_trailing_newline=True)  # nosec B701 - shell script template
@@ -821,7 +938,7 @@ def generate_lerobot_robotwin(config: dict, dry_run: bool, vla: str, protocol: s
     return env.get_template("lerobot-robotwin-userdata.sh.j2").render(**ctx)
 
 
-def generate_vla_adapter(config: dict, dry_run: bool, vla: str = "vla-adapter") -> str:
+def generate_vla_adapter(config: dict, dry_run: bool, vla: str = "vla-adapter", plus: tuple = None) -> str:
     """VLA-Adapter (OpenHelix) × LIBERO. An OpenVLA-OFT fork: vla-adapter-userdata.sh.j2 is a copy of the
     openvla-oft template (not shared, so the validated openvla-oft target cannot regress) with the repo,
     checkpoint and extra run_libero_eval.py flags taken from models/<vla>.yaml."""
@@ -834,6 +951,16 @@ def generate_vla_adapter(config: dict, dry_run: bool, vla: str = "vla-adapter") 
         if not model.get(key):
             print(f"[error] models/{vla}.yaml: model.{key} is required", file=sys.stderr)
             sys.exit(1)
+    lp_ctx = None
+    if plus is not None:
+        # --libero-variant plus: one task entry per perturbation dimension (same OFT task-loop patch as
+        # openvla-oft). The checkpoint is single-suite, so the sweep must run on that suite.
+        lp_ctx, lp_tasks = _libero_plus_ctx(config, vla, *plus)
+        if lp_ctx["hf_repo"] or lp_ctx["suite"] != model["task_suite_name"]:
+            print(f"[error] models/{vla}.yaml: libero_plus must run on the checkpoint's suite "
+                  f"({model['task_suite_name']}) with the model's own hf_repo", file=sys.stderr)
+            sys.exit(1)
+        tasks = [dict(t, num_trials_per_task=lp_ctx["episodes_per_variant"]) for t in lp_tasks]
     ctx = {
         "vla": vla,
         "tasks_json": _tasks_json_for_bash(tasks),
@@ -851,6 +978,7 @@ def generate_vla_adapter(config: dict, dry_run: bool, vla: str = "vla-adapter") 
         "extra_pip": list(model.get("extra_pip") or []),
         "sim_protect_pins": model.get("sim_protect_pins", ""),
         "tfmd_version": model.get("tfmd_version", ""),
+        "libero_plus": lp_ctx,
     }
     env = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)), keep_trailing_newline=True)  # nosec B701 - shell script template
     return env.get_template("vla-adapter-userdata.sh.j2").render(**ctx)
@@ -1301,11 +1429,27 @@ def generate_rlinf(config: dict, dry_run: bool, vla: str, profile: str = "smoke"
     return env.get_template("rlinf-userdata.sh.j2").render(**ctx)
 
 
-def generate_pi(config: dict, resolved_vpc: str, resolved_nlb: str, dry_run: bool) -> str:
+def generate_pi(config: dict, resolved_vpc: str, resolved_nlb: str, dry_run: bool, plus: tuple = None,
+                r2s: tuple = None, r2s_suite: str = None) -> str:
+    """r2s = (run uri, conditions, trials) for --libero-objects real2sim, else None."""
     tasks = config.get("tasks", [])
     if not tasks:
         print("[error] models/pi.yaml has no tasks entry.", file=sys.stderr)
         sys.exit(1)
+    lp_ctx = None
+    if plus is not None:
+        # --libero-variant plus: one task entry per perturbation dimension (variant ids picked on the
+        # instance); num_episodes = trials per variant. Same pi05_libero checkpoint as the LIBERO run.
+        lp_ctx, lp_tasks = _libero_plus_ctx(config, "pi", *plus)
+        if lp_ctx["hf_repo"]:
+            print("[error] models/pi.yaml: libero_plus.hf_repo is not supported (openpi serves the "
+                  "pi05_libero checkpoint itself).", file=sys.stderr)
+            sys.exit(1)
+        tasks = [dict(t, num_episodes=lp_ctx["episodes_per_variant"]) for t in lp_tasks]
+    r2s_ctx = None
+    if r2s is not None:
+        r2s_ctx, r2s_tasks = _libero_r2s_ctx(config, "pi", r2s, r2s_suite or r2s_default_suite(config, "pi"))
+        tasks = [dict(t, num_episodes=r2s_ctx["trials_per_task"]) for t in r2s_tasks]
 
     tasks_json = _tasks_json_for_bash(tasks)
     deployment = config.get("deployment", {})
@@ -1323,6 +1467,8 @@ def generate_pi(config: dict, resolved_vpc: str, resolved_nlb: str, dry_run: boo
         "pi_grpc_bridge_py": pi_grpc_bridge_path.read_text() if pi_grpc_bridge_path.exists() else "",
         "stackpatch_py": (BASE_DIR / "assets" / "stack-knobs" / "stackpatch.py").read_text(),
         "mujoco_pin": str(model.get("mujoco_pin", "") or "").strip(),
+        "libero_plus": lp_ctx,
+        "libero_r2s": r2s_ctx,
     }
 
     env = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)), keep_trailing_newline=True)  # nosec B701 - shell script template, autoescape not applicable
@@ -1359,6 +1505,21 @@ def main():
     parser.add_argument("--perturb-n", type=int, default=None, metavar="N",
                         help="--libero-variant plus: variants per dimension, 1 episode each; 0 = every variant "
                              "(default: libero_plus.variants_per_category)")
+    parser.add_argument("--libero-objects", default="libero", choices=list(libero_r2s.OBJECT_SOURCES),
+                        help="LIBERO targets: `real2sim` replaces LIBERO's HOPE objects by the objects reconstructed in "
+                             "a real2sim stage-1 run and evaluates public vs swapped scenes (models/<vla>.yaml "
+                             "libero_r2s; default: libero)")
+    parser.add_argument("--real2sim-run", default=None, metavar="S3_URI",
+                        help="--libero-objects real2sim: s3://<results bucket>/<RUN_ID> of a finished real2sim run")
+    parser.add_argument("--r2s-conditions", default=None, metavar="LIST",
+                        help=f"--libero-objects real2sim: conditions ({','.join(libero_r2s.CONDITIONS)}; public is "
+                             "always included; default: libero_r2s.conditions)")
+    parser.add_argument("--r2s-trials", type=int, default=None, metavar="N",
+                        help="--libero-objects real2sim: trials per selected task and condition "
+                             "(default: libero_r2s.trials_per_task)")
+    parser.add_argument("--r2s-suite", default=None, choices=list(libero_r2s.SUITES),
+                        help="pi + --libero-objects real2sim: LIBERO suite (default: libero_r2s.suite; "
+                             "openvla-oft uses --libero-suite)")
     parser.add_argument("--robotwin-protocol", default="subset", choices=list(robotwin_plan.PROTOCOLS),
                         help="RoboTwin targets: subset = the tasks of models/<vla>.yaml (default); clean / "
                              "randomized / full = the official 49 tasks x 100 episodes (full = both settings)")
@@ -1399,6 +1560,24 @@ def main():
     elif args.perturb is not None or args.perturb_n is not None:
         print("[error] --perturb / --perturb-n need --libero-variant plus.", file=sys.stderr)
         sys.exit(1)
+    r2s = None
+    r2s_flags = (args.real2sim_run, args.r2s_conditions, args.r2s_trials, args.r2s_suite)
+    if args.libero_objects == "real2sim":
+        if args.judge_target or plus is not None:
+            print("[error] --libero-objects real2sim applies to --vla targets and cannot be combined with "
+                  "--libero-variant plus.", file=sys.stderr)
+            sys.exit(1)
+        if not args.real2sim_run:
+            print("[error] --libero-objects real2sim needs --real2sim-run s3://<bucket>/<RUN_ID>.", file=sys.stderr)
+            sys.exit(1)
+        if args.r2s_suite and args.vla != "pi":
+            print("[error] --r2s-suite applies to pi (openvla-oft follows --libero-suite).", file=sys.stderr)
+            sys.exit(1)
+        r2s = (args.real2sim_run, args.r2s_conditions, args.r2s_trials)
+        _libero_r2s_ctx(config, args.vla, r2s, args.r2s_suite or r2s_default_suite(config, args.vla, args.libero_suite))
+    elif any(x is not None for x in r2s_flags):
+        print("[error] --real2sim-run / --r2s-* need --libero-objects real2sim.", file=sys.stderr)
+        sys.exit(1)
     print(f"VLA: {name}")
     print(f"Config: {config_path}")
     print(f"Model:  {BASE_DIR / 'models' / (name + '.yaml')}")
@@ -1406,24 +1585,24 @@ def main():
     if args.judge_target:
         rendered = generate_flora_judge(config, args.dry_run, judge=args.judge_target)
     elif args.vla in ("gr00t", "gr00t-bridge"):
-        rendered = generate_gr00t(config, args.resolved_grpc, args.resolved_vpc, args.dry_run, vla=args.vla)
+        rendered = generate_gr00t(config, args.resolved_grpc, args.resolved_vpc, args.dry_run, vla=args.vla, plus=plus)
     elif args.vla == "gr00t-gr1":
         rendered = generate_gr00t_gr1(config, args.resolved_grpc, args.resolved_vpc, args.dry_run)
     elif args.vla == "gr00t-g1":
         rendered = generate_gr00t_g1(config, args.resolved_grpc, args.resolved_vpc, args.dry_run,
                                      collect=args.collect)
     elif args.vla == "openvla-oft":
-        rendered = generate_openvla_oft(config, args.libero_suite, args.dry_run, plus=plus)
+        rendered = generate_openvla_oft(config, args.libero_suite, args.dry_run, plus=plus, r2s=r2s)
     elif args.vla == "lap":
-        rendered = generate_lap(config, args.resolved_nlb, args.dry_run)
+        rendered = generate_lap(config, args.resolved_nlb, args.dry_run, plus=plus)
     elif args.vla in ("rldx", "rldx-simpler", "rldx-bridge", "rldx-gr1", "rldx-kitchen"):
-        rendered = generate_rldx(config, args.dry_run, vla=args.vla)
+        rendered = generate_rldx(config, args.dry_run, vla=args.vla, plus=plus)
     elif args.vla == "openarm-isaac":
         rendered = generate_openarm_isaac(config, args.dry_run)
     elif args.vla == "openarm-lift-act":
         rendered = generate_openarm_lift_act(config, args.dry_run)
     elif args.vla == "molmoact2":
-        rendered = generate_molmoact2(config, args.dry_run)
+        rendered = generate_molmoact2(config, args.dry_run, plus=plus)
     elif args.vla in LEROBOT_LIBERO_TARGETS:
         rendered = generate_lerobot_libero(config, args.dry_run, vla=args.vla, plus=plus)
     elif args.vla in LEROBOT_ROBOTWIN_TARGETS:
@@ -1432,7 +1611,7 @@ def main():
     elif args.vla == "cosmos-policy":
         rendered = generate_cosmos_policy(config, args.dry_run)
     elif args.vla == "vla-adapter":
-        rendered = generate_vla_adapter(config, args.dry_run)
+        rendered = generate_vla_adapter(config, args.dry_run, plus=plus)
     elif args.vla == "aspire":
         rendered = generate_aspire(config, args.dry_run)
     elif args.vla == "real2sim":
@@ -1443,7 +1622,8 @@ def main():
         rendered = generate_rlinf(config, args.dry_run, vla=args.vla, profile=args.rl_profile, steps=args.rl_steps,
                                   eval_run=args.rl_eval_run)
     else:
-        rendered = generate_pi(config, args.resolved_vpc, args.resolved_nlb, args.dry_run)
+        rendered = generate_pi(config, args.resolved_vpc, args.resolved_nlb, args.dry_run, plus=plus,
+                               r2s=r2s, r2s_suite=args.r2s_suite)
 
     if args.dry_run:
         print("=" * 60)

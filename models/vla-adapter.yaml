@@ -31,5 +31,17 @@ tasks:
     num_trials_per_task: 1          # all 10 tasks x 1 trial (pipe-proof)
     description: "LIBERO-Spatial pipe-proof (VLA-Adapter-Pro, 10 tasks x 1 trial)"
 
+# --libero-variant plus (LIBERO-Plus robustness sweep, docs/targets.md#libero-plus-robustness-sweep).
+# Same fork swap + task-loop patch as openvla-oft (VLA-Adapter keeps OFT's run_libero_eval.py loop).
+# The checkpoint is LIBERO-Spatial only, so the sweep runs on libero_spatial.
+libero_plus:
+  suite: libero_spatial
+  perturb: [camera, robot, language, light, background, noise, layout]
+  variants_per_category: 10        # 7 x 10 variants x 1 trial = 70 episodes
+  seed: 7
+  pip_pins: "Wand==0.6.13 scikit-image==0.24.0"   # extra_requirements.txt of the fork (py3.10, numpy<2)
+  creationpolicy_timeout: PT210M   # install ~35 + ckpt ~5 + assets 6.4 GB ~10 + eval ~40 + buffer
+  ebs_gb: 180                      # + 6.4 GB zip and its extracted asset tree
+
 bridge:
   enabled: false

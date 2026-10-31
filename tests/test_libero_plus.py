@@ -90,6 +90,26 @@ def test_oft_patch_rewrites_the_task_loop_once(tmp_path):
     assert subprocess.run([sys.executable, str(PATCH), str(f)], capture_output=True).returncode != 0
 
 
+def test_openpi_patch_rewrites_loop_and_video_name_once(tmp_path):
+    patch = ROOT / "assets" / "libero-plus" / "openpi_task_ids_patch.py"
+    f = tmp_path / "main.py"
+    f.write_text("    for task_id in tqdm.tqdm(range(num_tasks_in_suite)):\n"
+                 "        p = f\"rollout_{task_segment}_{suffix}.mp4\"\n"
+                 "    env_args = {\"bddl_file_name\": task_bddl_file, \"camera_heights\": resolution}\n")
+    assert subprocess.run([sys.executable, str(patch), str(f), "4,12"], capture_output=True).returncode == 0
+    text = f.read_text()
+    assert "tqdm.tqdm([4, 12])" in text and "rollout_{task_id:05d}_{task_segment}" in text
+    # LIBERO-Plus' env_wrapper does `"_view_" in bddl_file_name` → TypeError on a pathlib.Path
+    assert '"bddl_file_name": str(task_bddl_file)' in text
+    # second run: the loop is gone → fail loudly instead of silently running every variant
+    assert subprocess.run([sys.executable, str(patch), str(f), "4"], capture_output=True).returncode != 0
+    f.write_text("for task_id in tqdm.tqdm(range(num_tasks_in_suite)):\n")  # video site missing
+    assert subprocess.run([sys.executable, str(patch), str(f), "4"], capture_output=True).returncode != 0
+    f.write_text("for task_id in tqdm.tqdm(range(num_tasks_in_suite)):\n"  # bddl site missing
+                 "p = f\"rollout_{task_segment}_{suffix}.mp4\"\n")
+    assert subprocess.run([sys.executable, str(patch), str(f), "4"], capture_output=True).returncode != 0
+
+
 # --- renders -----------------------------------------------------------------------------------------
 
 def _gen(tmp_path, *args):
@@ -97,7 +117,10 @@ def _gen(tmp_path, *args):
                           cwd=ROOT, capture_output=True, text=True, timeout=120)
 
 
-@pytest.mark.parametrize("vla,extra", [("smolvla", []), ("openvla-oft", ["--libero-suite", "spatial"])])
+@pytest.mark.parametrize("vla,extra", [("smolvla", []), ("openvla-oft", ["--libero-suite", "spatial"]), ("pi", []),
+                                       ("xvla", []), ("fastwam", []), ("gr00t", []),
+                                       ("vla-adapter", []), ("molmoact2", []),
+                                       ("rldx", []), ("lap", [])])
 def test_plus_render(vla, extra, tmp_path):
     pytest.importorskip("jinja2")
     out = _gen(tmp_path, "--vla", vla, *extra, "--libero-variant", "plus", "--perturb", "camera,light", "--perturb-n", "3")
@@ -106,13 +129,36 @@ def test_plus_render(vla, extra, tmp_path):
     assert libero_plus.DEFAULTS["repo_commit"] in text and libero_plus.DEFAULTS["assets_sha256"] in text
     tasks = json.loads(text.split("TASKS_JSON='", 1)[1].split("'\n", 1)[0])
     assert [t["condition"] for t in tasks] == ["LIBERO-Plus/camera", "LIBERO-Plus/light"]
-    assert all(t["variants"] == 3 and t["suite"] == "libero_spatial" for t in tasks)
-    if vla == "smolvla":
+    suite = "libero_goal" if vla == "molmoact2" else "libero_spatial"  # molmoact2: suite of its baseline
+    assert all(t["variants"] == 3 and t["suite"] == suite for t in tasks)
+    if vla in ("smolvla", "xvla", "fastwam", "molmoact2"):
         assert "--env.type=libero_plus" in text and "uv run --active --no-sync lerobot-eval" in text
         assert all(t["n_episodes"] == 1 for t in tasks)
+    elif vla == "gr00t":
+        assert 'libero_sim/${LP_NAME}' in text and "LP_SETUP_EOF" in text and "LIBERO-PLUS VERIFY OK" in text
+        assert "NEEDED = 'libero_spatial'" in text  # checkpoint subfolder follows the sweep suite
+        assert all(t["n_episodes"] == 1 and t["embodiment"] == "LIBERO_PANDA" for t in tasks)
+    elif vla == "rldx":  # RLDX-1's own LIBERO-Plus path (libero_plus_uv venv, libero_plus_sim/<variant>)
+        assert "setup_libero_plus.sh" in text and 'libero_plus_sim/${LP_NAME}' in text
+        assert "LIBERO-PLUS VERIFY OK" in text and "LIBERO_PLUS_UV" not in text
+        assert "LIBERO_VENV=${RLDX_DIR}/rldx/eval/sim/LIBERO_PLUS/libero_plus_uv/.venv" in text
+        assert "run_scripts/eval/libero/setup_libero.sh" not in text
+        assert all(t["num_episodes"] == 1 for t in tasks)
+    elif vla == "lap":  # pi's Python 3.8 client recipe in LAP's host venv
+        assert "lap_lp_task_ids_patch.py" in text and "requirements.lap.txt" in text and "lp_verify.py" in text
+        assert 'cp "${LAP_MAIN_PY}.lporig" "${LAP_MAIN_PY}"' in text and "rollout_wrist_{task_id:05d}_" in text
+        assert all(t["num_trials_per_task"] == 1 for t in tasks)
+    elif vla == "pi":
+        assert "pi_lp_task_ids_patch.py" in text and "requirements.openpi.txt" in text
+        assert 'rm -rf "${OPENPI_DIR}/third_party/libero"' in text and "lp_verify.py" in text
+        assert "hf_dl_guard" not in text and "/root/.libero/config.yaml" not in text
+        assert 'LIBERO_PLUS_DIR=${OPENPI_DIR}/third_party/libero' in text and "Cloning LIBERO-Plus" in text
+        assert all(t["num_episodes"] == 1 for t in tasks)
     else:
         assert "lp_oft_task_ids_patch.py" in text and "Lifelong-Robot-Learning/LIBERO.git" not in text
         assert all(t["num_trials_per_task"] == 1 for t in tasks)
+        if vla == "vla-adapter":  # no stackpatch.py here: the eval script is restored before each patch
+            assert 'cp "${LP_EVAL_PY}.lporig" "${LP_EVAL_PY}"' in text and "condition: ${K_COND}" in text
     assert subprocess.run(["bash", "-n", str(tmp_path / f"{vla}.sh")]).returncode == 0
 
 
@@ -126,8 +172,9 @@ def test_explicit_libero_variant_is_the_default_render(tmp_path):
 
 
 @pytest.mark.parametrize("args", [
-    ["--vla", "pi", "--libero-variant", "plus"],                 # no switch in this template
-    ["--vla", "xvla", "--libero-variant", "plus"],               # template has it, model yaml has no block
+    ["--vla", "aspire", "--libero-variant", "plus"],             # no switch in this template
+    ["--vla", "cosmos-policy", "--libero-variant", "plus"],      # no switch in this template
+    ["--vla", "gr00t-bridge", "--libero-variant", "plus"],       # SimplerEnv, not LIBERO
     ["--vla", "smolvla", "--libero-variant", "plus", "--perturb", "fog"],
     ["--vla", "smolvla", "--perturb", "camera"],                 # --perturb without plus
 ])
@@ -174,3 +221,24 @@ def test_robustness_without_baseline():
     (noise, total) = results.robustness(rows)
     assert noise["baseline"] == "-" and noise["drop_pp"] == "" and total["perturbation"] == "all"
     assert results.robustness([dict(rows[0], condition="S0")]) == []
+
+
+def test_fork_requirements_filter_and_check_agree():
+    """The post-filter check must use the same name boundary as the filter.
+
+    The fork lists ``wandb``; a check without the boundary matched ``wand`` inside it and
+    aborted the pi / lap / gr00t plus runs right after the asset download.
+    """
+    import re
+    import subprocess
+
+    fixture = " wandb==0.13.1 \n robosuite==1.4.0\nusd-core>=25.5\nWand\nscikit-image\nnumpy==1.26.4\n"
+    root = Path(__file__).resolve().parents[1] / "templates"
+    for name in ("pi-userdata.sh.j2", "lap-userdata.sh.j2", "gr00t-userdata.sh.j2"):
+        text = (root / name).read_text()
+        flt = re.search(r"grep -viE '([^']+)'", text).group(1)
+        chk = re.search(r"! grep -qiE '([^']+)'", text).group(1)
+        kept = subprocess.run(["grep", "-viE", flt], input=fixture, capture_output=True, text=True).stdout
+        assert "wandb" in kept and "robosuite" not in kept, name
+        bad = subprocess.run(["grep", "-qiE", chk], input=kept, capture_output=True, text=True).returncode == 0
+        assert not bad, f"{name}: check rejects a correctly filtered requirements file"

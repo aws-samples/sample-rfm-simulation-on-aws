@@ -21,6 +21,7 @@
  *   npx cdk deploy XVLA-Demo                   -c region=us-east-1 -c vla=xvla
  *   npx cdk deploy Real2Sim-Demo               -c region=ap-northeast-2 -c vla=real2sim
  *   npx cdk deploy SmolVLA-Demo                -c region=us-east-1 -c vla=smolvla -c libero_variant=plus
+ *   npx cdk deploy Pi-Demo                     -c region=us-east-1 -c vla=pi -c libero_objects=real2sim -c real2sim_run=s3://<bucket>/<RUN_ID>/real2sim
  *   npx cdk deploy RoboLab-Cosmos3-Demo        -c region=us-east-1 -c vla=robolab-cosmos3
  *   npx cdk deploy SmolVLA-RoboTwin-Demo       -c region=us-east-1 -c vla=smolvla-robotwin [-c robotwin_protocol=clean]
  *   npx cdk deploy LingBot-VLA2-Demo           -c region=us-east-1 -c vla=lingbot-vla2
@@ -61,6 +62,15 @@ const liberoVariant: string = app.node.tryGetContext('libero_variant') ?? 'liber
 if (!['libero', 'plus'].includes(liberoVariant)) {
   throw new Error(`Invalid libero_variant "${liberoVariant}". Supported: libero, plus.`);
 }
+
+// LIBERO-R2S real2sim object swap (deploy.py --libero-objects real2sim): same stack and results bucket; the stack
+// grants s3:GetObject on exactly the stage-1 outputs the UserData downloads and takes the timeout / EBS size from
+// models/<vla>.yaml libero_r2s. Absent = LIBERO.
+const liberoObjects: string = app.node.tryGetContext('libero_objects') ?? 'libero';
+if (!['libero', 'real2sim'].includes(liberoObjects)) {
+  throw new Error(`Invalid libero_objects "${liberoObjects}". Supported: libero, real2sim.`);
+}
+const real2simRun: string = String(app.node.tryGetContext('real2sim_run') ?? '').trim();
 
 const suiteCap = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1);
 const oftStackName = (suite: string): string =>
@@ -138,6 +148,8 @@ const stack = new VlaSimulatorStack(app, stackName, {
   vla,
   liberoSuite,
   liberoVariant,
+  liberoObjects,
+  real2simRun,
   env: {
     account: process.env.CDK_DEFAULT_ACCOUNT,
     region,

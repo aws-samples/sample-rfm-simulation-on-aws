@@ -86,6 +86,16 @@ RECOMMENDED_NODE_MAJOR = 20
 # 0 here, which is the classic cause of a mid-deploy InsufficientInstanceCapacity /
 # VcpuLimitExceeded failure — exactly what `doctor` exists to catch up front.
 GVR_ONDEMAND_QUOTA_CODE = "L-DB2E81BA"
+# P-family instances (p4d, p4de, p5, p5en, ...) count against a separate quota.
+P_ONDEMAND_QUOTA_CODE = "L-417A185B"
+_QUOTA_FAMILIES = {
+    "G/VR": (GVR_ONDEMAND_QUOTA_CODE, "Running On-Demand G and VR instances"),
+    "P": (P_ONDEMAND_QUOTA_CODE, "Running On-Demand P instances"),
+}
+
+
+def _quota_family(instance_type: str) -> str:
+    return "P" if instance_type.lower().startswith("p") else "G/VR"
 
 # vCPU by instance size suffix (covers every size used in models/*.yaml preferred lists).
 _SIZE_VCPU = {
@@ -390,44 +400,49 @@ def _check_hf_token(d, boto3, ClientError, BotoCoreError, region, vla):
 
 
 def _check_gpu_quota(d, boto3, ClientError, BotoCoreError, region, vla, rl_profile=None):
-    """Compare the On-Demand G/VR vCPU quota against the smallest viable instance.
+    """Compare the On-Demand vCPU quota of each instance family (G/VR, P) in the
+    target's preferred list against the smallest instance of that family.
 
     Always WARN-only: Service Quotas can be access-denied, and the AzSelector
     Lambda falls back across instance types/AZs at deploy time anyway. The goal is
     to surface an obvious 0-quota fresh account, not to gate the deploy.
     """
-    # Required vCPU = the smallest instance in the target's preferred list (the
-    # AzSelector can fall back to it), or a generic single-GPU 4 vCPU floor.
-    need = 4
-    detail = "a single-GPU instance"
+    # Required vCPU per family = the smallest instance of that family in the
+    # target's preferred list, or a generic single-GPU 4 vCPU G/VR floor.
+    needs = {"G/VR": (4, "a single-GPU instance")}
     if vla:
         pref = _model_preferred(vla, rl_profile)
-        if pref:
-            vcpus = [v for v in (_instance_vcpu(i) for i in pref) if v]
-            if vcpus:
-                need = min(vcpus)
-                smallest = pref[vcpus.index(need)] if need in vcpus else pref[-1]
-                detail = f"{smallest} ({need} vCPU, smallest in {vla} preferred list)"
-    try:
-        sq = boto3.client("service-quotas", region_name=region)
-        resp = sq.get_service_quota(ServiceCode="ec2", QuotaCode=GVR_ONDEMAND_QUOTA_CODE)
-        limit = int(resp["Quota"]["Value"])
-        if limit <= 0:
-            d.warn(f"On-Demand G/VR vCPU quota is {limit} in {region} — cannot launch {detail}",
-                   "request a quota increase: Service Quotas > EC2 > "
-                   "'Running On-Demand G and VR instances'")
-        elif limit < need:
-            d.warn(f"On-Demand G/VR vCPU quota is {limit} in {region}, "
-                   f"but {detail} needs {need}",
-                   "request a quota increase (EC2 'Running On-Demand G and VR instances')")
-        else:
-            d.ok(f"On-Demand G/VR vCPU quota = {limit} in {region} (>= {need} for {detail})")
-    except ClientError as e:
-        code = e.response.get("Error", {}).get("Code", type(e).__name__)
-        d.warn(f"could not read G/VR vCPU quota ({code})",
-               "verify manually in the Service Quotas console (EC2)")
-    except BotoCoreError as e:
-        d.warn(f"could not read G/VR vCPU quota ({type(e).__name__})")
+        sized = [(i, _instance_vcpu(i)) for i in (pref or [])]
+        sized = [(i, v) for i, v in sized if v]
+        if sized:
+            needs = {}
+            for inst, vcpu in sized:
+                fam = _quota_family(inst)
+                if fam not in needs or vcpu < needs[fam][0]:
+                    needs[fam] = (vcpu, inst)
+            needs = {fam: (v, f"{inst} ({v} vCPU, smallest {fam} instance in {vla} preferred list)")
+                     for fam, (v, inst) in needs.items()}
+    sq = boto3.client("service-quotas", region_name=region)
+    for fam, (need, detail) in needs.items():
+        code, name = _QUOTA_FAMILIES[fam]
+        try:
+            resp = sq.get_service_quota(ServiceCode="ec2", QuotaCode=code)
+            limit = int(resp["Quota"]["Value"])
+            if limit <= 0:
+                d.warn(f"On-Demand {fam} vCPU quota is {limit} in {region} — cannot launch {detail}",
+                       f"request a quota increase: Service Quotas > EC2 > '{name}'")
+            elif limit < need:
+                d.warn(f"On-Demand {fam} vCPU quota is {limit} in {region}, "
+                       f"but {detail} needs {need}",
+                       f"request a quota increase (EC2 '{name}')")
+            else:
+                d.ok(f"On-Demand {fam} vCPU quota = {limit} in {region} (>= {need} for {detail})")
+        except ClientError as e:
+            err = e.response.get("Error", {}).get("Code", type(e).__name__)
+            d.warn(f"could not read {fam} vCPU quota ({err})",
+                   "verify manually in the Service Quotas console (EC2)")
+        except BotoCoreError as e:
+            d.warn(f"could not read {fam} vCPU quota ({type(e).__name__})")
 
 
 def _summary(d, vla):

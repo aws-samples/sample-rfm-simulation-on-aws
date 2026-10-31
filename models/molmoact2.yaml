@@ -96,6 +96,20 @@ tasks:
     paper_success_rate: 0.972       # MolmoAct2 base LIBERO avg (blog/paper); full-suite target
     seed: 1000
 
+# --libero-variant plus (LIBERO-Plus robustness sweep, docs/targets.md#libero-plus-robustness-sweep).
+# The allenai fork at lerobot_commit carries LiberoPlusEnv (--env.type=libero_plus) and
+# docker/Dockerfile.benchmark.libero_plus with the same pins as upstream, so the smolvla recipe applies.
+# Suite = libero_goal, the suite of the LIBERO baseline above (one checkpoint covers every suite, so
+# libero_spatial also works; the --robustness drop column then needs a libero_spatial baseline run).
+libero_plus:
+  suite: libero_goal
+  perturb: [camera, robot, language, light, background, noise, layout]
+  variants_per_category: 10        # 7 x 10 variants x 1 episode = 70 episodes (fp32 on L40S)
+  seed: 7
+  pip_pins: "robosuite==1.4.1 bddl==1.0.1 easydict==1.13 mujoco==3.7.0 matplotlib==3.10.8 Wand==0.6.13 scikit-image==0.25.2 gym==0.26.2"
+  creationpolicy_timeout: PT300M   # uv sync ~30 + ckpt 22 GB ~10 + assets 6.4 GB ~10 + eval ~70-100 + buffer
+  ebs_gb: 270                      # + 6.4 GB zip and its extracted asset tree
+
 # No bridge mode — local in-process LeRobot inference only (MolmoAct2Policy on the sim GPU).
 bridge:
   enabled: false

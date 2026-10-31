@@ -245,6 +245,39 @@ def test_doctor_reads_the_profile_instance_list():
     assert vlasim._model_preferred("xvla", "full") == vlasim._model_preferred("xvla")  # no profiles block
 
 
+def test_doctor_checks_the_p_quota_for_the_full_profile():
+    """The full profile's instances are all P-family; doctor used to read only the G/VR quota."""
+    import vlasim
+
+    class Doc:
+        def __init__(self):
+            self.lines = []
+        def ok(self, m, *a):
+            self.lines.append(("ok", m))
+        def warn(self, m, *a):
+            self.lines.append(("warn", m))
+
+    asked = []
+
+    class SQ:
+        def get_service_quota(self, ServiceCode, QuotaCode):
+            asked.append(QuotaCode)
+            return {"Quota": {"Value": {"L-417A185B": 0, "L-DB2E81BA": 768}[QuotaCode]}}
+
+    class Boto:
+        def client(self, *a, **k):
+            return SQ()
+
+    d = Doc()
+    vlasim._check_gpu_quota(d, Boto(), Exception, Exception, "us-east-1", VLA, "full")
+    assert asked == [vlasim.P_ONDEMAND_QUOTA_CODE]
+    assert d.lines and d.lines[0][0] == "warn" and "P vCPU quota is 0" in d.lines[0][1]
+    asked.clear()
+    d = Doc()
+    vlasim._check_gpu_quota(d, Boto(), Exception, Exception, "us-east-1", VLA, "smoke")
+    assert vlasim.GVR_ONDEMAND_QUOTA_CODE in asked and vlasim.P_ONDEMAND_QUOTA_CODE in asked  # p5.4xlarge fallback
+
+
 def test_hydra_config_path_is_absolute():
     """Hydra resolves a relative --config-path against the script's directory, so
     examples/embodiment/config/ became examples/embodiment/examples/embodiment/config."""

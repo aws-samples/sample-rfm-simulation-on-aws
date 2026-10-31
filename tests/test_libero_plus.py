@@ -90,6 +90,20 @@ def test_oft_patch_rewrites_the_task_loop_once(tmp_path):
     assert subprocess.run([sys.executable, str(PATCH), str(f)], capture_output=True).returncode != 0
 
 
+def test_openpi_patch_rewrites_loop_and_video_name_once(tmp_path):
+    patch = ROOT / "assets" / "libero-plus" / "openpi_task_ids_patch.py"
+    f = tmp_path / "main.py"
+    f.write_text("    for task_id in tqdm.tqdm(range(num_tasks_in_suite)):\n"
+                 "        p = f\"rollout_{task_segment}_{suffix}.mp4\"\n")
+    assert subprocess.run([sys.executable, str(patch), str(f), "4,12"], capture_output=True).returncode == 0
+    text = f.read_text()
+    assert "tqdm.tqdm([4, 12])" in text and "rollout_{task_id:05d}_{task_segment}" in text
+    # second run: the loop is gone → fail loudly instead of silently running every variant
+    assert subprocess.run([sys.executable, str(patch), str(f), "4"], capture_output=True).returncode != 0
+    f.write_text("for task_id in tqdm.tqdm(range(num_tasks_in_suite)):\n")  # video site missing
+    assert subprocess.run([sys.executable, str(patch), str(f), "4"], capture_output=True).returncode != 0
+
+
 # --- renders -----------------------------------------------------------------------------------------
 
 def _gen(tmp_path, *args):
@@ -97,7 +111,8 @@ def _gen(tmp_path, *args):
                           cwd=ROOT, capture_output=True, text=True, timeout=120)
 
 
-@pytest.mark.parametrize("vla,extra", [("smolvla", []), ("openvla-oft", ["--libero-suite", "spatial"])])
+@pytest.mark.parametrize("vla,extra", [("smolvla", []), ("openvla-oft", ["--libero-suite", "spatial"]), ("pi", []),
+                                       ("xvla", []), ("fastwam", [])])
 def test_plus_render(vla, extra, tmp_path):
     pytest.importorskip("jinja2")
     out = _gen(tmp_path, "--vla", vla, *extra, "--libero-variant", "plus", "--perturb", "camera,light", "--perturb-n", "3")
@@ -107,9 +122,14 @@ def test_plus_render(vla, extra, tmp_path):
     tasks = json.loads(text.split("TASKS_JSON='", 1)[1].split("'\n", 1)[0])
     assert [t["condition"] for t in tasks] == ["LIBERO-Plus/camera", "LIBERO-Plus/light"]
     assert all(t["variants"] == 3 and t["suite"] == "libero_spatial" for t in tasks)
-    if vla == "smolvla":
+    if vla in ("smolvla", "xvla", "fastwam"):
         assert "--env.type=libero_plus" in text and "uv run --active --no-sync lerobot-eval" in text
         assert all(t["n_episodes"] == 1 for t in tasks)
+    elif vla == "pi":
+        assert "pi_lp_task_ids_patch.py" in text and "requirements.openpi.txt" in text
+        assert 'rm -rf "${OPENPI_DIR}/third_party/libero"' in text and "lp_verify.py" in text
+        assert "hf_dl_guard" not in text and "/root/.libero/config.yaml" not in text
+        assert all(t["num_episodes"] == 1 for t in tasks)
     else:
         assert "lp_oft_task_ids_patch.py" in text and "Lifelong-Robot-Learning/LIBERO.git" not in text
         assert all(t["num_trials_per_task"] == 1 for t in tasks)
@@ -126,8 +146,8 @@ def test_explicit_libero_variant_is_the_default_render(tmp_path):
 
 
 @pytest.mark.parametrize("args", [
-    ["--vla", "pi", "--libero-variant", "plus"],                 # no switch in this template
-    ["--vla", "xvla", "--libero-variant", "plus"],               # template has it, model yaml has no block
+    ["--vla", "lap", "--libero-variant", "plus"],                # no switch in this template
+    ["--vla", "molmoact2", "--libero-variant", "plus"],          # no switch in this template
     ["--vla", "smolvla", "--libero-variant", "plus", "--perturb", "fog"],
     ["--vla", "smolvla", "--perturb", "camera"],                 # --perturb without plus
 ])

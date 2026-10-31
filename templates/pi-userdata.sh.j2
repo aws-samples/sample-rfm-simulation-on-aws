@@ -671,6 +671,7 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
     [ -f "/tmp/pi_task${TASK_IDX}_summary.txt" ] && \
         aws s3 cp "/tmp/pi_task${TASK_IDX}_summary.txt" \
         "${S3_TASK_PREFIX}/summary.txt" --region "$REGION" || true
+    {% from "_protocol-card.sh.j2" import protocol_card with context %}{{ protocol_card('"/tmp/pi_task${TASK_IDX}_summary.txt"', '"${S3_TASK_PREFIX}"') }}
 {%- if libero_plus %}
     [ -f "/tmp/pi_task${TASK_IDX}_libero_plus_variants.json" ] && \
         aws s3 cp "/tmp/pi_task${TASK_IDX}_libero_plus_variants.json" \

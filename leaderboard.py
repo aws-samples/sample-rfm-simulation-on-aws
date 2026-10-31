@@ -291,6 +291,7 @@ def read_run(s3, bucket, stack, region, run):
         r = results.task_row(view, region, bucket, run, t)
         summ = view.text(region, bucket, t + "summary.txt")
         r["kv"] = dict(results.KV_RE.findall(summ)) if summ else {}
+        r["protocol"] = results.read_protocol_card(view, region, bucket, t)
         r["prefix"] = t
         tasks.append(r)
     return dict(bucket=bucket, stack=stack, region=region, run=run, objects=objects, view=view, tasks=tasks)
@@ -559,6 +560,12 @@ def _f(v, fmt):
     return "-" if v is None else format(v, fmt)
 
 
+def has_card(groups):
+    """Every finished task of the cell's runs wrote protocol.yaml (templates/_protocol-card.sh.j2)."""
+    tasks = [t for g in groups for t in g["tasks"]]
+    return bool(tasks) and all(t.get("protocol") for t in tasks)
+
+
 def build(cells, with_cost=True):
     """Plain data for every cell: what the markdown, CSV and JSON outputs are made of."""
     diffs = stack_differences(cells)
@@ -571,7 +578,9 @@ def build(cells, with_cost=True):
         rec = dict(target=row, benchmark=col, condition=groups[0]["condition"], suite=groups[0]["suite"],
                    k=st["k"], n=st["n"], rate=st["rate"], ci95_lo=st["lo"], ci95_hi=st["hi"],
                    stacks_differ=stacks_differ,
-                   no_fingerprint=not groups[0]["fp"] or groups[0]["condition"].strip() in ("", "-"),
+                   no_fingerprint=not has_card(groups) and (not groups[0]["fp"]
+                                                            or groups[0]["condition"].strip() in ("", "-")),
+                   protocol_card=has_card(groups),
                    sources=[f"{g['run']['stack']}@{g['run']['region']} {g['run']['run']}" for g in groups],
                    fingerprint=groups[0]["fp"])
         if with_cost:
@@ -604,7 +613,8 @@ def render_markdown(data, with_cost=True, generated=None):
     lines.append("")
     lines.append("Cell = latest run under a baseline condition: rate (k/n) [95% Wilson interval]. "
                  "† = a stack fingerprint key differs from another cell in the same column (see below); "
-                 "‡ = no stack fingerprint or no condition recorded (older summary; comparability unknown). Compare cells only when episode count, init states, "
+                 "‡ = no protocol card and no stack fingerprint or condition recorded (older summary; comparability "
+                 "unknown). Compare cells only when episode count, init states, "
                  "step cap and chunk execution match.")
     if data["stack_differences"]:
         lines.append("")
@@ -640,7 +650,7 @@ def render_markdown(data, with_cost=True, generated=None):
 
 
 CSV_COLS = ["target", "benchmark", "condition", "suite", "k", "n", "rate", "ci95_lo", "ci95_hi", "stacks_differ",
-            "no_fingerprint", "runs", "instance_type", "wall_s", "wall_src", "usd_per_run", "usd_per_episode",
+            "no_fingerprint", "protocol_card", "runs", "instance_type", "wall_s", "wall_src", "usd_per_run", "usd_per_episode",
             "episode_wall_s", "policy_ms_per_step", "timing_src", "sources"]
 
 

@@ -379,6 +379,7 @@ while IFS= read -r mp4_file || [[ -n "$mp4_file" ]]; do
 done < <(find "${W}/videos" -name "*.mp4" 2>/dev/null | sort)
 log "  Videos uploaded: ${UPLOAD_COUNT}/${VIDEO_COUNT}"
 aws s3 cp "${W}/out/summary.txt" "${S3_TASK_PREFIX}/summary.txt" --region "$REGION" || true
+{% from "_protocol-card.sh.j2" import protocol_card with context %}{{ protocol_card('"${W}/out/summary.txt"', '"${S3_TASK_PREFIX}"') }}
 cp /var/log/{{ vla }}-userdata.log "${W}/out/userdata.log" 2>/dev/null || true
 for _f in /tmp/{{ vla }}_*.log; do
     if [ -f "$_f" ]; then cp "$_f" "${W}/out/logs-$(basename "$_f")"; fi

@@ -419,3 +419,29 @@ def test_matrix_no_results(monkeypatch, capsys):
 def test_policy_stack_keys_are_not_compared():
     kvs = [{"stack_eval_args": "--policy.path=a", "stack_server": "86e1ee52", "stack_sapien": "3.0.0b1"}]
     assert lb.fingerprint(kvs) == {"stack_sapien": "3.0.0b1"}
+
+
+def test_protocol_card_clears_the_unknown_comparability_mark(monkeypatch):
+    """A cell whose every finished task wrote protocol.yaml is no longer marked ‡, even without a stack fingerprint."""
+    monkeypatch.setattr(lb, "known_targets", lambda: TARGETS_FX)
+    objs = fixture_objects()
+    r = sorted({k.split("/")[0] for k in objs[bucket("xvla-demo")] if results.RUN_RE.match(k.split("/")[0])})[-1]
+    put(objs, "xvla-demo", r, "task-0/protocol.yaml",
+        "schema: rfm-simulation/protocol-card/v1\ntarget: 'xvla'\ncondition: 'unknown'\nk: unknown\nn: unknown\n", 15)
+    args = argparse.Namespace(region=None, vla=None, since=None)
+    runs = lb.collect_runs(args, _FakeBoto3(list(objs)), s3=FakeS3(objs), workers=2)
+    x = by_cell(lb.build(lb.select_cells(runs, targets=TARGETS_FX)))[("xvla", "LIBERO-Spatial")]
+    assert x["protocol_card"] is True and x["no_fingerprint"] is False
+    plain = by_cell(lb.build(lb.select_cells(lb.collect_runs(args, _FakeBoto3(list(fixture_objects())),
+                                                              s3=FakeS3(fixture_objects()), workers=2),
+                                             targets=TARGETS_FX)))[("xvla", "LIBERO-Spatial")]
+    assert plain["protocol_card"] is False and plain["no_fingerprint"] is True
+
+
+def test_unreadable_protocol_card_is_ignored():
+    class V:
+        def text(self, region, bucket, key):
+            return {"a/protocol.yaml": "schema: something-else\n", "b/protocol.yaml": ": : not yaml ["}.get(key)
+    assert results.read_protocol_card(V(), "r", "b", "a/") is None
+    assert results.read_protocol_card(V(), "r", "b", "b/") is None
+    assert results.read_protocol_card(V(), "r", "b", "c/") is None

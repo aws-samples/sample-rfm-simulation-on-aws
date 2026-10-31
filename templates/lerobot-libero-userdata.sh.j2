@@ -554,6 +554,7 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
     [ -f "/tmp/{{ vla }}_task${TASK_IDX}_summary.txt" ] && \
         aws s3 cp "/tmp/{{ vla }}_task${TASK_IDX}_summary.txt" \
         "${S3_TASK_PREFIX}/summary.txt" --region "$REGION" || true
+    {% from "_protocol-card.sh.j2" import protocol_card with context %}{{ protocol_card('"/tmp/' ~ vla ~ '_task${TASK_IDX}_summary.txt"', '"${S3_TASK_PREFIX}"') }}
 {%- if libero_plus %}
     [ -f "${OUT_DIR}/libero_plus_variants.json" ] && \
         aws s3 cp "${OUT_DIR}/libero_plus_variants.json" \

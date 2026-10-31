@@ -414,6 +414,7 @@ PROMPT
         echo "agent_seconds: ${AGENT_S}"; echo "agent_cost_usd: ${AGENT_COST}"; echo "agent_turns: ${AGENT_TURNS}"
         echo "agent_dev: ${AGENT_FINAL:-n/a}"
     } > "${WORK}/summary.txt"
+    {% from "_protocol-card.sh.j2" import protocol_card with context %}{{ protocol_card('"${WORK}/summary.txt"', '"${S3_RUN_PREFIX}/${TAG}"') }}
     aws s3 cp "$WORK" "${S3_RUN_PREFIX}/${TAG}/" --recursive --exclude "*" \
         --include "*.txt" --include "*.py" --include "*.jsonl" --include "*.err" \
         --include "*.json" --include "*.log" --include "*.mp4" --region "$REGION" > /dev/null 2>&1 \

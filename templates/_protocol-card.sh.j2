@@ -1,0 +1,71 @@
+{#- Evaluation protocol card: <task>/protocol.yaml next to <task>/summary.txt.
+
+    One record per task of everything a reader needs to decide whether two numbers are comparable:
+    target, checkpoint(s) and revision, code pins, tool commit, seed, start-state set, chunk execution rule,
+    step cap, instruction, condition, instance type, GPU, k and n. Render-time values come from the model
+    YAML (generate.protocol_static); run-time values are read from this task's summary.txt, so a field the
+    target does not record is written as `unknown` instead of being guessed.
+
+    Usage (after the line that uploads summary.txt):
+        {% from "_protocol-card.sh.j2" import protocol_card with context %}
+        {{ protocol_card('"/tmp/oft_task${TASK_IDX}_summary.txt"', '"${S3_TASK_PREFIX}"') }}
+    Both arguments are shell words (quoted), the same ones the template uses for its summary upload.
+-#}
+{% macro protocol_card(summary, s3_prefix) -%}
+    # Evaluation protocol card (docs/results.md "Protocol card"): protocol.yaml next to summary.txt.
+    if [ -f {{ summary }} ]; then
+        PC_SUMMARY={{ summary }}
+        PC_FILE="${PC_SUMMARY%.txt}.protocol.yaml"
+        pc_q() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/''/g")"; }
+        pc_get() {  # first summary key (in the order given) that is present -> "key=value"; else unknown
+            local key v
+            for key in "$@"; do
+                v=$({ grep -m1 -E "^${key}: ?" "${PC_SUMMARY}" || true; } | sed -E "s/^${key}: ?//")
+                [ -n "$v" ] && { printf '%s=%s' "$key" "$v"; return; }
+            done
+            for key in "$@"; do  # then the same name as a CLI flag recorded in the summary (e.g. --seed=1000)
+                v=$({ grep -m1 -oE -- "--([A-Za-z_]+\.)*${key}=[^ ]+" "${PC_SUMMARY}" || true; } | sed -E 's/^--//')
+                [ -n "$v" ] && { printf '%s' "$v"; return; }
+            done
+            printf 'unknown'
+        }
+        pc_val() { local kv; kv=$(pc_get "$@"); [ "$kv" = unknown ] && printf unknown || printf '%s' "${kv#*=}"; }
+        PC_IMDS=$(curl -s -m 2 -X PUT http://169.254.169.254/latest/api/token \
+            -H "X-aws-ec2-metadata-token-ttl-seconds: 60" 2>/dev/null || true)
+        PC_ITYPE=$(curl -s -m 2 -H "X-aws-ec2-metadata-token: ${PC_IMDS}" \
+            http://169.254.169.254/latest/meta-data/instance-type 2>/dev/null || true)
+        PC_GPU=$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | sort | uniq -c \
+            | awk '{c=$1; $1=""; sub(/^ /, ""); printf "%s%sx %s", (NR>1?", ":""), c, $0}' || true)
+        {
+            echo "schema: rfm-simulation/protocol-card/v1"
+            echo "target: $(pc_q '{{ protocol_static.target | default("unknown") }}')"
+            echo "tool_commit: $(pc_q '{{ protocol_static.tool_commit | default("unknown") }}')"
+            echo "checkpoints:"
+{%- for c in protocol_static.checkpoints | default([]) %}
+            echo "  - {repo: $(pc_q '{{ c.repo }}'), revision: $(pc_q '{{ c.revision }}'){% if c.suite %}, suite: $(pc_q '{{ c.suite }}'){% endif %}}"
+{%- else %}
+            echo "  []"
+{%- endfor %}
+            echo "code_pins:"
+{%- for k, v in (protocol_static.code_pins | default({})).items() %}
+            echo "  {{ k }}: $(pc_q '{{ v }}')"
+{%- else %}
+            echo "  {}"
+{%- endfor %}
+            echo "suite: $(pc_q "$(pc_val suite env_name task_suite benchmark)")"
+            echo "condition: $(pc_q "$(pc_val condition)")"
+            echo "seed: $(pc_q "$(pc_val seed)")"
+            echo "start_states: $(pc_q "$(pc_get init_states init_file task_ids random_init num_trials_per_task)")"
+            echo "chunk_rule: $(pc_q "$(pc_get replan replan_head n_action_steps action_horizon execute_steps)")"
+            echo "step_cap: $(pc_q "$(pc_get max_episode_steps max_steps step_scale episode_length)")"
+            echo "instruction: $(pc_q "$(pc_get instruction instruction_type prompt)")"
+            echo "k: $(pc_val n_success)"
+            echo "n: $(pc_val n_episodes)"
+            echo "instance_type: $(pc_q "${PC_ITYPE:-${INSTANCE_TYPE:-unknown}}")"
+            echo "gpu: $(pc_q "${PC_GPU:-unknown}")"
+            echo "region: $(pc_q "${REGION:-unknown}")"
+            echo "written_utc: $(pc_q "$(date -u +%Y-%m-%dT%H:%M:%SZ)")"
+        } > "${PC_FILE}"
+        aws s3 cp "${PC_FILE}" {{ s3_prefix }}/protocol.yaml --region "$REGION" || true
+    fi
+{%- endmacro %}

@@ -831,6 +831,7 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
     if [ "${EVAL_EXIT}" -eq 0 ] && [ -f "${INFO_JSON}" ]; then
         aws s3 cp "/tmp/{{ vla }}_task${TASK_IDX}_summary.txt" \
             "${S3_TASK_PREFIX}/summary.txt" --region "$REGION" || true
+        {% from "_protocol-card.sh.j2" import protocol_card with context %}{{ protocol_card('"/tmp/' ~ vla ~ '_task${TASK_IDX}_summary.txt"', '"${S3_TASK_PREFIX}"') }}
     else
         aws s3 cp "/tmp/{{ vla }}_task${TASK_IDX}_summary.txt" \
             "${S3_TASK_PREFIX}/summary.failed.txt" --region "$REGION" || true

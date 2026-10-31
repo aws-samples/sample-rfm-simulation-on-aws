@@ -469,6 +469,7 @@ log "  {{ label }}: ${KN} episodes succeeded ($(jq -r '.success_rate // "n/a"' "
 
 S3_TASK_PREFIX="s3://${S3_BUCKET}/${RUN_ID}/task-0"
 aws s3 cp "${UPLOAD_DIR}/summary.txt" "${S3_TASK_PREFIX}/summary.txt" --region "$REGION" || true
+{% from "_protocol-card.sh.j2" import protocol_card with context %}{{ protocol_card('"${UPLOAD_DIR}/summary.txt"', '"${S3_TASK_PREFIX}"') }}
 aws s3 cp "${UPLOAD_DIR}/robolab_results.json" "${S3_TASK_PREFIX}/robolab_results.json" --region "$REGION" || true
 for _s in $(seq 0 $((SHARDS - 1))); do
     [ -f "${OUT_DIR}/shard-${_s}/run/episode_results.jsonl" ] && aws s3 cp "${OUT_DIR}/shard-${_s}/run/episode_results.jsonl" \

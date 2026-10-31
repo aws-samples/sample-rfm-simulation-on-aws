@@ -23,7 +23,7 @@ More clips, failure cases and full-quality MP4s: [docs/showcase.md](docs/showcas
 - **One CLI** (`vlasim.py`): `doctor` preflight, `init`, `deploy`, `destroy`, `results`, `gallery` and `judge`. It runs on the Python standard library, so `doctor` works before anything is installed.
 - **Reproducible stacks**: model checkpoints, upstream repos and simulator dependencies are pinned per target; each `summary.txt` records a stack fingerprint.
 - **AWS CDK v2** stack per target: VPC, retained S3 results bucket, SNS email, IAM role and an AZ / instance-type fallback Lambda for GPU capacity.
-- **Results you can compare**: `vlasim results` prints k/n, rate and a 95% Wilson interval for every run in the account ([results](docs/results.md)).
+- **Results you can compare**: `vlasim results` prints k/n, rate and a 95% Wilson interval for every run in the account; `--compare A B` gives a per-suite verdict (A>B / B>A / tie, Fisher + Benjamini-Hochberg, paired McNemar on the same start states), and every task writes a protocol card (`protocol.yaml`: checkpoint revision, seed, start states, chunk rule, step cap, GPU) next to its result ([results](docs/results.md)).
 
 ## Quick Start
 

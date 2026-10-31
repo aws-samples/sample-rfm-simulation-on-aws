@@ -53,6 +53,56 @@ OFT_LIBERO_SUITES = ("spatial", "object", "goal", "10", "long")
 OFT_DEFAULT_SUITE = "10"
 
 
+# ── Evaluation protocol card (templates/_protocol-card.sh.j2) ─────────────────────────────────────
+PIN_KEY_RE = re.compile(r"(commit|revision|_ref|_tag|_version|_sha)$")
+SAFE_VALUE_RE = re.compile(r"^[\w./:@+-]{1,200}$")
+
+
+def _tool_commit() -> str:
+    try:
+        out = subprocess.run(["git", "-C", str(BASE_DIR), "rev-parse", "--short=12", "HEAD"],
+                             capture_output=True, text=True, timeout=5)
+        dirty = subprocess.run(["git", "-C", str(BASE_DIR), "status", "--porcelain", "--untracked-files=no"],
+                               capture_output=True, text=True, timeout=5)
+        sha = out.stdout.strip()
+        return (sha + ("-dirty" if dirty.stdout.strip() else "")) if out.returncode == 0 and sha else "unknown"
+    except (OSError, subprocess.SubprocessError):
+        return "unknown"
+
+
+def protocol_static(config: dict, target: str) -> dict:
+    """Render-time half of the protocol card: checkpoints (+ revision), code pins and the tool commit,
+    read from the merged model config. Values that are not plain tokens are left out, not quoted."""
+    model = config.get("model") or {}
+    checkpoints, pins = [], {}
+
+    def walk(node, path):
+        if isinstance(node, dict):
+            repo = node.get("hf_repo") or node.get("checkpoint") or node.get("hf_model")
+            if isinstance(repo, str) and SAFE_VALUE_RE.match(repo):
+                rev = node.get("hf_model_revision") or node.get("revision") or "unknown"
+                rev = str(rev) if SAFE_VALUE_RE.match(str(rev)) else "unknown"
+                checkpoints.append(dict(repo=repo, revision=rev, suite=path[-1] if path and path[-2:-1] == ["suites"] else ""))
+            for k, v in node.items():
+                if isinstance(v, (dict, list)):
+                    walk(v, path + [str(k)])
+                elif k not in ("hf_model_revision", "revision") and PIN_KEY_RE.search(str(k)) \
+                        and SAFE_VALUE_RE.match(str(v)):
+                    pins.setdefault(".".join(path + [str(k)]) if path else str(k), str(v))
+        elif isinstance(node, list):
+            for i, v in enumerate(node):
+                walk(v, path + [str(i)])
+
+    walk(model, [])
+    return dict(target=target if SAFE_VALUE_RE.match(target) else "unknown", tool_commit=_tool_commit(),
+                checkpoints=checkpoints, code_pins=dict(sorted(pins.items())))
+
+
+def _with_protocol(ctx: dict, config: dict) -> dict:
+    target = ctx.get("vla") or (config.get("model") or {}).get("id") or "unknown"
+    return {**ctx, "protocol_static": protocol_static(config, str(target))}
+
+
 def _tasks_json_for_bash(tasks: list) -> str:
     """Serialize tasks to JSON, then bash-escape for embedding in a single-quoted
     string (templates use `TASKS_JSON='{{ tasks_json }}'`).
@@ -326,13 +376,13 @@ def generate_gr00t(config: dict, resolved_grpc: str, resolved_vpc: str, dry_run:
         print(f"[error] {vla}: bridge mode (remote gRPC inference) is LIBERO-only.", file=sys.stderr)
         sys.exit(1)
     env = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)), keep_trailing_newline=True)  # nosec B701 - shell script template, autoescape not applicable
-    return env.get_template("gr00t-userdata.sh.j2").render(**ctx)
+    return env.get_template("gr00t-userdata.sh.j2").render(**_with_protocol(ctx, config))
 
 
 def generate_gr00t_gr1(config: dict, resolved_grpc: str, resolved_vpc: str, dry_run: bool) -> str:
     ctx = _build_gr00t_ctx(config, resolved_grpc, "gr00t-gr1")
     env = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)), keep_trailing_newline=True)  # nosec B701 - shell script template, autoescape not applicable
-    return env.get_template("gr00t-gr1-userdata.sh.j2").render(**ctx)
+    return env.get_template("gr00t-gr1-userdata.sh.j2").render(**_with_protocol(ctx, config))
 
 
 def generate_gr00t_g1(config: dict, resolved_grpc: str, resolved_vpc: str, dry_run: bool,
@@ -403,7 +453,7 @@ def generate_gr00t_g1(config: dict, resolved_grpc: str, resolved_vpc: str, dry_r
             "num_demos": collection.get("num_demos", 0),  # 0 → fall back to tasks[].n_episodes
         }
     env = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)), keep_trailing_newline=True)  # nosec B701 - shell script template, autoescape not applicable
-    return env.get_template("gr00t-g1-userdata.sh.j2").render(**ctx)
+    return env.get_template("gr00t-g1-userdata.sh.j2").render(**_with_protocol(ctx, config))
 
 
 def generate_openvla_oft(config: dict, libero_suite: str, dry_run: bool, plus: tuple = None, r2s: tuple = None) -> str:
@@ -467,7 +517,7 @@ def generate_openvla_oft(config: dict, libero_suite: str, dry_run: bool, plus: t
     }
 
     env = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)), keep_trailing_newline=True)  # nosec B701 - shell script template
-    return env.get_template("openvla-oft-userdata.sh.j2").render(**ctx)
+    return env.get_template("openvla-oft-userdata.sh.j2").render(**_with_protocol(ctx, config))
 
 
 def generate_rldx(config: dict, dry_run: bool, vla: str = "rldx", plus: tuple = None) -> str:
@@ -592,7 +642,7 @@ def generate_rldx(config: dict, dry_run: bool, vla: str = "rldx", plus: tuple = 
     }
 
     env = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)), keep_trailing_newline=True)  # nosec B701 - shell script template
-    return env.get_template("rldx-userdata.sh.j2").render(**ctx)
+    return env.get_template("rldx-userdata.sh.j2").render(**_with_protocol(ctx, config))
 
 
 def generate_lap(config: dict, resolved_nlb: str, dry_run: bool, plus: tuple = None) -> str:
@@ -634,7 +684,7 @@ def generate_lap(config: dict, resolved_nlb: str, dry_run: bool, plus: tuple = N
     }
 
     env = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)), keep_trailing_newline=True)  # nosec B701 - shell script template
-    return env.get_template("lap-userdata.sh.j2").render(**ctx)
+    return env.get_template("lap-userdata.sh.j2").render(**_with_protocol(ctx, config))
 
 
 def generate_openarm_isaac(config: dict, dry_run: bool) -> str:
@@ -679,7 +729,7 @@ def generate_openarm_isaac(config: dict, dry_run: bool) -> str:
         ctx[ctx_key] = base64.encodebytes((asset_dir / fname).read_bytes()).decode()
 
     env = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)), keep_trailing_newline=True)  # nosec B701 - shell script template
-    return env.get_template("openarm-isaac-userdata.sh.j2").render(**ctx)
+    return env.get_template("openarm-isaac-userdata.sh.j2").render(**_with_protocol(ctx, config))
 
 
 def generate_openarm_lift_act(config: dict, dry_run: bool) -> str:
@@ -726,7 +776,7 @@ def generate_openarm_lift_act(config: dict, dry_run: bool) -> str:
         ctx[ctx_key] = base64.encodebytes((asset_dir / fname).read_bytes()).decode()
 
     env = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)), keep_trailing_newline=True)  # nosec B701 - shell script template
-    return env.get_template("openarm-lift-act-userdata.sh.j2").render(**ctx)
+    return env.get_template("openarm-lift-act-userdata.sh.j2").render(**_with_protocol(ctx, config))
 
 
 def generate_molmoact2(config: dict, dry_run: bool, plus: tuple = None) -> str:
@@ -780,7 +830,7 @@ def generate_molmoact2(config: dict, dry_run: bool, plus: tuple = None) -> str:
     }
 
     env = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)), keep_trailing_newline=True)  # nosec B701 - shell script template
-    return env.get_template("molmoact2-userdata.sh.j2").render(**ctx)
+    return env.get_template("molmoact2-userdata.sh.j2").render(**_with_protocol(ctx, config))
 
 
 # Targets that run an upstream-LeRobot policy through `lerobot-eval --env.type=libero` with the shared
@@ -842,7 +892,7 @@ def generate_lerobot_libero(config: dict, dry_run: bool, vla: str, plus: tuple =
             sys.exit(1)
 
     env = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)), keep_trailing_newline=True)  # nosec B701 - shell script template
-    return env.get_template("lerobot-libero-userdata.sh.j2").render(**ctx)
+    return env.get_template("lerobot-libero-userdata.sh.j2").render(**_with_protocol(ctx, config))
 
 
 # Targets that run an upstream-LeRobot policy through `lerobot-eval --env.type=robotwin` (RoboTwin 2.0,
@@ -935,7 +985,7 @@ def generate_lerobot_robotwin(config: dict, dry_run: bool, vla: str, protocol: s
             sys.exit(1)
 
     env = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)), keep_trailing_newline=True)  # nosec B701 - shell script template
-    return env.get_template("lerobot-robotwin-userdata.sh.j2").render(**ctx)
+    return env.get_template("lerobot-robotwin-userdata.sh.j2").render(**_with_protocol(ctx, config))
 
 
 def generate_vla_adapter(config: dict, dry_run: bool, vla: str = "vla-adapter", plus: tuple = None) -> str:
@@ -981,7 +1031,7 @@ def generate_vla_adapter(config: dict, dry_run: bool, vla: str = "vla-adapter", 
         "libero_plus": lp_ctx,
     }
     env = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)), keep_trailing_newline=True)  # nosec B701 - shell script template
-    return env.get_template("vla-adapter-userdata.sh.j2").render(**ctx)
+    return env.get_template("vla-adapter-userdata.sh.j2").render(**_with_protocol(ctx, config))
 
 
 def generate_cosmos_policy(config: dict, dry_run: bool, vla: str = "cosmos-policy") -> str:
@@ -1022,7 +1072,7 @@ def generate_cosmos_policy(config: dict, dry_run: bool, vla: str = "cosmos-polic
         "min_host_mib": int(instance.get("min_host_mib", 15000)),
     }
     env = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)), keep_trailing_newline=True)  # nosec B701 - shell script template
-    return env.get_template("cosmos-policy-userdata.sh.j2").render(**ctx)
+    return env.get_template("cosmos-policy-userdata.sh.j2").render(**_with_protocol(ctx, config))
 
 
 def generate_aspire(config: dict, dry_run: bool, vla: str = "aspire") -> str:
@@ -1068,7 +1118,7 @@ def generate_aspire(config: dict, dry_run: bool, vla: str = "aspire") -> str:
         "min_host_mib": instance.get("min_host_mib", 0),
     }
     env = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)), keep_trailing_newline=True)  # nosec B701 - shell script template
-    return env.get_template("aspire-userdata.sh.j2").render(**ctx)
+    return env.get_template("aspire-userdata.sh.j2").render(**_with_protocol(ctx, config))
 
 
 # Stage scripts embedded into the real2sim UserData (written to /opt/r2s/assets on the instance).
@@ -1143,7 +1193,7 @@ def generate_real2sim(config: dict, dry_run: bool, vla: str = "real2sim") -> str
         "assets": [(f, base64.encodebytes((asset_dir / f).read_bytes()).decode()) for f in REAL2SIM_ASSETS],
     }
     env = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)), keep_trailing_newline=True)  # nosec B701 - shell script template
-    return env.get_template("real2sim-userdata.sh.j2").render(**ctx)
+    return env.get_template("real2sim-userdata.sh.j2").render(**_with_protocol(ctx, config))
 
 
 ROBOLAB_TARGETS = ("robolab-cosmos3", "robolab-pi05")
@@ -1276,7 +1326,7 @@ def generate_robolab(config: dict, dry_run: bool, vla: str) -> str:
         "report_py_b64": base64.encodebytes(asset.read_bytes()).decode(),
     }
     env = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)), keep_trailing_newline=True)  # nosec B701 - shell script template
-    return env.get_template("robolab-userdata.sh.j2").render(**ctx)
+    return env.get_template("robolab-userdata.sh.j2").render(**_with_protocol(ctx, config))
 
 
 def _shell_safe(value: str, what: str) -> str:
@@ -1328,7 +1378,7 @@ def generate_flora_judge(config: dict, dry_run: bool, judge: str = "flora-judge"
         "judge_py_b64": base64.encodebytes(asset.read_bytes()).decode(),
     }
     env = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)), keep_trailing_newline=True)  # nosec B701 - shell script template
-    return env.get_template(f"{judge}-userdata.sh.j2").render(**ctx)
+    return env.get_template(f"{judge}-userdata.sh.j2").render(**_with_protocol(ctx, config))
 
 
 # RLinf evaluate -> RL -> re-evaluate targets (templates/rlinf-userdata.sh.j2). Profiles: models/<vla>.yaml profiles.
@@ -1501,7 +1551,7 @@ def generate_pi(config: dict, resolved_vpc: str, resolved_nlb: str, dry_run: boo
     }
 
     env = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)), keep_trailing_newline=True)  # nosec B701 - shell script template, autoescape not applicable
-    return env.get_template("pi-userdata.sh.j2").render(**ctx)
+    return env.get_template("pi-userdata.sh.j2").render(**_with_protocol(ctx, config))
 
 
 def main():

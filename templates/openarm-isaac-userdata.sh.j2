@@ -807,6 +807,7 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
     [ -f "${TASK_OUT}/summary.txt" ] && \
         aws s3 cp "${TASK_OUT}/summary.txt" \
         "${S3_TASK_PREFIX}/summary.txt" --region "$REGION" || true
+    {% from "_protocol-card.sh.j2" import protocol_card with context %}{{ protocol_card('"${TASK_OUT}/summary.txt"', '"${S3_TASK_PREFIX}"') }}
 
     SUMMARY_ALL="${SUMMARY_ALL}
 [Task $((TASK_IDX+1))] ${TASK_NAME} — pc_success=${SR} (pipe-proof, OOD)"

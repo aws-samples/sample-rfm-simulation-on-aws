@@ -28,11 +28,10 @@ tasks:
 #   libero_object: ~80-90%
 #   libero_goal: ~75-85%
 
-# Bridge mode (experimental) — bring-your-own π0.5 gRPC endpoint behind an NLB (leave empty for local mode)
-# vpc_id = the VPC that hosts your endpoint; nlb_endpoint = its host:port (proto: assets/bridge/pi/)
 # LIBERO-R2S real2sim object swap (off unless deployed with --libero-objects real2sim; see docs/targets.md).
 #   python vlasim.py deploy --vla pi --libero-objects real2sim --real2sim-run s3://<real2sim results bucket>/<RUN_ID>
-# Replaces the tasks above with public / collision / full conditions on the same task ids, init states and seed.
+# Replaces the tasks above with public / collision / full conditions on the same task ids, init states and seed
+# (HOPE-Video scene 0: libero_object tasks 0,1,5,9 x 10 trials x 3 conditions = 120 episodes).
 libero_r2s:
   suite: libero_object   # pi05_libero covers every suite; override with --r2s-suite
   conditions: [public, collision, full]
@@ -41,9 +40,11 @@ libero_r2s:
   mass: match
   select: interest
   seed: 7                # examples/libero/main.py default
-  creationpolicy_timeout: PT300M   # install ~30 + 150 episodes ~150 + buffer
+  creationpolicy_timeout: PT300M   # install ~30 + client image + check ~15 + 120 episodes ~100-150 + buffer
   ebs_gb: 200
 
+# Bridge mode (experimental) — bring-your-own π0.5 gRPC endpoint behind an NLB (leave empty for local mode)
+# vpc_id = the VPC that hosts your endpoint; nlb_endpoint = its host:port (proto: assets/bridge/pi/)
 bridge:
   vpc_id: ""       # e.g. vpc-xxxxxxxxxxxxxxxxx
   nlb_endpoint: "" # e.g. internal-xxx.elb.us-east-1.amazonaws.com:50052

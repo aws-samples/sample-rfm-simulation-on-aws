@@ -6,6 +6,7 @@ Back to the [README](../README.md) · [Documentation index](README.md)
 - [Cross-model matrix](#cross-model-matrix-leaderboard): target x benchmark with cost and latency (`vlasim results --matrix`)
 - [Post-run judge](#post-run-judge-judgejson): Flora-Rewarder scores next to a run
 - [LIBERO-Plus robustness](#libero-plus-robustness): per-dimension drop vs the LIBERO baseline (`vlasim results --robustness`)
+- [LIBERO-R2S](#libero-r2s-reconstructed-objects): public vs reconstructed-object scenes (`--libero-objects real2sim`)
 - [Expected Results](#expected-results), including the [same-stack baseline](#same-stack-baseline-official-stack-50-episodes-per-suite) and [per-target smoke results](#per-target-smoke-results)
 
 ## Downloading results
@@ -265,6 +266,36 @@ Success rate (%) per dimension from the leaderboard of the [LIBERO-Plus README](
 SmolVLA is not in the paper. The `lerobot/smolvla_libero_plus` card (a SmolVLA fine-tuned on LIBERO-Plus data, not the `smolvla` checkpoint) reports 69.0% (400 episodes, task ids 0-9 of four suites); those ids are all Background Textures variants.
 
 ---
+
+## LIBERO-R2S (reconstructed objects)
+
+A `--libero-objects real2sim` run ([targets](targets.md#libero-r2s-reconstructed-objects-in-libero)) writes one task per condition with `condition: LIBERO-R2S/<public|collision|full>`, so `vlasim results` shows one row per condition and `--matrix` puts them in the columns `LIBERO-R2S/<condition> (<Suite>)`. `public` is the stock scene evaluated in the same run with the same task ids, initial states and seed, so the drop from `public` to `collision` / `full` is the effect of the objects alone. `<run>/libero-r2s/summary.txt` has the comparison in one place:
+
+```text
+suite: libero_object
+model: pi05_libero (openpi)
+benchmark: libero_r2s
+public: k/n = rate [lo, hi]
+collision: k/n = rate [lo, hi] (drop +x.x pp)
+full: k/n = rate [lo, hi] (drop +x.x pp)
+per_object:
+  alphabet_soup: public k/n; collision k/n; full k/n
+  ...
+objects (cluster, scale, extent ratio vs stock):
+  ...
+  kept stock (unstable in the physics check): milk
+```
+
+With 10 trials per task and 4 tasks (40 episodes per condition) the 95% interval of one condition is roughly ±0.1-0.15 wide near a 0.9 success rate; raise `--r2s-trials` when a drop of a few points matters.
+
+### Expected rows (HOPE-Video scene 0 stage-1 run, `libero_object`)
+
+| `--vla` | Tasks (object of interest) | `LIBERO-R2S/public` | `LIBERO-R2S/collision` | `LIBERO-R2S/full` |
+|---|---|---|---|---|
+| `openvla-oft --libero-suite object` | 0, 1, 5, 9 (alphabet soup, cream cheese, tomato sauce, orange juice) × 10 trials | not run yet | not run yet | not run yet |
+| `pi` | same | not run yet | not run yet | not run yet |
+
+Reference for the `public` column: the same-stack baseline below (LIBERO-Object, 10 tasks × 5 trials) is 50/50 for OpenVLA-OFT and 48/50 for π0.5; `public` here covers 4 of those 10 tasks. Milk (task 7) is kept stock by the physics check on this capture (the reconstructed carton topples), so it has no swapped rows.
 
 ## Expected Results
 

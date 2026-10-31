@@ -47,13 +47,16 @@ from botocore.exceptions import ClientError
 
 import gallery
 import libero_plus
+import libero_r2s
 import robotwin_plan
 from generate import (
     OFT_DEFAULT_SUITE,
     OFT_LIBERO_SUITES,
     libero_plus_supported,
+    libero_r2s_supported,
     normalise_libero_suite,
     oft_stack_name,
+    r2s_default_suite,
 )
 from targets import JUDGE_TARGETS, VLA_TARGETS
 
@@ -394,6 +397,23 @@ def main():
     parser.add_argument("--perturb-n", type=int, metavar="N",
                         help="--libero-variant plus: variants per dimension (default: libero_plus.variants_per_category; "
                              "0 = every variant, ~350 per dimension)")
+    parser.add_argument("--libero-objects", default="libero", choices=list(libero_r2s.OBJECT_SOURCES),
+                        help="openvla-oft / pi: `real2sim` replaces LIBERO's HOPE objects by the objects a real2sim "
+                             "stage-1 run reconstructed (--real2sim-run) and evaluates public vs swapped scenes on the "
+                             "same task ids, initial states and seed (LIBERO-R2S/<condition>); same stack and results "
+                             "bucket. Settings: libero_r2s in models/<vla>.yaml (default: libero)")
+    parser.add_argument("--real2sim-run", metavar="S3_URI",
+                        help="--libero-objects real2sim: s3://<real2sim results bucket>/<RUN_ID> of a finished stage-1 "
+                             "run (the stack may read exactly <RUN_ID>/real2sim/segment/ and splat_world.ply)")
+    parser.add_argument("--r2s-conditions", metavar="LIST",
+                        help=f"--libero-objects real2sim: conditions ({','.join(libero_r2s.CONDITIONS)}; public is "
+                             "always included; default: libero_r2s.conditions)")
+    parser.add_argument("--r2s-trials", type=int, metavar="N",
+                        help="--libero-objects real2sim: trials per selected task and condition (default: "
+                             "libero_r2s.trials_per_task)")
+    parser.add_argument("--r2s-suite", choices=list(libero_r2s.SUITES),
+                        help="pi + --libero-objects real2sim: LIBERO suite (default: libero_r2s.suite = libero_object; "
+                             "openvla-oft follows --libero-suite)")
     parser.add_argument("--robotwin-protocol", default="subset", choices=list(robotwin_plan.PROTOCOLS),
                         help="RoboTwin targets (smolvla-robotwin, lingbot-vla2): subset = the tasks in "
                              "models/<vla>.yaml (default, 5 tasks x 5 episodes, clean); clean / randomized = the "
@@ -444,10 +464,38 @@ def main():
         print("[error] --libero-variant plus cannot be combined with --judge, --collect or --bridge.", file=sys.stderr)
         sys.exit(1)
 
+    r2s = args.libero_objects == "real2sim"
+    if not r2s and any(x is not None for x in (args.real2sim_run, args.r2s_conditions, args.r2s_trials, args.r2s_suite)):
+        print("[error] --real2sim-run / --r2s-* need --libero-objects real2sim.", file=sys.stderr)
+        sys.exit(1)
+    if r2s and (args.judge or args.collect or args.bridge or plus):
+        print("[error] --libero-objects real2sim cannot be combined with --judge, --collect, --bridge or "
+              "--libero-variant plus.", file=sys.stderr)
+        sys.exit(1)
+
     config = _load_config(args.vla)
     deployment = config.get("deployment", {})
     bridge_cfg = config.get("bridge", {})
     plus_plan = None
+    r2s_plan = None
+    if r2s:
+        if not libero_r2s_supported(args.vla, config):
+            print(f"[error] --libero-objects real2sim is not available for --vla {args.vla} (openvla-oft and pi; "
+                  "needs a libero_r2s block in models/<vla>.yaml; see docs/targets.md).", file=sys.stderr)
+            sys.exit(1)
+        if not args.real2sim_run:
+            print("[error] --libero-objects real2sim needs --real2sim-run s3://<bucket>/<RUN_ID>.", file=sys.stderr)
+            sys.exit(1)
+        if args.r2s_suite and args.vla != "pi":
+            print("[error] --r2s-suite applies to pi (openvla-oft follows --libero-suite).", file=sys.stderr)
+            sys.exit(1)
+        r2s_suite = args.r2s_suite or r2s_default_suite(config, args.vla, args.libero_suite)
+        try:
+            r2s_plan, _ = libero_r2s.plan(config["libero_r2s"], args.real2sim_run, r2s_suite,
+                                                  conditions=args.r2s_conditions, trials=args.r2s_trials)
+        except ValueError as e:
+            print(f"[error] {e}", file=sys.stderr)
+            sys.exit(1)
     if plus:
         if not libero_plus_supported(args.vla, config):
             print(f"[error] --libero-variant plus is not available for --vla {args.vla} (needs a libero_plus "
@@ -597,6 +645,9 @@ def main():
         n_ep = libero_plus.episodes(plus_plan)
         print(f"[deploy] LIBERO-Plus: {plus_plan['suite']}, {','.join(plus_plan['perturb'])} x "
               f"{plus_plan['variants_per_category'] or 'all'} variants = {n_ep or 'all'} episodes")
+    if r2s_plan:
+        print(f"[deploy] LIBERO-R2S: {r2s_plan['suite']}, {','.join(r2s_plan['conditions'])} x "
+              f"{r2s_plan['trials_per_task']} trials per selected task, objects from {r2s_plan['run_uri']}/")
     if robotwin_units:
         shard = f" shard {args.robotwin_shard}" if args.robotwin_shard else ""
         print(f"[deploy] RoboTwin: {args.robotwin_protocol}{shard}, {len(robotwin_units)} task run(s), "
@@ -621,6 +672,17 @@ def main():
             plus_args += ["--perturb-n", str(plus_plan["variants_per_category"])]
         # Same stack + results bucket as the LIBERO run; the context only raises the timeout / EBS size.
         plus_cdk_ctx = ["-c", "libero_variant=plus"]
+    if r2s_plan:
+        plus_args = ["--libero-objects", "real2sim", "--real2sim-run", args.real2sim_run]
+        if args.r2s_conditions is not None:
+            plus_args += ["--r2s-conditions", ",".join(r2s_plan["conditions"])]
+        if args.r2s_trials is not None:
+            plus_args += ["--r2s-trials", str(r2s_plan["trials_per_task"])]
+        if args.r2s_suite:
+            plus_args += ["--r2s-suite", args.r2s_suite]
+        # Same stack + results bucket as the LIBERO run; the context grants s3:GetObject on exactly the stage-1
+        # outputs the UserData downloads and raises the timeout / EBS size (libero_r2s in models/<vla>.yaml).
+        plus_cdk_ctx = ["-c", "libero_objects=real2sim", "-c", f"real2sim_run={r2s_plan['run_uri']}"]
     subprocess.run(  # nosec B603 - sys.executable is the current Python interpreter, not user input
         [
             sys.executable, "generate.py",
@@ -673,6 +735,11 @@ def main():
             print("  Estimated time: ~60 min (install ~20-30min + bridge eval ~30min)")
         else:
             print("  Estimated time: ~30-40 min (install ~10min + bridge eval ~20-30min)")
+    elif r2s_plan:
+        n_ep = libero_r2s.episodes_hint(r2s_plan)
+        print(f"  Estimated time: install as for LIBERO + stage-1 download, object build and physics check ~5 min "
+              f"(pi: + LIBERO client image ~10 min) + about {n_ep} episodes (5 libero_object tasks of the HOPE-Video "
+              f"scene; fewer if the physics check keeps an object stock) at ~45 s (OpenVLA-OFT) / ~40 s (pi0.5) on L4")
     elif plus_plan:
         n_ep = libero_plus.episodes(plus_plan)
         print(f"  Estimated time: install as for LIBERO + LIBERO-Plus fork and {plus_plan['assets_bytes'] / 1e9:.1f} GB "

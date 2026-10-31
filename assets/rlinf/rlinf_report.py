@@ -21,8 +21,9 @@ import sys
 from pathlib import Path
 
 # RLinf prints its metric dict at the end of an eval; accept "eval/success_once: 0.52", "'eval/success_once': 0.52",
-# "eval/success_once=0.52" and "eval/success_once | 0.52" (rich table), optionally wrapped in tensor(...).
-SUCCESS_RE = re.compile(r"eval/success_once['\"]?\s*[:=|]\s*(?:tensor\()?\s*([0-9]*\.?[0-9]+(?:[eE]-?\d+)?)")
+# "eval/success_once=0.52" and "eval/success_once | 0.52" (rich table), optionally wrapped in tensor(...) or, as
+# RLinf v0.4 prints it, numpy's array(0.5, dtype=float32).
+SUCCESS_RE = re.compile(r"eval/success_once['\"]?\s*[:=|]\s*(?:tensor\(|array\()?\s*([0-9]*\.?[0-9]+(?:[eE]-?\d+)?)")
 CURVE_TAGS = ("env/success_once", "env/return", "env/episode_len", "rollout/rewards", "train/actor/policy_loss",
               "train/actor/approx_kl", "train/actor/grad_norm", "time/step")
 

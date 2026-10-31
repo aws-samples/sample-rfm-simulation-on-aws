@@ -40,6 +40,7 @@ SHELLCHECK = shutil.which("shellcheck") or (str(Path.home() / ".local/bin/shellc
     ("{'eval/success_once': 0.875, 'eval/return': 3.1}", 0.875),
     ("eval/success_once=tensor(0.4100)", 0.41),
     ("| eval/success_once | 0.5 |", 0.5),
+    ("{'eval/success_at_end': array(0.35, dtype=float32), 'eval/success_once': array(0.5, dtype=float32)}", 0.5),  # v0.4
     ("eval/success_once: 0.1\n...\neval/success_once: 0.9\n", 0.9),   # last value wins
     ("env/success_once: 0.3\n", None),                                 # training metric is not the eval
     ("eval/success_once: 7.0\n", None),                                # not a rate

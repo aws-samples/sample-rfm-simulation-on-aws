@@ -83,7 +83,7 @@ def oft_stack_name(suite: str) -> str:
 # --libero-variant plus: targets whose template carries the LIBERO-Plus switch (each also needs a
 # `libero_plus:` block in models/<id>.yaml). See libero_plus.py and docs/targets.md.
 LIBERO_PLUS_TEMPLATE_TARGETS = ("openvla-oft", "xvla", "smolvla", "lingbot-va", "fastwam", "pi", "gr00t",
-                                "vla-adapter")
+                                "vla-adapter", "molmoact2")
 
 
 def libero_plus_supported(vla: str, config: dict) -> bool:
@@ -645,7 +645,7 @@ def generate_openarm_lift_act(config: dict, dry_run: bool) -> str:
     return env.get_template("openarm-lift-act-userdata.sh.j2").render(**ctx)
 
 
-def generate_molmoact2(config: dict, dry_run: bool) -> str:
+def generate_molmoact2(config: dict, dry_run: bool, plus: tuple = None) -> str:
     """MolmoAct2 (Ai2) × LIBERO eval. Local in-process LeRobot inference (no policy server).
 
     MolmoAct2 is NOT in upstream LeRobot — installed from the allenai/lerobot FORK at a pinned
@@ -658,6 +658,17 @@ def generate_molmoact2(config: dict, dry_run: bool) -> str:
     if not tasks:
         print("[error] models/molmoact2.yaml has no tasks entry.", file=sys.stderr)
         sys.exit(1)
+    lp_ctx = None
+    if plus is not None:
+        # --libero-variant plus: same recipe as the lerobot-libero targets (the allenai fork carries
+        # LiberoPlusEnv and docker/Dockerfile.benchmark.libero_plus). The eval seed of the first LIBERO
+        # task entry is kept so only the scene changes.
+        lp_ctx, lp_tasks = _libero_plus_ctx(config, "molmoact2", *plus)
+        if lp_ctx["hf_repo"]:
+            print("[error] models/molmoact2.yaml: libero_plus.hf_repo is not supported", file=sys.stderr)
+            sys.exit(1)
+        seed = tasks[0].get("seed", 1000)
+        tasks = [dict(t, n_episodes=lp_ctx["episodes_per_variant"], seed=seed) for t in lp_tasks]
 
     tasks_json = _tasks_json_for_bash(tasks)
     deployment = config.get("deployment", {})
@@ -681,6 +692,7 @@ def generate_molmoact2(config: dict, dry_run: bool) -> str:
             "camera_name_mapping",
             '{"agentview_image":"image","robot0_eye_in_hand_image":"wrist_image"}',
         ),
+        "libero_plus": lp_ctx,
     }
 
     env = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)), keep_trailing_newline=True)  # nosec B701 - shell script template
@@ -1358,7 +1370,7 @@ def main():
     elif args.vla == "openarm-lift-act":
         rendered = generate_openarm_lift_act(config, args.dry_run)
     elif args.vla == "molmoact2":
-        rendered = generate_molmoact2(config, args.dry_run)
+        rendered = generate_molmoact2(config, args.dry_run, plus=plus)
     elif args.vla in LEROBOT_LIBERO_TARGETS:
         rendered = generate_lerobot_libero(config, args.dry_run, vla=args.vla, plus=plus)
     elif args.vla in LEROBOT_ROBOTWIN_TARGETS:

@@ -113,7 +113,7 @@ def _gen(tmp_path, *args):
 
 @pytest.mark.parametrize("vla,extra", [("smolvla", []), ("openvla-oft", ["--libero-suite", "spatial"]), ("pi", []),
                                        ("xvla", []), ("fastwam", []), ("gr00t", []),
-                                       ("vla-adapter", [])])
+                                       ("vla-adapter", []), ("molmoact2", [])])
 def test_plus_render(vla, extra, tmp_path):
     pytest.importorskip("jinja2")
     out = _gen(tmp_path, "--vla", vla, *extra, "--libero-variant", "plus", "--perturb", "camera,light", "--perturb-n", "3")
@@ -122,8 +122,9 @@ def test_plus_render(vla, extra, tmp_path):
     assert libero_plus.DEFAULTS["repo_commit"] in text and libero_plus.DEFAULTS["assets_sha256"] in text
     tasks = json.loads(text.split("TASKS_JSON='", 1)[1].split("'\n", 1)[0])
     assert [t["condition"] for t in tasks] == ["LIBERO-Plus/camera", "LIBERO-Plus/light"]
-    assert all(t["variants"] == 3 and t["suite"] == "libero_spatial" for t in tasks)
-    if vla in ("smolvla", "xvla", "fastwam"):
+    suite = "libero_goal" if vla == "molmoact2" else "libero_spatial"  # molmoact2: suite of its baseline
+    assert all(t["variants"] == 3 and t["suite"] == suite for t in tasks)
+    if vla in ("smolvla", "xvla", "fastwam", "molmoact2"):
         assert "--env.type=libero_plus" in text and "uv run --active --no-sync lerobot-eval" in text
         assert all(t["n_episodes"] == 1 for t in tasks)
     elif vla == "gr00t":
@@ -155,7 +156,7 @@ def test_explicit_libero_variant_is_the_default_render(tmp_path):
 
 @pytest.mark.parametrize("args", [
     ["--vla", "lap", "--libero-variant", "plus"],                # no switch in this template
-    ["--vla", "molmoact2", "--libero-variant", "plus"],          # no switch in this template
+    ["--vla", "cosmos-policy", "--libero-variant", "plus"],      # no switch in this template
     ["--vla", "gr00t-bridge", "--libero-variant", "plus"],       # SimplerEnv, not LIBERO
     ["--vla", "smolvla", "--libero-variant", "plus", "--perturb", "fog"],
     ["--vla", "smolvla", "--perturb", "camera"],                 # --perturb without plus

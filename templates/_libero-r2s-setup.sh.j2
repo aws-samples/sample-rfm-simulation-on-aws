@@ -1,0 +1,47 @@
+{#- LIBERO real2sim object swap (deploy.py --vla <target> --libero-objects real2sim --real2sim-run s3://...).
+    Included by the LIBERO templates only when generate.py passes a libero_r2s context, so a default render does
+    not change. Caller sets: r2s (context), r2s_step (step label), r2s_log (log prefix), r2s_pkg (shell expression
+    for the LIBERO package dir libero/libero of the checkout the eval imports), and must have defined die() and
+    log(). Exports R2S_TASK_IDS, R2S_HOPE_PY, R2S_WORK for the task loop. Host python3 only (stdlib scripts). -#}
+# ── [{{ r2s_step }}] LIBERO-R2S: objects reconstructed by a real2sim stage-1 run (--libero-objects real2sim) ──
+# Inputs (read-only, granted by the stack on exactly this prefix): {{ r2s.run_uri }}/segment/ (segment.json +
+# per-cluster convex hulls) and {{ r2s.run_uri }}/splat_world.ply (3DGS points, colours for the `full` condition).
+R2S_WORK=/home/ubuntu/libero-r2s
+R2S_PKG="{{ r2s_pkg }}"
+R2S_HOPE_PY="${R2S_PKG}/envs/objects/hope_objects.py"
+mkdir -p "${R2S_WORK}/segment" "${R2S_WORK}/bin"
+cat > "${R2S_WORK}/bin/build_r2s_objects.py" <<'R2SBUILD_EOF'
+{{ r2s.build_py }}R2SBUILD_EOF
+cat > "${R2S_WORK}/bin/r2s_select.py" <<'R2SSELECT_EOF'
+{{ r2s.select_py }}R2SSELECT_EOF
+cat > "${R2S_WORK}/bin/check_scene.py" <<'R2SCHECK_EOF'
+{{ r2s.check_py }}R2SCHECK_EOF
+cat > "${R2S_WORK}/bin/r2s_libero_report.py" <<'R2SREPORT_EOF'
+{{ r2s.report_py }}R2SREPORT_EOF
+
+log "[{{ r2s_step }}] LIBERO-R2S: downloading the stage-1 objects from {{ r2s.run_uri }}/ ..."
+aws s3 cp --recursive "{{ r2s.run_uri }}/segment/" "${R2S_WORK}/segment/" --region "${REGION}" --only-show-errors \
+    2>&1 | tee /tmp/{{ r2s_log }}_r2s_dl.log || die "LIBERO-R2S: download of {{ r2s.run_uri }}/segment/ failed (see /tmp/{{ r2s_log }}_r2s_dl.log)"
+[ -f "${R2S_WORK}/segment/segment.json" ] || die "LIBERO-R2S: {{ r2s.run_uri }}/segment/segment.json not found (is it a finished real2sim run?)"
+R2S_SPLAT_ARG=""
+{%- if "full" in r2s.conditions %}
+if aws s3 cp "{{ r2s.run_uri }}/splat_world.ply" "${R2S_WORK}/splat_world.ply" --region "${REGION}" --only-show-errors \
+    2>&1 | tee -a /tmp/{{ r2s_log }}_r2s_dl.log; then
+    R2S_SPLAT_ARG="--splat ${R2S_WORK}/splat_world.ply"
+else
+    log "[warn] LIBERO-R2S: splat_world.ply not downloadable — the full condition renders the hulls grey"
+fi
+{%- endif %}
+
+log "[{{ r2s_step }}] LIBERO-R2S: building object assets (modes {{ r2s.modes|join(',') }}, scale {{ r2s.scale }}, mass {{ r2s.mass }})..."
+# shellcheck disable=SC2086
+python3 "${R2S_WORK}/bin/build_r2s_objects.py" --assets "${R2S_PKG}/assets" --segment "${R2S_WORK}/segment" ${R2S_SPLAT_ARG} \
+    --modes "{{ r2s.modes|join(',') }}" --scale {{ r2s.scale }} --mass {{ r2s.mass }}{% if r2s.objects %} --map "{{ r2s.objects }}"{% endif %} \
+    --manifest "${R2S_WORK}/objects.json" 2>&1 | tee /tmp/{{ r2s_log }}_r2s_build.log
+[ "${PIPESTATUS[0]}" -eq 0 ] || die "LIBERO-R2S: object build failed (see /tmp/{{ r2s_log }}_r2s_build.log)"
+python3 "${R2S_WORK}/bin/r2s_select.py" patch-hope "${R2S_HOPE_PY}" || die "LIBERO-R2S: hope_objects.py patch failed"
+R2S_OBJECTS=$(python3 -c "import json,sys; print(','.join(sorted(json.load(open(sys.argv[1]))['objects'])))" "${R2S_WORK}/objects.json")
+R2S_TASK_IDS=$(python3 "${R2S_WORK}/bin/r2s_select.py" tasks "${R2S_PKG}" {{ r2s.suite }} "${R2S_OBJECTS}"{% if r2s.select == "any" %} --any{% endif %} \
+    --manifest "${R2S_WORK}/tasks.json") || die "LIBERO-R2S: no {{ r2s.suite }} task uses the reconstructed objects (${R2S_OBJECTS})"
+export R2S_TASK_IDS
+log "  LIBERO-R2S objects: ${R2S_OBJECTS} -> {{ r2s.suite }} task ids ${R2S_TASK_IDS}"

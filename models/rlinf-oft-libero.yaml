@@ -83,8 +83,8 @@ profiles:
       - actor.global_batch_size=1024
       - actor.model.is_lora=True
       - actor.model.lora_rank=32
-      - rollout.model.is_lora=True
-      - rollout.model.lora_rank=32
+      # no rollout.model.is_lora here: the train config's rollout.model has no such key (hydra rejects the
+      # override) and the rollout worker builds its model from OmegaConf.merge(actor.model, rollout.model).
     # Applied to BOTH evals (protocol stays identical): the RL checkpoint carries LoRA weights, and an untrained
     # LoRA adapter (B = 0) leaves the SFT baseline unchanged.
     eval_overrides:

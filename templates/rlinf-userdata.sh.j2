@@ -193,9 +193,12 @@ base64 -d "${WORK}/rlinf_report.py.b64" > "${WORK}/rlinf_report.py" || die "coul
 # ── [5/9] Container + full-chain verify (before any download) ───────
 log "[5/9] Starting the RLinf container (shm ${SHM_GB} GB)..."
 docker rm -f "${CTR}" >/dev/null 2>&1 || true
+# EMBODIED_PATH / REPO_PATH: what examples/embodiment/run_embodiment.sh exports; the train configs resolve
+# hydra.searchpath through ${oc.env:EMBODIED_PATH}, so compose fails without it.
 docker run -d --name "${CTR}" --gpus all --network host --ipc host --shm-size "${SHM_GB}g" \
     --ulimit nofile=1048576:1048576 --ulimit memlock=-1 \
     -e NVIDIA_DRIVER_CAPABILITIES=all -e MUJOCO_GL=egl -e PYOPENGL_PLATFORM=egl -e ROBOT_PLATFORM=LIBERO \
+    -e EMBODIED_PATH=/workspace/RLinf/examples/embodiment -e REPO_PATH=/workspace/RLinf \
     -e PYTHONUNBUFFERED=1 -e PYTHONFAULTHANDLER=1 -e HF_HUB_ENABLE_HF_TRANSFER=0 \
     -e HF_XET_CLIENT_READ_TIMEOUT=60 -e HF_XET_CLIENT_CONNECT_TIMEOUT=30 -e HF_XET_CLIENT_RETRY_MAX_DURATION=120 \
     -v "${RLINF_DIR}:/workspace/RLinf" -v "${WORK}:/workspace/work" \

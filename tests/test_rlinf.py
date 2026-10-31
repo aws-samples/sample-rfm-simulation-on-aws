@@ -252,3 +252,30 @@ def test_hydra_config_path_is_absolute():
     text = (Path(__file__).resolve().parents[1] / "templates" / "rlinf-userdata.sh.j2").read_text()
     paths = re.findall(r"--config-path\s+(\S+)", text)
     assert paths and all(p.startswith("/") for p in paths), paths
+
+
+def test_container_exports_embodied_path():
+    """The train/eval configs put file://${oc.env:EMBODIED_PATH}/config/ in hydra.searchpath
+    (run_embodiment.sh exports it); without it the compose step fails with a KeyError."""
+    text = (ROOT / "templates" / "rlinf-userdata.sh.j2").read_text()
+    assert "-e EMBODIED_PATH=/workspace/RLinf/examples/embodiment" in text
+
+
+def test_train_overrides_only_touch_existing_rollout_keys():
+    """rollout.model in the GRPO train configs has no is_lora/lora_rank (hydra rejects
+    the override); the rollout worker merges actor.model into it instead."""
+    import yaml
+
+    cfg = yaml.safe_load((ROOT / "models" / "rlinf-oft-libero.yaml").read_text())
+    found = []
+    def walk(o):
+        if isinstance(o, dict):
+            for k, v in o.items():
+                if k == "overrides":
+                    found.extend(v or [])
+                walk(v)
+        elif isinstance(o, list):
+            for v in o:
+                walk(v)
+    walk(cfg)
+    assert found and not [o for o in found if o.startswith("rollout.model.") and "lora" in o]

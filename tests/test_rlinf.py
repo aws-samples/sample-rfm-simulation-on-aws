@@ -154,6 +154,7 @@ def test_render_steps_and_eval_run(tmp_path):
     assert proc.returncode == 0, proc.stderr
     text = _check_script(path)
     assert "RL_STEPS=12" in text and 'EVAL_RUN="2026-10-31-0100"' in text and "--rl-steps 12" in text
+    assert "--include '*model_state_dict/*'" in text and 'CKPT_PROFILE' in text
 
 
 @pytest.mark.parametrize("extra,msg", [

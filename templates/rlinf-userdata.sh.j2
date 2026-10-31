@@ -390,7 +390,14 @@ else
     PREFIX=$(jq -r .prefix "${WORK}/out/checkpoint.json")
     STEP_NAME=$(jq -r .step "${WORK}/out/checkpoint.json")
     STEP_DIR="${WORK}/train/restored/${STEP_NAME}"
+    # The eval overrides depend on the profile (smoke = LoRA weights), so the checkpoint must come from the same one.
+    CKPT_PROFILE=$(jq -r .profile "${WORK}/out/checkpoint.json")
+    [ "${CKPT_PROFILE}" = "${RL_PROFILE}" ] \
+        || die "run ${EVAL_RUN} trained with --rl-profile ${CKPT_PROFILE}; redeploy with --rl-profile ${CKPT_PROFILE} --rl-eval-run ${EVAL_RUN}"
+    # Only the consolidated weights the eval loads (model_state_dict/full_weights.pt), not the DCP training shards
+    # with optimizer state (several times larger; they are kept in S3 for resuming training).
     aws s3 cp --recursive "s3://${S3_BUCKET}/${EVAL_RUN}/${PREFIX}" "${STEP_DIR}/" --region "$REGION" --only-show-errors \
+        --exclude '*' --include '*model_state_dict/*' \
         || die "download of s3://${S3_BUCKET}/${EVAL_RUN}/${PREFIX} failed"
     RL_CKPT_LABEL="s3://${S3_BUCKET}/${EVAL_RUN}/${PREFIX%/}"
 fi

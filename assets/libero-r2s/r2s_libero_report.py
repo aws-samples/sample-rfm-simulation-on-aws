@@ -101,6 +101,8 @@ def final(out_dir, conds, tasks=None, objects=None, check=None, suite="-", model
         for name, o in sorted(objects.get("objects", {}).items()):
             lines.append(f"  {name}: cluster {o['cluster']}, scale {o['scale']}, extent {o['extent_ratio']}, "
                          f"mass {o['mass_kg']} kg, gt chamfer {o.get('gt_chamfer_m')} m")
+        if objects.get("kept_stock"):
+            lines.append("  kept stock (unstable in the physics check): " + ", ".join(objects["kept_stock"]))
     with open(os.path.join(out_dir, "summary.txt"), "w") as f:
         f.write("\n".join(lines) + "\n")
     return res

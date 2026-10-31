@@ -465,11 +465,15 @@ cat > /tmp/lp_oft_task_ids_patch.py <<'LPPATCH_EOF'
 {% with r2s=libero_r2s, r2s_step="5.5/6", r2s_log="oft", r2s_pkg="${LIBERO_DIR}/libero/libero" %}{% include "_libero-r2s-setup.sh.j2" %}{% endwith %}
 # Physics check before any GPU time is spent on the policy: each replaced object must rest where the stock one
 # rested on the task's first initial state (no renderer; EGL is only imported).
-log "[5.5/6] LIBERO-R2S: physics check of the swapped scenes..."
-python "${R2S_WORK}/bin/check_scene.py" --suite {{ libero_r2s.suite }} --tasks "${R2S_TASK_IDS}" \
-    --dirs "stable_hope_objects{% for m in libero_r2s.modes %},stable_hope_objects_r2s_{{ m }}{% endfor %}" \
-    --objects "${R2S_OBJECTS}" --out "${R2S_WORK}/check.json" 2>&1 | tee /tmp/oft_r2s_check.log
-[ "${PIPESTATUS[0]}" -eq 0 ] || die "LIBERO-R2S: a replaced object is unstable in its scene (see /tmp/oft_r2s_check.log)"
+r2s_check() {
+    log "[5.5/6] LIBERO-R2S: physics check of the swapped scenes (tasks ${R2S_TASK_IDS})..."
+    python "${R2S_WORK}/bin/check_scene.py" --suite {{ libero_r2s.suite }} --tasks "${R2S_TASK_IDS}" \
+        --dirs "stable_hope_objects{% for m in libero_r2s.modes %},stable_hope_objects_r2s_{{ m }}{% endfor %}" \
+        --objects "${R2S_OBJECTS}" --out "${R2S_WORK}/check.json" --unstable-out "${R2S_WORK}/unstable.txt" \
+        2>&1 | tee -a /tmp/oft_r2s_check.log
+    return "${PIPESTATUS[0]}"
+}
+r2s_stabilise
 R2S_CONDS=""
 {%- endif %}
 

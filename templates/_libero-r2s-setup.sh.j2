@@ -2,7 +2,9 @@
     Included by the LIBERO templates only when generate.py passes a libero_r2s context, so a default render does
     not change. Caller sets: r2s (context), r2s_step (step label), r2s_log (log prefix), r2s_pkg (shell expression
     for the LIBERO package dir libero/libero of the checkout the eval imports), and must have defined die() and
-    log(). Exports R2S_TASK_IDS, R2S_HOPE_PY, R2S_WORK for the task loop. Host python3 only (stdlib scripts). -#}
+    log(), and define r2s_check (physics check writing ${R2S_WORK}/check.json and unstable.txt) before calling
+    r2s_stabilise. Exports R2S_OBJECTS, R2S_TASK_IDS, R2S_HOPE_PY, R2S_WORK for the task loop. Host python3 only
+    (stdlib scripts). -#}
 # ── [{{ r2s_step }}] LIBERO-R2S: objects reconstructed by a real2sim stage-1 run (--libero-objects real2sim) ──
 # Inputs (read-only, granted by the stack on exactly this prefix): {{ r2s.run_uri }}/segment/ (segment.json +
 # per-cluster convex hulls) and {{ r2s.run_uri }}/splat_world.ply (3DGS points, colours for the `full` condition).
@@ -33,15 +35,37 @@ else
 fi
 {%- endif %}
 
-log "[{{ r2s_step }}] LIBERO-R2S: building object assets (modes {{ r2s.modes|join(',') }}, scale {{ r2s.scale }}, mass {{ r2s.mass }})..."
-# shellcheck disable=SC2086
-python3 "${R2S_WORK}/bin/build_r2s_objects.py" --assets "${R2S_PKG}/assets" --segment "${R2S_WORK}/segment" ${R2S_SPLAT_ARG} \
-    --modes "{{ r2s.modes|join(',') }}" --scale {{ r2s.scale }} --mass {{ r2s.mass }}{% if r2s.objects %} --map "{{ r2s.objects }}"{% endif %} \
-    --manifest "${R2S_WORK}/objects.json" 2>&1 | tee /tmp/{{ r2s_log }}_r2s_build.log
-[ "${PIPESTATUS[0]}" -eq 0 ] || die "LIBERO-R2S: object build failed (see /tmp/{{ r2s_log }}_r2s_build.log)"
+# r2s_build [keep-stock list]: (re)build the sibling asset dirs; r2s_select_tasks: the task ids whose object of
+# interest is still replaced. Both are re-run by r2s_stabilise when the physics check finds an unstable object.
+r2s_build() {
+    log "[{{ r2s_step }}] LIBERO-R2S: building object assets (modes {{ r2s.modes|join(',') }}, scale {{ r2s.scale }}, mass {{ r2s.mass }}${1:+, kept stock: $1})..."
+    # shellcheck disable=SC2086
+    python3 "${R2S_WORK}/bin/build_r2s_objects.py" --assets "${R2S_PKG}/assets" --segment "${R2S_WORK}/segment" ${R2S_SPLAT_ARG} \
+        --modes "{{ r2s.modes|join(',') }}" --scale {{ r2s.scale }} --mass {{ r2s.mass }}{% if r2s.objects %} --map "{{ r2s.objects }}"{% endif %} \
+        --keep-stock "${1:-}" --manifest "${R2S_WORK}/objects.json" 2>&1 | tee -a /tmp/{{ r2s_log }}_r2s_build.log
+    [ "${PIPESTATUS[0]}" -eq 0 ] || die "LIBERO-R2S: object build failed (see /tmp/{{ r2s_log }}_r2s_build.log)"
+}
+r2s_select_tasks() {
+    R2S_OBJECTS=$(python3 -c "import json,sys; print(','.join(sorted(json.load(open(sys.argv[1]))['objects'])))" "${R2S_WORK}/objects.json")
+    R2S_TASK_IDS=$(python3 "${R2S_WORK}/bin/r2s_select.py" tasks "${R2S_PKG}" {{ r2s.suite }} "${R2S_OBJECTS}"{% if r2s.select == "any" %} --any{% endif %} \
+        --manifest "${R2S_WORK}/tasks.json") || die "LIBERO-R2S: no {{ r2s.suite }} task uses the reconstructed objects (${R2S_OBJECTS})"
+    export R2S_OBJECTS R2S_TASK_IDS
+    log "  LIBERO-R2S objects: ${R2S_OBJECTS} -> {{ r2s.suite }} task ids ${R2S_TASK_IDS}"
+}
+# r2s_stabilise: run the caller's r2s_check (physics check -> ${R2S_WORK}/check.json + unstable.txt). If a
+# replaced object does not rest where the stock one rests, leave that object stock, rebuild, reselect and check
+# once more; a second failure stops the run (the evaluation would measure the asset, not the policy).
+r2s_stabilise() {
+    rm -f "${R2S_WORK}/unstable.txt"
+    r2s_check && return 0
+    R2S_UNSTABLE=$(tr -d '[:space:]' < "${R2S_WORK}/unstable.txt" 2>/dev/null)
+    [ -n "${R2S_UNSTABLE}" ] || die "LIBERO-R2S: physics check failed (see /tmp/{{ r2s_log }}_r2s_check.log)"
+    log "[warn] LIBERO-R2S: unstable in its scene: ${R2S_UNSTABLE} - kept stock, rebuilding"
+    cp "${R2S_WORK}/check.json" "${R2S_WORK}/check-first.json" 2>/dev/null || true
+    r2s_build "${R2S_UNSTABLE}"
+    r2s_select_tasks
+    r2s_check || die "LIBERO-R2S: still unstable after keeping ${R2S_UNSTABLE} stock (see /tmp/{{ r2s_log }}_r2s_check.log)"
+}
+r2s_build ""
 python3 "${R2S_WORK}/bin/r2s_select.py" patch-hope "${R2S_HOPE_PY}" || die "LIBERO-R2S: hope_objects.py patch failed"
-R2S_OBJECTS=$(python3 -c "import json,sys; print(','.join(sorted(json.load(open(sys.argv[1]))['objects'])))" "${R2S_WORK}/objects.json")
-R2S_TASK_IDS=$(python3 "${R2S_WORK}/bin/r2s_select.py" tasks "${R2S_PKG}" {{ r2s.suite }} "${R2S_OBJECTS}"{% if r2s.select == "any" %} --any{% endif %} \
-    --manifest "${R2S_WORK}/tasks.json") || die "LIBERO-R2S: no {{ r2s.suite }} task uses the reconstructed objects (${R2S_OBJECTS})"
-export R2S_TASK_IDS
-log "  LIBERO-R2S objects: ${R2S_OBJECTS} -> {{ r2s.suite }} task ids ${R2S_TASK_IDS}"
+r2s_select_tasks

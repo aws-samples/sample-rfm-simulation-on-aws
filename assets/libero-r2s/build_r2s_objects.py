@@ -311,8 +311,10 @@ def parse_map(s):
 
 
 def link_or_copy(src, dst):
+    # Relative link: the asset tree is also seen under another mount point (openpi's runtime container
+    # mounts the checkout at /app), where an absolute host path would dangle.
     try:
-        os.symlink(src, dst)
+        os.symlink(os.path.relpath(src, os.path.dirname(os.path.abspath(dst))), dst)
     except OSError:
         if os.path.isdir(src):
             shutil.copytree(src, dst)
@@ -320,7 +322,7 @@ def link_or_copy(src, dst):
             shutil.copy2(src, dst)
 
 
-def build(assets, segment_dir, modes=MODES, scale="fit", mass="match", splat=None, explicit=None):
+def build(assets, segment_dir, modes=MODES, scale="fit", mass="match", splat=None, explicit=None, keep_stock=()):
     assets = os.path.abspath(assets)
     stock_root = os.path.join(assets, STOCK_DIR)
     if not os.path.isdir(stock_root):
@@ -333,12 +335,16 @@ def build(assets, segment_dir, modes=MODES, scale="fit", mass="match", splat=Non
     stock = sorted(d for d in os.listdir(stock_root) if os.path.isdir(os.path.join(stock_root, d)))
     swap = {n: v for n, v in picks.items() if n in stock}
     skipped = sorted(set(picks) - set(swap))
+    kept = sorted(set(swap) & set(keep_stock))
+    swap = {n: v for n, v in swap.items() if n not in kept}
+    if kept and not swap:
+        raise SystemExit(f"every reconstructed LIBERO object is kept stock ({', '.join(kept)}): nothing to swap")
     if not swap:
         raise SystemExit(f"no reconstructed object matches a LIBERO HOPE object (reconstructed: {sorted(picks)}; "
                          f"LIBERO: {stock}). For a non-HOPE capture pass --map <libero_name>=<cluster id>.")
     pts = read_ply_xyzrgb(splat) if splat and "full" in modes else None
     manifest = dict(version="r2s-libero-objects-v1", scale=scale, mass=mass, modes=list(modes),
-                    skipped_not_in_libero=skipped, objects={})
+                    skipped_not_in_libero=skipped, kept_stock=kept, objects={})
     built = {}
     for name in sorted(swap):
         cid, gt_name, gt_rec = swap[name]
@@ -411,12 +417,15 @@ def main(argv=None):
     p.add_argument("--mass", default="match", choices=["match", "density"])
     p.add_argument("--map", default="", help="override: libero_name=cluster_id,...")
     p.add_argument("--manifest", help="write the build manifest (json) here")
+    p.add_argument("--keep-stock", default="", help="LIBERO objects to leave stock although reconstructed "
+                   "(e.g. the ones check_scene.py found unstable), comma-separated")
     a = p.parse_args(argv)
     modes = [m for m in a.modes.split(",") if m]
     bad = [m for m in modes if m not in MODES]
     if bad or not modes:
         raise SystemExit(f"--modes: choose from {', '.join(MODES)}")
-    man = build(a.assets, a.segment, modes, a.scale, a.mass, a.splat, parse_map(a.map))
+    keep = [x.strip() for x in a.keep_stock.split(",") if x.strip()]
+    man = build(a.assets, a.segment, modes, a.scale, a.mass, a.splat, parse_map(a.map), keep_stock=keep)
     text = json.dumps(man, indent=1)
     if a.manifest:
         with open(a.manifest, "w") as f:
@@ -426,6 +435,8 @@ def main(argv=None):
               f"mass {o['mass_kg']} kg rgb {o['rgb']}")
     if man["skipped_not_in_libero"]:
         print("reconstructed but not a LIBERO object (not used): " + ", ".join(man["skipped_not_in_libero"]))
+    if man["kept_stock"]:
+        print("reconstructed but kept stock (--keep-stock): " + ", ".join(man["kept_stock"]))
     return 0
 
 

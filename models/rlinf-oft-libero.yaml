@@ -75,9 +75,10 @@ profiles:
     # 2 rollout epochs, 5 steps. Proves the pipe (install, verify, eval, train, checkpoint, re-eval, report);
     # the success gain of 5 LoRA steps is not expected to be meaningful.
     steps: 5
-    # 40 of the 500 fixed reset states (same states for both evals). Every eval env is a live LIBERO
-    # renderer on the one GPU (~0.44 GB each): 100 envs filled the 44 GB L40S and the policy hit CUDA OOM.
-    eval_num_envs: 40
+    # 20 of the 500 fixed reset states (same states for both evals). Every eval env is a live LIBERO
+    # renderer on the one GPU (~0.44 GB each) next to the 7B policy, whose activations grow with the env batch:
+    # 100 envs and then 40 envs both hit CUDA OOM on the 44 GB L40S (40 envs: policy 25.8 GB + renderers ~18 GB).
+    eval_num_envs: 20
     overrides:
       - env.train.total_num_envs=8
       - env.train.rollout_epoch=2

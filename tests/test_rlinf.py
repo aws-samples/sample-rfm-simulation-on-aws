@@ -288,3 +288,12 @@ def test_gpu_guards_around_ray_runs():
     text = (ROOT / "templates" / "rlinf-userdata.sh.j2").read_text()
     assert "native.cgroupdriver=cgroupfs" in text
     assert text.count('gpu_check "') == 2 and text.count("watch_dead_actor \"${WORK}/logs/") == 2
+
+
+def test_watcher_kill_and_wait_cannot_trip_the_err_trap():
+    # Smoke run 2026-10-31: `wait` on the killed dead-actor watcher returned 143 after training and the
+    # top-level ERR trap (which ignores set +e) aborted the run before the RL eval.
+    text = (Path(__file__).resolve().parent.parent / "templates" / "rlinf-userdata.sh.j2").read_text()
+    for line in text.splitlines():
+        if line.strip().startswith("kill ") and "wait " in line:
+            assert line.count("|| true") == 2, line

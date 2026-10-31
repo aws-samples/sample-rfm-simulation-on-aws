@@ -357,7 +357,7 @@ run_eval() {
     IN_ENV_TIMEOUT=10800 in_env "ray stop --force >/dev/null 2>&1; bash evaluations/run_eval.sh libero {{ eval_config }} rollout.model.model_path=${SFT_DIR} ${EVAL_OVERRIDES} ${extra}" \
         < /dev/null > "${WORK}/logs/eval_${phase}.log" 2>&1
     local rc=$?
-    kill "${watcher}" 2>/dev/null; wait "${watcher}" 2>/dev/null
+    kill "${watcher}" 2>/dev/null || true; wait "${watcher}" 2>/dev/null || true
     set -e
     log "  eval ${phase} exit ${rc}"
     local cond="baseline" ckpt="{{ hf_repo }}@{{ hf_model_revision[:8] }}"
@@ -410,7 +410,8 @@ if [ -z "${EVAL_RUN}" ]; then
     IN_ENV_TIMEOUT="${TRAIN_CAP}" in_env "ray stop --force >/dev/null 2>&1; python examples/embodiment/train_embodied_agent.py --config-path /workspace/RLinf/examples/embodiment/config/ --config-name {{ train_config }} ${TRAIN_OVERRIDES}" \
         < /dev/null > "${WORK}/logs/train.log" 2>&1
     TRAIN_RC=$?
-    kill "${TRAIN_WATCHER}" 2>/dev/null; wait "${TRAIN_WATCHER}" 2>/dev/null
+    # `wait` returns 143 for the killed watcher; the ERR trap fires at top level even under set +e.
+    kill "${TRAIN_WATCHER}" 2>/dev/null || true; wait "${TRAIN_WATCHER}" 2>/dev/null || true
     set -e
     log "  training exit ${TRAIN_RC} (124 = wall-clock cap; the latest saved step is evaluated)"
     in_env "ray stop --force" < /dev/null >/dev/null 2>&1 || true

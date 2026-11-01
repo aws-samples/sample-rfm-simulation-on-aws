@@ -121,7 +121,7 @@ pkill -9 -f "unattended-upgrade" 2>/dev/null || true
 # unattended-upgrades can re-take the lists lock right after the kill above (seen 2026-10-22 on g5),
 # so wait on the lock and retry instead of failing the whole boot on the first attempt.
 APT_RETRY=0
-until timeout 600 apt-get update -qq -o DPkg::Lock::Timeout=300 2>&1 | tee /tmp/pi_apt_update.log; do
+until timeout 2400 apt-get update -qq -o DPkg::Lock::Timeout=1800 2>&1 | tee /tmp/pi_apt_update.log; do
     APT_RETRY=$((APT_RETRY + 1))
     [ $APT_RETRY -ge 3 ] && die "apt-get update failed after 3 retries"
     log "[warn] apt-get update failed (attempt $APT_RETRY), retrying in 30s..."
@@ -129,7 +129,7 @@ until timeout 600 apt-get update -qq -o DPkg::Lock::Timeout=300 2>&1 | tee /tmp/
 done
 
 APT_RETRY=0
-until apt-get install -y --no-install-recommends -o DPkg::Lock::Timeout=300 \
+until apt-get install -y --no-install-recommends -o DPkg::Lock::Timeout=1800 \
     git git-lfs curl ca-certificates awscli jq \
     libgl1-mesa-glx libegl1 libgles2 \
     libglib2.0-0 libsm6 libxext6 libxrender1 \

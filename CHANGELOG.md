@@ -40,6 +40,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- UserData apt on a fresh Ubuntu DLAMI: every host `apt-get` waits up to 30 minutes for the dpkg lock (`DPkg::Lock::Timeout=1800`, was 300; the outer `timeout` of `apt-get update` 600 -> 2400 s), in all 20 templates that call apt. Measured: an `unattended-upgrades` run held the lock for 16+ minutes after the UserData had stopped it, and three 5-minute waits failed the deploy (X-VLA, g6e.xlarge). `tests/test_render.py` checks every target.
 - Found in the first real `--repeats 2` run on RoboLab (pi0-FAST-DROID, two runs on one instance per condition):
   - the RoboLab protocol card said `seed: unknown`, `checkpoints: []`, `condition: unknown`, `start_states: unknown`. RoboLab takes the seed as a client flag and the checkpoint from the variant, not from `summary.txt`; the card now records the seed, the checkpoint, `condition: instruction_type=<type>` and the start-state rule (a value in `summary.txt` still wins);
   - a RoboLab variant with another openpi checkpoint under the same target id was named after the target ("pi0.5-DROID (pi0_fast_droid_jointpos)"); the name now follows the policy config (`pi0-FAST-DROID`, or `variants.<v>.policy_label`), and the protocol description follows the episode count and instruction type the run uses;

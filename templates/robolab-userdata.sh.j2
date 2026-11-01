@@ -168,13 +168,13 @@ rm -f /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/lib/apt/lists/lock 2>/
 dpkg --configure -a > /tmp/{{ vla }}_dpkg_fix.log 2>&1 || true
 rm -f /etc/apt/apt.conf.d/50command-not-found 2>/dev/null || true
 APT_RETRY=0
-until timeout 600 apt-get update -qq -o DPkg::Lock::Timeout=300 > /tmp/{{ vla }}_apt_update.log 2>&1; do
+until timeout 2400 apt-get update -qq -o DPkg::Lock::Timeout=1800 > /tmp/{{ vla }}_apt_update.log 2>&1; do
     APT_RETRY=$((APT_RETRY + 1))
     [ $APT_RETRY -ge 3 ] && die "apt-get update failed after 3 retries"
     sleep 30
 done
 APT_RETRY=0
-until apt-get install -y --no-install-recommends -o DPkg::Lock::Timeout=300 \
+until apt-get install -y --no-install-recommends -o DPkg::Lock::Timeout=1800 \
     git git-lfs curl ca-certificates awscli jq python3 > /tmp/{{ vla }}_apt.log 2>&1; do
     APT_RETRY=$((APT_RETRY + 1))
     [ $APT_RETRY -ge 3 ] && die "apt-get install failed after 3 retries"

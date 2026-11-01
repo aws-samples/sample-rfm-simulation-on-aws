@@ -119,8 +119,8 @@ rm -f /etc/apt/apt.conf.d/50command-not-found 2>/dev/null || true
 systemctl stop apt-daily.timer apt-daily-upgrade.timer 2>/dev/null || true
 systemctl mask apt-daily.timer apt-daily-upgrade.timer unattended-upgrades.service 2>/dev/null || true
 APT_RETRY=0
-until timeout 600 apt-get update -qq -o DPkg::Lock::Timeout=300 >> /tmp/rlinf_apt.log 2>&1 \
-    && apt-get install -y --no-install-recommends -o DPkg::Lock::Timeout=300 git curl ca-certificates awscli jq \
+until timeout 2400 apt-get update -qq -o DPkg::Lock::Timeout=1800 >> /tmp/rlinf_apt.log 2>&1 \
+    && apt-get install -y --no-install-recommends -o DPkg::Lock::Timeout=1800 git curl ca-certificates awscli jq \
        >> /tmp/rlinf_apt.log 2>&1; do
     APT_RETRY=$((APT_RETRY + 1))
     [ $APT_RETRY -ge 3 ] && die "apt-get failed after 3 retries (see /tmp/rlinf_apt.log)"

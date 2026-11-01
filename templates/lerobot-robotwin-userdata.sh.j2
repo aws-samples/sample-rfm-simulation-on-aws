@@ -119,7 +119,7 @@ rm -f /etc/apt/apt.conf.d/50command-not-found 2>/dev/null || true
 systemctl stop apt-daily.timer apt-daily-upgrade.timer 2>/dev/null || true
 systemctl mask apt-daily.timer apt-daily-upgrade.timer unattended-upgrades.service 2>/dev/null || true
 APT_RETRY=0
-until timeout 600 apt-get update -qq -o DPkg::Lock::Timeout=300 2>&1 | tee /tmp/{{ vla }}_apt_update.log; do
+until timeout 2400 apt-get update -qq -o DPkg::Lock::Timeout=1800 2>&1 | tee /tmp/{{ vla }}_apt_update.log; do
     APT_RETRY=$((APT_RETRY + 1))
     [ $APT_RETRY -ge 3 ] && die "apt-get update failed after 3 retries"
     log "[warn] apt-get update failed (attempt $APT_RETRY), retrying in 30s..."
@@ -129,7 +129,7 @@ done
 # libvulkan1 + vulkan-tools: SAPIEN renders every camera through Vulkan and the DLAMI ships the NVIDIA
 # driver but not the Vulkan loader (`import sapien` -> ImportError: libvulkan.so.1). unzip: RoboTwin assets.
 APT_RETRY=0
-until apt-get install -y --no-install-recommends -o DPkg::Lock::Timeout=300 \
+until apt-get install -y --no-install-recommends -o DPkg::Lock::Timeout=1800 \
     git git-lfs curl ca-certificates awscli jq unzip \
     libgl1-mesa-glx libegl1 libgles2 \
     libglib2.0-0 libsm6 libxext6 libxrender1 \
@@ -378,10 +378,10 @@ if [ ! -x "${CUDA_HOME}/bin/nvcc" ]; then
         log "  adding the NVIDIA CUDA apt repository (${_ubu}) for cuda-nvcc-${_cu}..."
         curl -fsSL -o /tmp/cuda-keyring.deb \
             "https://developer.download.nvidia.com/compute/cuda/repos/${_ubu}/x86_64/cuda-keyring_1.1-1_all.deb" \
-            && dpkg -i /tmp/cuda-keyring.deb && timeout 600 apt-get update -qq -o DPkg::Lock::Timeout=300 \
+            && dpkg -i /tmp/cuda-keyring.deb && timeout 2400 apt-get update -qq -o DPkg::Lock::Timeout=1800 \
             || die "could not add the NVIDIA CUDA apt repository"
     fi
-    apt-get install -y --no-install-recommends -o DPkg::Lock::Timeout=300 \
+    apt-get install -y --no-install-recommends -o DPkg::Lock::Timeout=1800 \
         "cuda-nvcc-${_cu}" "cuda-cudart-dev-${_cu}" 2>&1 | tee /tmp/{{ vla }}_nvcc_apt.log \
         || die "cuda-nvcc-${_cu} install failed (see /tmp/{{ vla }}_nvcc_apt.log)"
 fi

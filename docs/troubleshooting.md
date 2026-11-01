@@ -36,6 +36,6 @@ npx cdk deploy Pi-Demo    --output cdk.out-pi    -c vla=pi    -c region=us-east-
 
 ## apt lock on DLAMI boot
 
-`unattended-upgrades` holds the apt lock for ~2 minutes on fresh boot. The UserData waits up to 120 seconds then forcibly kills the process. No action needed. Every template also masks the `apt-daily` timers (they re-launch `unattended-upgrades` later in the boot), removes the `command-not-found` apt hook (it once hung `apt-get update` for 3 h) and bounds each `apt-get update` with `timeout 600`.
+`unattended-upgrades` holds the apt lock for ~2 minutes on fresh boot. The UserData waits up to 120 seconds then forcibly kills the process. No action needed. Every template also masks the `apt-daily` timers (they re-launch `unattended-upgrades` later in the boot), removes the `command-not-found` apt hook (it once hung `apt-get update` for 3 h) and bounds each `apt-get update` with `timeout 2400`. If an `unattended-upgrades` run survives all that (measured once on a fresh Ubuntu DLAMI, g6e.xlarge: it held the dpkg lock for 16+ minutes, and three `apt-get install` attempts with a 5-minute lock wait each failed the deploy), every host `apt-get` waits up to 30 minutes for the lock (`-o DPkg::Lock::Timeout=1800`) instead of failing.
 
 ---

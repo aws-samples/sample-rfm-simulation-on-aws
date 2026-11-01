@@ -13,7 +13,7 @@
 # {{ lp.assets_gb }} GB, MIT on the dataset card). Both are downloaded here at run time, never vendored.
 log "[{{ lp_step }}] LIBERO-Plus: system packages (ImageMagick for Wand, fontconfig, expat, unzip)..."
 APT_RETRY=0
-until apt-get install -y --no-install-recommends -o DPkg::Lock::Timeout=300 \
+until apt-get install -y --no-install-recommends -o DPkg::Lock::Timeout=1800 \
     unzip libexpat1 libfontconfig1-dev libmagickwand-dev \
     2>&1 | tee /tmp/{{ lp_log }}_lp_apt.log; do
     APT_RETRY=$((APT_RETRY + 1))

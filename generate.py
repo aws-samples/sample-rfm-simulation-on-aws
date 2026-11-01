@@ -42,7 +42,9 @@ from jinja2 import Environment, FileSystemLoader
 
 import libero_plus
 import libero_r2s
+import repeatability
 import robotwin_plan
+import seeds
 from targets import JUDGE_TARGETS, VLA_TARGETS
 
 BASE_DIR = Path(__file__).parent
@@ -51,6 +53,78 @@ TEMPLATES_DIR = BASE_DIR / "templates"
 # OpenVLA-OFT supported LIBERO suites (`long` is an alias for `10`).
 OFT_LIBERO_SUITES = ("spatial", "object", "goal", "10", "long")
 OFT_DEFAULT_SUITE = "10"
+
+
+# ── Evaluation protocol card (templates/_protocol-card.sh.j2) ─────────────────────────────────────
+PIN_KEY_RE = re.compile(r"(commit|revision|_ref|_tag|_version|_sha)$")
+SAFE_VALUE_RE = re.compile(r"^[\w./:@+-]{1,200}$")
+
+
+def _tool_commit() -> str:
+    try:
+        out = subprocess.run(["git", "-C", str(BASE_DIR), "rev-parse", "--short=12", "HEAD"],
+                             capture_output=True, text=True, timeout=5)
+        dirty = subprocess.run(["git", "-C", str(BASE_DIR), "status", "--porcelain", "--untracked-files=no"],
+                               capture_output=True, text=True, timeout=5)
+        sha = out.stdout.strip()
+        return (sha + ("-dirty" if dirty.stdout.strip() else "")) if out.returncode == 0 and sha else "unknown"
+    except (OSError, subprocess.SubprocessError):
+        return "unknown"
+
+
+def protocol_static(config: dict, target: str) -> dict:
+    """Render-time half of the protocol card: checkpoints (+ revision), code pins and the tool commit,
+    read from the merged model config. Values that are not plain tokens are left out, not quoted."""
+    model = config.get("model") or {}
+    checkpoints, pins = [], {}
+
+    def walk(node, path):
+        if isinstance(node, dict):
+            repo = node.get("hf_repo") or node.get("checkpoint") or node.get("hf_model")
+            if isinstance(repo, str) and SAFE_VALUE_RE.match(repo):
+                rev = node.get("hf_model_revision") or node.get("revision") or "unknown"
+                rev = str(rev) if SAFE_VALUE_RE.match(str(rev)) else "unknown"
+                checkpoints.append(dict(repo=repo, revision=rev, suite=path[-1] if path and path[-2:-1] == ["suites"] else ""))
+            for k, v in node.items():
+                if isinstance(v, (dict, list)):
+                    walk(v, path + [str(k)])
+                elif k not in ("hf_model_revision", "revision") and PIN_KEY_RE.search(str(k)) \
+                        and SAFE_VALUE_RE.match(str(v)):
+                    pins.setdefault(".".join(path + [str(k)]) if path else str(k), str(v))
+        elif isinstance(node, list):
+            for i, v in enumerate(node):
+                walk(v, path + [str(i)])
+
+    walk(model, [])
+    plan = config.get("seed_plan") or seeds.apply({}, target, seeds.resolve("model"))["seed_plan"]
+    plan = {k: (re.sub(r"['\n\r]", "", str(v)) if k in ("via", "reason")
+                else str(v) if SAFE_VALUE_RE.match(str(v)) else "unknown") if v not in (None, "") else ""
+            for k, v in plan.items()}
+    rep = repeatability.for_target(target)
+    rerun_null = {k: re.sub(r"['\n\r]", "", str(rep.get(k, ""))) for k in ("simulator", "repeatable", "evidence")}
+    # finished runs of one stack, suite and condition that results --compare needs before it calls a winner
+    rerun_null["runs_for_a_verdict"] = 2 if rep.get("repeatable") == "no" else 1
+    # runs this deploy makes (generate.py / deploy.py --repeats; a new RUN_ID per run, same stack and seed)
+    rp = config.get("repeat_plan") or {}
+    rerun_null["repeats"] = int(rp.get("repeats", 1))
+    rerun_null["repeats_reason"] = re.sub(r"['\n\r]", "", str(rp.get("reason", "")))
+    return dict(target=target if SAFE_VALUE_RE.match(target) else "unknown", tool_commit=_tool_commit(),
+                checkpoints=checkpoints, code_pins=dict(sorted(pins.items())), seed_plan=plan, rerun_null=rerun_null)
+
+
+def _with_protocol(ctx: dict, config: dict, card: dict | None = None) -> dict:
+    """card = values the template passes to the evaluation but does not write into summary.txt: `checkpoints`
+    (added to the YAML walk), `seed` / `condition` / `start_states` (used where summary.txt has none)."""
+    target = ctx.get("vla") or (config.get("model") or {}).get("id") or "unknown"
+    ps = protocol_static(config, str(target))
+    card = card or {}
+    for c in card.get("checkpoints") or []:
+        repo, rev = str(c.get("repo", "")), str(c.get("revision", "unknown"))
+        if SAFE_VALUE_RE.match(repo) and repo not in {x["repo"] for x in ps["checkpoints"]}:
+            ps["checkpoints"].append(dict(repo=repo, revision=rev if SAFE_VALUE_RE.match(rev) else "unknown", suite=""))
+    ps["fallback"] = {k: re.sub(r"['\n\r]", "", str(card[k])) for k in ("seed", "condition", "start_states")
+                      if card.get(k) not in (None, "")}
+    return {**ctx, "protocol_static": ps}
 
 
 def _tasks_json_for_bash(tasks: list) -> str:
@@ -326,13 +400,13 @@ def generate_gr00t(config: dict, resolved_grpc: str, resolved_vpc: str, dry_run:
         print(f"[error] {vla}: bridge mode (remote gRPC inference) is LIBERO-only.", file=sys.stderr)
         sys.exit(1)
     env = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)), keep_trailing_newline=True)  # nosec B701 - shell script template, autoescape not applicable
-    return env.get_template("gr00t-userdata.sh.j2").render(**ctx)
+    return env.get_template("gr00t-userdata.sh.j2").render(**_with_protocol(ctx, config))
 
 
 def generate_gr00t_gr1(config: dict, resolved_grpc: str, resolved_vpc: str, dry_run: bool) -> str:
     ctx = _build_gr00t_ctx(config, resolved_grpc, "gr00t-gr1")
     env = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)), keep_trailing_newline=True)  # nosec B701 - shell script template, autoescape not applicable
-    return env.get_template("gr00t-gr1-userdata.sh.j2").render(**ctx)
+    return env.get_template("gr00t-gr1-userdata.sh.j2").render(**_with_protocol(ctx, config))
 
 
 def generate_gr00t_g1(config: dict, resolved_grpc: str, resolved_vpc: str, dry_run: bool,
@@ -403,7 +477,7 @@ def generate_gr00t_g1(config: dict, resolved_grpc: str, resolved_vpc: str, dry_r
             "num_demos": collection.get("num_demos", 0),  # 0 → fall back to tasks[].n_episodes
         }
     env = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)), keep_trailing_newline=True)  # nosec B701 - shell script template, autoescape not applicable
-    return env.get_template("gr00t-g1-userdata.sh.j2").render(**ctx)
+    return env.get_template("gr00t-g1-userdata.sh.j2").render(**_with_protocol(ctx, config))
 
 
 def generate_openvla_oft(config: dict, libero_suite: str, dry_run: bool, plus: tuple = None, r2s: tuple = None) -> str:
@@ -467,7 +541,7 @@ def generate_openvla_oft(config: dict, libero_suite: str, dry_run: bool, plus: t
     }
 
     env = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)), keep_trailing_newline=True)  # nosec B701 - shell script template
-    return env.get_template("openvla-oft-userdata.sh.j2").render(**ctx)
+    return env.get_template("openvla-oft-userdata.sh.j2").render(**_with_protocol(ctx, config))
 
 
 def generate_rldx(config: dict, dry_run: bool, vla: str = "rldx", plus: tuple = None) -> str:
@@ -592,7 +666,7 @@ def generate_rldx(config: dict, dry_run: bool, vla: str = "rldx", plus: tuple = 
     }
 
     env = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)), keep_trailing_newline=True)  # nosec B701 - shell script template
-    return env.get_template("rldx-userdata.sh.j2").render(**ctx)
+    return env.get_template("rldx-userdata.sh.j2").render(**_with_protocol(ctx, config))
 
 
 def generate_lap(config: dict, resolved_nlb: str, dry_run: bool, plus: tuple = None) -> str:
@@ -634,7 +708,7 @@ def generate_lap(config: dict, resolved_nlb: str, dry_run: bool, plus: tuple = N
     }
 
     env = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)), keep_trailing_newline=True)  # nosec B701 - shell script template
-    return env.get_template("lap-userdata.sh.j2").render(**ctx)
+    return env.get_template("lap-userdata.sh.j2").render(**_with_protocol(ctx, config))
 
 
 def generate_openarm_isaac(config: dict, dry_run: bool) -> str:
@@ -679,7 +753,7 @@ def generate_openarm_isaac(config: dict, dry_run: bool) -> str:
         ctx[ctx_key] = base64.encodebytes((asset_dir / fname).read_bytes()).decode()
 
     env = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)), keep_trailing_newline=True)  # nosec B701 - shell script template
-    return env.get_template("openarm-isaac-userdata.sh.j2").render(**ctx)
+    return env.get_template("openarm-isaac-userdata.sh.j2").render(**_with_protocol(ctx, config))
 
 
 def generate_openarm_lift_act(config: dict, dry_run: bool) -> str:
@@ -726,7 +800,7 @@ def generate_openarm_lift_act(config: dict, dry_run: bool) -> str:
         ctx[ctx_key] = base64.encodebytes((asset_dir / fname).read_bytes()).decode()
 
     env = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)), keep_trailing_newline=True)  # nosec B701 - shell script template
-    return env.get_template("openarm-lift-act-userdata.sh.j2").render(**ctx)
+    return env.get_template("openarm-lift-act-userdata.sh.j2").render(**_with_protocol(ctx, config))
 
 
 def generate_molmoact2(config: dict, dry_run: bool, plus: tuple = None) -> str:
@@ -780,7 +854,7 @@ def generate_molmoact2(config: dict, dry_run: bool, plus: tuple = None) -> str:
     }
 
     env = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)), keep_trailing_newline=True)  # nosec B701 - shell script template
-    return env.get_template("molmoact2-userdata.sh.j2").render(**ctx)
+    return env.get_template("molmoact2-userdata.sh.j2").render(**_with_protocol(ctx, config))
 
 
 # Targets that run an upstream-LeRobot policy through `lerobot-eval --env.type=libero` with the shared
@@ -842,7 +916,7 @@ def generate_lerobot_libero(config: dict, dry_run: bool, vla: str, plus: tuple =
             sys.exit(1)
 
     env = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)), keep_trailing_newline=True)  # nosec B701 - shell script template
-    return env.get_template("lerobot-libero-userdata.sh.j2").render(**ctx)
+    return env.get_template("lerobot-libero-userdata.sh.j2").render(**_with_protocol(ctx, config))
 
 
 # Targets that run an upstream-LeRobot policy through `lerobot-eval --env.type=robotwin` (RoboTwin 2.0,
@@ -935,7 +1009,7 @@ def generate_lerobot_robotwin(config: dict, dry_run: bool, vla: str, protocol: s
             sys.exit(1)
 
     env = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)), keep_trailing_newline=True)  # nosec B701 - shell script template
-    return env.get_template("lerobot-robotwin-userdata.sh.j2").render(**ctx)
+    return env.get_template("lerobot-robotwin-userdata.sh.j2").render(**_with_protocol(ctx, config))
 
 
 def generate_vla_adapter(config: dict, dry_run: bool, vla: str = "vla-adapter", plus: tuple = None) -> str:
@@ -981,7 +1055,7 @@ def generate_vla_adapter(config: dict, dry_run: bool, vla: str = "vla-adapter", 
         "libero_plus": lp_ctx,
     }
     env = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)), keep_trailing_newline=True)  # nosec B701 - shell script template
-    return env.get_template("vla-adapter-userdata.sh.j2").render(**ctx)
+    return env.get_template("vla-adapter-userdata.sh.j2").render(**_with_protocol(ctx, config))
 
 
 def generate_cosmos_policy(config: dict, dry_run: bool, vla: str = "cosmos-policy") -> str:
@@ -1022,7 +1096,7 @@ def generate_cosmos_policy(config: dict, dry_run: bool, vla: str = "cosmos-polic
         "min_host_mib": int(instance.get("min_host_mib", 15000)),
     }
     env = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)), keep_trailing_newline=True)  # nosec B701 - shell script template
-    return env.get_template("cosmos-policy-userdata.sh.j2").render(**ctx)
+    return env.get_template("cosmos-policy-userdata.sh.j2").render(**_with_protocol(ctx, config))
 
 
 def generate_aspire(config: dict, dry_run: bool, vla: str = "aspire") -> str:
@@ -1068,7 +1142,7 @@ def generate_aspire(config: dict, dry_run: bool, vla: str = "aspire") -> str:
         "min_host_mib": instance.get("min_host_mib", 0),
     }
     env = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)), keep_trailing_newline=True)  # nosec B701 - shell script template
-    return env.get_template("aspire-userdata.sh.j2").render(**ctx)
+    return env.get_template("aspire-userdata.sh.j2").render(**_with_protocol(ctx, config))
 
 
 # Stage scripts embedded into the real2sim UserData (written to /opt/r2s/assets on the instance).
@@ -1143,7 +1217,7 @@ def generate_real2sim(config: dict, dry_run: bool, vla: str = "real2sim") -> str
         "assets": [(f, base64.encodebytes((asset_dir / f).read_bytes()).decode()) for f in REAL2SIM_ASSETS],
     }
     env = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)), keep_trailing_newline=True)  # nosec B701 - shell script template
-    return env.get_template("real2sim-userdata.sh.j2").render(**ctx)
+    return env.get_template("real2sim-userdata.sh.j2").render(**_with_protocol(ctx, config))
 
 
 ROBOLAB_TARGETS = ("robolab-cosmos3", "robolab-pi05")
@@ -1161,6 +1235,43 @@ def resolve_variant(config: dict, vla: str) -> tuple:
         print(f"[error] models/{vla}.yaml: model.variant {name!r} is not one of {sorted(variants)}", file=sys.stderr)
         sys.exit(1)
     return name, dict(variants[name] or {})
+
+
+# openpi policy config prefix -> policy name (a variant with another checkpoint under the same target id keeps
+# its own name; variants.<v>.policy_label overrides it)
+OPENPI_POLICY_NAMES = (("pi05_", "pi0.5-DROID"), ("pi0_fast_", "pi0-FAST-DROID"), ("pi0_", "pi0-DROID"))
+
+
+def openpi_policy_name(policy_config: str) -> str:
+    for prefix, name in OPENPI_POLICY_NAMES:
+        if str(policy_config).startswith(prefix):
+            return name
+    return str(policy_config)
+
+
+def robolab_description(description: str, n_tasks: int, per_task: int, instruction_type: str) -> str:
+    """The protocol description with the episode count and instruction type this run actually uses
+    (num_envs x num_runs and eval.instruction_type can differ from the numbers written in the YAML)."""
+    d = re.sub(r"(\d+) tasks x \d+ episodes",
+               lambda m: f"{n_tasks or m.group(1)} tasks x {per_task} episodes", str(description))
+    return re.sub(r"\((default|vague|specific) instructions\)", f"({instruction_type} instructions)", d)
+
+
+def robolab_plan(config: dict, vla: str) -> dict:
+    """Episodes per run and time limits of the selected RoboLab variant (deploy.py prints the plan from it).
+    Reads the same keys as generate_robolab(); returns {} when the model has no RoboLab protocol."""
+    variants = config.get("variants") or {}
+    var = dict(variants.get(str((config.get("model") or {}).get("variant", "")).strip()) or {})
+    proto = (config.get("protocols") or {}).get(var.get("protocol")) or {}
+    if not proto:
+        return {}
+    tasks = list(proto.get("tasks") or [])
+    per_task = int(proto.get("num_envs", 1)) * int(proto.get("num_runs", 1))
+    timeout = str((var.get("instance") or config.get("instance") or {}).get("creationpolicy_timeout", "PT180M"))
+    m = re.fullmatch(r"PT(?:(\d+)H)?(?:(\d+)M)?", timeout)
+    minutes = (int(m.group(1) or 0) * 60 + int(m.group(2) or 0)) if m else None
+    return dict(episodes=len(tasks) * per_task if tasks else None, shards=int(var.get("shards", 1)),
+                eval_timeout_min=int(var.get("eval_timeout_min", 300)), deploy_timeout_min=minutes)
 
 
 def generate_robolab(config: dict, dry_run: bool, vla: str) -> str:
@@ -1221,7 +1332,7 @@ def generate_robolab(config: dict, dry_run: bool, vla: str) -> str:
             if not var.get(key):
                 fail(f"variants.{variant}.{key} is required")
         checkpoint_ref = var["checkpoint_dir"]
-        policy_label = f"pi0.5-DROID ({var['policy_config']})"
+        policy_label = var.get("policy_label") or f"{openpi_policy_name(var['policy_config'])} ({var['policy_config']})"
         client_script = "policies/pi0_family/run.py"
     tokens = [str(t) for t in (list(var.get("server_args") or []) + list(var.get("client_args") or [])
                                + list(model.get("server_uv_groups") or []))]
@@ -1258,7 +1369,8 @@ def generate_robolab(config: dict, dry_run: bool, vla: str) -> str:
         "client_script": client_script,
         "client_args": [str(a) for a in var.get("client_args") or []],
         "label": _shell_safe(proto.get("label", "RoboLab/" + str(var.get("protocol"))), "protocol label"),
-        "description": _shell_safe(proto.get("description", ""), "protocol description"),
+        "description": _shell_safe(robolab_description(proto.get("description", ""), len(tasks), num_envs * num_runs,
+                                                       instruction_type), "protocol description"),
         "leaderboard": _shell_safe(var.get("leaderboard", "see docs/results.md"), "leaderboard"),
         "tasks": tasks,
         "num_envs": num_envs,
@@ -1274,9 +1386,17 @@ def generate_robolab(config: dict, dry_run: bool, vla: str) -> str:
         "min_gpu_mib": int(var.get("min_gpu_mib", 44000)),
         "min_host_mib": int(var.get("min_host_mib", 60000)),
         "report_py_b64": base64.encodebytes(asset.read_bytes()).decode(),
+        "repeats": int((config.get("repeat_plan") or {}).get("repeats", 1)),
     }
+    # protocol card: RoboLab takes the seed as a client flag and the checkpoint from the variant, not from
+    # summary.txt, so the card gets them (and the start-state rule) from what this script passes
+    ckpt = (dict(repo=var["hf_repo"], revision=str(var["hf_model_revision"])) if backend == "cosmos3"
+            else dict(repo=var["checkpoint_dir"], revision="unversioned"))
+    card = dict(seed=ctx["seed"], condition=f"instruction_type={instruction_type}",
+                start_states=f"RoboLab --seed {ctx['seed']}, num_envs {num_envs} x num_runs {num_runs} per task",
+                checkpoints=[ckpt])
     env = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)), keep_trailing_newline=True)  # nosec B701 - shell script template
-    return env.get_template("robolab-userdata.sh.j2").render(**ctx)
+    return env.get_template("robolab-userdata.sh.j2").render(**_with_protocol(ctx, config, card))
 
 
 def _shell_safe(value: str, what: str) -> str:
@@ -1328,7 +1448,7 @@ def generate_flora_judge(config: dict, dry_run: bool, judge: str = "flora-judge"
         "judge_py_b64": base64.encodebytes(asset.read_bytes()).decode(),
     }
     env = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)), keep_trailing_newline=True)  # nosec B701 - shell script template
-    return env.get_template(f"{judge}-userdata.sh.j2").render(**ctx)
+    return env.get_template(f"{judge}-userdata.sh.j2").render(**_with_protocol(ctx, config))
 
 
 # RLinf evaluate -> RL -> re-evaluate targets (templates/rlinf-userdata.sh.j2). Profiles: models/<vla>.yaml profiles.
@@ -1455,7 +1575,7 @@ def generate_rlinf(config: dict, dry_run: bool, vla: str, profile: str = "smoke"
         "report_py_b64": base64.encodebytes((BASE_DIR / "assets" / "rlinf" / "rlinf_report.py").read_bytes()).decode(),
     }
     env = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)), keep_trailing_newline=True)  # nosec B701 - shell script template
-    return env.get_template("rlinf-userdata.sh.j2").render(**ctx)
+    return env.get_template("rlinf-userdata.sh.j2").render(**_with_protocol(ctx, config))
 
 
 def generate_pi(config: dict, resolved_vpc: str, resolved_nlb: str, dry_run: bool, plus: tuple = None,
@@ -1501,7 +1621,7 @@ def generate_pi(config: dict, resolved_vpc: str, resolved_nlb: str, dry_run: boo
     }
 
     env = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)), keep_trailing_newline=True)  # nosec B701 - shell script template, autoescape not applicable
-    return env.get_template("pi-userdata.sh.j2").render(**ctx)
+    return env.get_template("pi-userdata.sh.j2").render(**_with_protocol(ctx, config))
 
 
 def main():
@@ -1554,6 +1674,15 @@ def main():
                              "randomized / full = the official 49 tasks x 100 episodes (full = both settings)")
     parser.add_argument("--robotwin-shard", default="", metavar="K/N",
                         help="RoboTwin targets: keep every N-th (setting, task) unit starting at K (1-based)")
+    parser.add_argument("--seed", default="model", metavar="model|auto|N",
+                        help="Seed for every task: model = the per-task seeds of models/<vla>.yaml (default); "
+                             "auto = draw one now (secrets.randbits(31)); N = reuse a published seed. "
+                             "Use the same value for every target you compare (docs/results.md \"Shared seed\").")
+    parser.add_argument("--seed-drawn-utc", default=None, help=argparse.SUPPRESS)
+    parser.add_argument("--repeats", default="auto", metavar="auto|N",
+                        help="Runs of the whole evaluation in one deploy (a new RUN_ID each, same stack, seed and "
+                             "start states). auto = 2 on simulators where an identical re-run does not repeat "
+                             "(repeatability.py: RoboLab) and 1 elsewhere; 1 turns it off")
     parser.add_argument("--rl-profile", default="smoke", choices=list(RL_PROFILES),
                         help="rlinf-oft-libero: smoke = 1 GPU, LoRA, a few GRPO steps; full = 8 GPU, recipe defaults "
                              "(models/<vla>.yaml profiles)")
@@ -1579,6 +1708,27 @@ def main():
 
     name = args.judge_target or args.vla
     config = _load_merged_config(config_path, name)
+    try:
+        seed_plan = seeds.resolve(args.seed, drawn_utc=args.seed_drawn_utc)
+    except ValueError as e:
+        parser.error(str(e))
+    config = seeds.apply(config, name, seed_plan)
+    if not args.judge_target:
+        try:
+            n_rep, why = repeatability.resolve_repeats(name, args.repeats)
+        except ValueError as e:
+            parser.error(str(e))
+        config["repeat_plan"] = dict(repeats=n_rep, reason=why)
+        if n_rep > 1:
+            print(f"Runs:   {n_rep} per deploy ({why})")
+        elif repeatability.for_target(name)["repeatable"] == "no":
+            print(f"[warn] one run per deploy: {why}", file=sys.stderr)
+    sp = config["seed_plan"]
+    if sp["status"] == "applied":
+        print(f"Seed:   {sp['value']} ({sp['mode']}) -> every task of {name}")
+    elif sp["status"] == "not-controllable":
+        print(f"[warn] --seed {sp['value']}: {name} cannot be seeded by the tool ({sp['reason']}); "
+              "recorded in protocol.yaml as not-controllable", file=sys.stderr)
     plus = None
     if args.libero_variant == "plus":
         if args.judge_target:

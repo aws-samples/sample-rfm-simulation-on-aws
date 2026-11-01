@@ -14,6 +14,7 @@ k/n successes and a 95% Wilson interval, so runs under different knobs
     python vlasim.py results --robustness           # LIBERO-Plus per-dimension drop vs the LIBERO baseline
     python vlasim.py results --matrix               # target x benchmark matrix with cost and latency
     python vlasim.py results --write-docs           # refresh the leaderboard block in docs/results.md
+    python vlasim.py results --compare openvla-oft pi   # A>B / B>A / tie per suite and setting (compare.py)
 
 Episode count, in order of preference: n_episodes (+ n_success) in summary.txt;
 otherwise the per-episode videos (success=True/False) in task-N/videos/;
@@ -104,7 +105,7 @@ class S3:
         return body.decode("utf-8", "replace")
 
 
-def task_row(s3, region, bucket, run, task_prefix):
+def task_row(s3, region, bucket, run, task_prefix, episodes=False):
     summ = s3.text(region, bucket, task_prefix + "summary.txt")
     task = task_prefix.rstrip("/").rsplit("/", 1)[-1]
     if summ is None:
@@ -129,7 +130,29 @@ def task_row(s3, region, bucket, run, task_prefix):
                condition=(kv.get("condition") or "-").split()[0], k=k, n=n, rate=rate, stack=stack_fp)
     if kv.get("benchmark"):
         row.update(benchmark=kv["benchmark"], perturbation=kv.get("perturbation", "-"))
+    card = read_protocol_card(s3, region, bucket, task_prefix)
+    if card:  # an exact re-run needs the same seed and the same GPU type (docs/results.md "Protocol card")
+        row.update({x: str(card[x]) for x in ("seed", "gpu") if card.get(x) not in (None, "", "unknown")})
+    if episodes:
+        import compare
+        eps = compare.episodes_from_keys(s3.keys(region, bucket, task_prefix + "videos/"))
+        if eps and len(eps) == n:
+            row["episodes"] = eps
     return row
+
+
+def read_protocol_card(s3, region, bucket, task_prefix):
+    """<task>/protocol.yaml (evaluation protocol card), parsed; None when absent or unreadable."""
+    text = s3.text(region, bucket, task_prefix + "protocol.yaml")
+    if not text:
+        return None
+    try:
+        import yaml
+        card = yaml.safe_load(text)
+    except Exception:
+        return None
+    return card if isinstance(card, dict) and str(card.get("schema", "")).startswith("rfm-simulation/protocol-card/") \
+        else None
 
 
 def judge_summary(s3, region, bucket, run):
@@ -189,7 +212,7 @@ def collect(args, boto3):
                 if re.search(r"/task-\d+/$", t):
                     if judge is None:
                         judge = judge_summary(s3, region, bucket, run) or {}
-                    r = task_row(s3, region, bucket, run, t)
+                    r = task_row(s3, region, bucket, run, t, episodes=getattr(args, "compare", None) is not None)
                     r.update(bucket_stack=stack, region=region)
                     if judge:
                         r["judge"] = judge
@@ -207,6 +230,9 @@ def aggregate(rows):
             g["not_done"] += 1
             continue
         g["stack"].update(r.get("stack") or {})
+        for x in ("seed", "gpu"):
+            if r.get(x):
+                g.setdefault(x, set()).add(r[x])
         if r.get("n"):
             g["k"] += r["k"] or 0
             g["n"] += r["n"]
@@ -272,6 +298,68 @@ def _print_table(table, cols):
         print("  ".join(cell(t, c).ljust(width[c]) for c in cols))
 
 
+def run_compare(a, boto3=None):
+    import compare
+    (sa, ca), (sb, cb) = (compare.parse_side(x) for x in a.compare)
+    null = None
+    if a.from_csv:
+        A, B = compare.cells_from_csv(a.from_csv, sa), compare.cells_from_csv(a.from_csv, sb)
+        if a.episodes:
+            compare.attach_episodes(A, a.episodes, sa)
+            compare.attach_episodes(B, a.episodes, sb)
+    else:
+        if boto3 is None:
+            try:
+                import boto3
+            except ImportError:
+                print("vlasim results: boto3 is not installed — run `python vlasim.py init` first.", file=sys.stderr)
+                return 2
+        rows = []
+        for stack in dict.fromkeys((sa, sb)):
+            a.vla = stack
+            rows += collect(a, boto3)
+        A, ra = compare.cells_from_rows(rows, sa)
+        B, rb = compare.cells_from_rows(rows, sb)
+        if a.all_runs:
+            null = compare.rerun_null(ra, a.alpha) + (compare.rerun_null(rb, a.alpha) if sb != sa else [])
+    if not A or not B:
+        print(f"No finished cells for {'A' if not A else 'B'} ({sa if not A else sb}).")
+        return 1
+    repeat_info = None
+    if not a.assume_repeatable:
+        import repeatability
+        sim_a = compare.simulator_from_csv(a.from_csv, sa) if a.from_csv else None
+        sim_b = compare.simulator_from_csv(a.from_csv, sb) if a.from_csv else None
+        # a target id the table does not know (new id, local variant) falls back to the simulator of its suites
+        ia = repeatability.for_simulator(sim_a) if sim_a else repeatability.for_side(sa, [k[0] for k in A])
+        ib = repeatability.for_simulator(sim_b) if sim_b else repeatability.for_side(sb, [k[0] for k in B])
+        repeat_info = ({"A and B": ia} if ia == ib else {f"A={a.compare[0]}": ia, f"B={a.compare[1]}": ib})
+    rows = compare.compare(A, B, ca, cb, alpha=a.alpha, raw_p=a.raw_p,
+                           repeat=None if repeat_info is None else (ia["repeatable"], ib["repeatable"]))
+    if not rows:
+        print("No suite/condition row exists on both sides.")
+        return 1
+    compare.print_rows(a.compare[0], a.compare[1], rows, null, a.alpha, a.raw_p, repeat_info=repeat_info)
+    gpus = {"A": compare.cell_gpus(A), "B": compare.cell_gpus(B)}
+    for line in compare.gpu_lines(gpus):
+        print(line)
+    if not a.from_csv and not a.all_runs and any(r.get("verdict") == "needs re-run" for r in rows):
+        # deploy.py --repeats writes the runs of one deploy into one bucket; without --all-runs only the latest is read
+        print("hint: earlier runs in the same bucket (deploy --repeats, or a second deploy) are read with --all-runs")
+    if a.csv:
+        cols = ["suite", "condition_a", "condition_b", "k_a", "n_a", "k_b", "n_b", "p", "q", "verdict",
+                "paired_n", "only_a", "only_b", "p_mcnemar", "rerun_class", "single_run_verdict", "one_run_verdict"]
+        with open(a.csv, "w", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=cols, extrasaction="ignore")
+            w.writeheader()
+            w.writerows(rows)
+    if a.json:
+        with open(a.json, "w") as f:
+            json.dump(dict(a=a.compare[0], b=a.compare[1], alpha=a.alpha, raw_p=a.raw_p, rows=rows, rerun_null=null,
+                           simulators=repeat_info, gpu={k: sorted(v) for k, v in gpus.items()}), f, indent=1, default=str)
+    return 0
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(prog="vlasim results", description=__doc__.split("\n\n")[1])
     p.add_argument("--vla", help="only buckets whose stack name starts with this (e.g. openvla-oft)")
@@ -295,7 +383,20 @@ def main(argv=None):
     m.add_argument("--pool-hours", type=float, default=6.0, help="pool shards (other stacks, same condition and "
                    "fingerprint) started within this many hours of the latest run (default 6; 0 = no pooling)")
     m.add_argument("--no-cost", action="store_true", help="skip the cost / time / latency table (fewer S3 reads)")
+    c = p.add_argument_group("compare (compare.py)", "two policies, row by row: k/n, two-sided Fisher exact, "
+                             "Benjamini-Hochberg q over the rows, verdict A>B / B>A / tie; paired McNemar when "
+                             "per-episode outcomes exist; re-run null with --all-runs")
+    c.add_argument("--compare", nargs=2, metavar=("A", "B"), help="<stack>[:<condition>] for each side")
+    c.add_argument("--from-csv", metavar="PATH", help="offline input: CSV with model,suite,condition,successes,episodes "
+                   "(A and B are model names); no AWS access")
+    c.add_argument("--episodes", metavar="PATH", help="with --from-csv: per-episode outcomes JSON for the paired test")
+    c.add_argument("--alpha", type=float, default=0.05, help="significance level for the verdict (default 0.05)")
+    c.add_argument("--raw-p", action="store_true", help="decide on the uncorrected Fisher p instead of the BH q")
+    c.add_argument("--assume-repeatable", action="store_true", help="ignore the per-simulator re-run rule "
+                   "(repeatability.py) and call a winner from one run per side even on Isaac Lab")
     a = p.parse_args(argv)
+    if a.compare:
+        return run_compare(a)
     if a.robustness:
         a.all_runs = True
     try:
@@ -343,8 +444,10 @@ def main(argv=None):
                           rate="" if rate is None else f"{rate:.2f}",
                           ci95="" if lo is None else f"{lo:.2f}-{hi:.2f}",
                           tasks=g["tasks"], not_done=g["not_done"],
+                          seed=", ".join(sorted(g.get("seed") or ())) or "-",
+                          gpu=", ".join(sorted(g.get("gpu") or ())) or "-",
                           fingerprint=" ".join(f"{k}={v}" for k, v in sorted(g["stack"].items()))))
-    cols = ["stack", "region", "run", "suite", "condition", "k_n", "rate", "ci95", "tasks", "not_done"]
+    cols = ["stack", "region", "run", "suite", "condition", "k_n", "rate", "ci95", "tasks", "not_done", "seed", "gpu"]
     _print_table(table, cols)
     fps = collections.OrderedDict()
     for t in table:

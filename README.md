@@ -23,7 +23,7 @@ More clips, failure cases and full-quality MP4s: [docs/showcase.md](docs/showcas
 - **One CLI** (`vlasim.py`): `doctor` preflight, `init`, `deploy`, `destroy`, `results`, `gallery` and `judge`. It runs on the Python standard library, so `doctor` works before anything is installed.
 - **Reproducible stacks**: model checkpoints, upstream repos and simulator dependencies are pinned per target; each `summary.txt` records a stack fingerprint.
 - **AWS CDK v2** stack per target: VPC, retained S3 results bucket, SNS email, IAM role and an AZ / instance-type fallback Lambda for GPU capacity.
-- **Results you can compare**: `vlasim results` prints k/n, rate and a 95% Wilson interval for every run in the account ([results](docs/results.md)).
+- **Results you can compare**: `vlasim results` prints k/n, rate and a 95% Wilson interval for every run in the account; `--compare A B` gives a per-suite verdict (A>B / B>A / tie, Fisher + Benjamini-Hochberg, paired McNemar on the same start states), and every task writes a protocol card (`protocol.yaml`: checkpoint revision, seed, start states, chunk rule, step cap, GPU) next to its result ([results](docs/results.md)).
 
 ## Quick Start
 
@@ -96,6 +96,22 @@ openvla-oft-spatial  ap-northeast-2  2026-10-19-0558  libero_spatial  smoke-knob
 A task with no `summary.txt` (still running, or the run died) is counted under `not_done`, never as a 0. Download commands, expected success rates per target and the 50-episode same-stack baseline: [docs/results.md](docs/results.md).
 
 `vlasim results --matrix` prints a cross-model leaderboard instead: one row per target, one column per benchmark (LIBERO suites, LIBERO-Plus dimensions, SimplerEnv, RoboCasa, RoboLab, RoboTwin, ...), the latest comparable run per cell with k/n and its Wilson interval, cells marked when their stack fingerprints differ, and an estimated EC2 cost per run and per episode from the run's wall time and a pinned On-Demand price table. `--csv` / `--json` export it and `--write-docs` refreshes the block in [docs/results.md](docs/results.md#cross-model-matrix-leaderboard).
+
+### Reproducing a comparison: publish protocol.yaml
+
+Draw one seed for the whole comparison and give it to every target, then publish the cards:
+
+```bash
+python vlasim.py deploy --vla smolvla --seed auto        # prints: [seed] drew 1460571231 ... --seed 1460571231
+python vlasim.py deploy --vla xvla    --seed 1460571231  # same seed for the second policy
+python vlasim.py results --compare smolvla xvla
+```
+
+Each task writes `protocol.yaml` next to `summary.txt`: seed and how it was applied, start-state set,
+instruction, chunk execution rule, step cap, checkpoint revision, code commits, instance type and GPU.
+Publishing those files with the numbers is enough for anyone to rerun the same comparison with
+`--seed <n>`; targets the tool cannot seed are marked `not-controllable` with the reason
+([docs/results.md](docs/results.md#shared-seed---seed)).
 
 ## Supported targets
 

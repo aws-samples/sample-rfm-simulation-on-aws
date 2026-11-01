@@ -326,6 +326,179 @@ Instance-min = sum over the pooled runs of RUN_ID (instance boot) to the last ob
 Sources: `cosmos-policy` LIBERO-Spatial: cosmos-t1-a@ap-northeast-2 2026-10-31-0211; `cosmos-policy` LIBERO-Object: cosmos-t1-a@ap-northeast-2 2026-10-31-0211; `cosmos-policy` LIBERO-Goal: cosmos-t1-b@ap-northeast-2 2026-10-31-0213; `cosmos-policy` LIBERO-10: cosmos-t1-b@ap-northeast-2 2026-10-31-0213; `fastwam` LIBERO-Spatial: fastwam-s@ap-northeast-1 2026-10-15-1356; `fastwam` LIBERO-Object: fastwam-o@ap-northeast-1 2026-10-15-1356; `fastwam` LIBERO-Goal: fastwam-g@ap-northeast-2 2026-10-15-1428; `fastwam` LIBERO-10: fastwam-l@ap-northeast-1 2026-10-15-1355; `fastwam` LIBERO-Plus/background (Spatial): fastwam-demo@ap-northeast-2 2026-10-31-1103; `fastwam` LIBERO-Plus/camera (Spatial): fastwam-demo@ap-northeast-2 2026-10-31-1103; `fastwam` LIBERO-Plus/language (Spatial): fastwam-demo@ap-northeast-2 2026-10-31-1103; `fastwam` LIBERO-Plus/layout (Spatial): fastwam-demo@ap-northeast-2 2026-10-31-1103; `fastwam` LIBERO-Plus/light (Spatial): fastwam-demo@ap-northeast-2 2026-10-31-1103; `fastwam` LIBERO-Plus/noise (Spatial): fastwam-demo@ap-northeast-2 2026-10-31-1103; `fastwam` LIBERO-Plus/robot (Spatial): fastwam-demo@ap-northeast-2 2026-10-31-1103; `gr00t` LIBERO-Plus/background (Spatial): gr00t-demo@ap-northeast-2 2026-10-31-1330; `gr00t` LIBERO-Plus/camera (Spatial): gr00t-demo@ap-northeast-2 2026-10-31-1330; `gr00t` LIBERO-Plus/language (Spatial): gr00t-demo@ap-northeast-2 2026-10-31-1330; `gr00t` LIBERO-Plus/layout (Spatial): gr00t-demo@ap-northeast-2 2026-10-31-1330; `gr00t` LIBERO-Plus/light (Spatial): gr00t-demo@ap-northeast-2 2026-10-31-1330; `gr00t` LIBERO-Plus/noise (Spatial): gr00t-demo@ap-northeast-2 2026-10-31-1330; `gr00t` LIBERO-Plus/robot (Spatial): gr00t-demo@ap-northeast-2 2026-10-31-1330; `gr00t` LIBERO scenes (GR00T): gr00t-demo@us-east-1 2026-10-15-0847; `gr00t-bridge` SimplerEnv-Bridge: gr00t-bridge-demo@ap-northeast-2 2026-10-30-1519; `gr00t-g1` G1-LocoManip: gr00t-g1-demo@ap-northeast-2 2026-10-09-1435; `gr00t-gr1` GR1-Tabletop: gr00t-gr1-demo@ap-northeast-2 2026-10-09-1339; `lap` LIBERO-Spatial: lap-demo@us-west-2 2026-10-09-1444; `lap` LIBERO-Plus/background (Spatial): lap-demo@ap-northeast-2 2026-10-31-1238; `lap` LIBERO-Plus/camera (Spatial): lap-demo@ap-northeast-2 2026-10-31-1238; `lap` LIBERO-Plus/language (Spatial): lap-demo@ap-northeast-2 2026-10-31-1238; `lap` LIBERO-Plus/layout (Spatial): lap-demo@ap-northeast-2 2026-10-31-1238; `lap` LIBERO-Plus/light (Spatial): lap-demo@ap-northeast-2 2026-10-31-1238; `lap` LIBERO-Plus/noise (Spatial): lap-demo@ap-northeast-2 2026-10-31-1238; `lap` LIBERO-Plus/robot (Spatial): lap-demo@ap-northeast-2 2026-10-31-1238; `lingbot-va` LIBERO-10: lingbot-t9@ap-northeast-2 2026-10-15-1707, lingbot-t8@ap-northeast-2 2026-10-15-1706, lingbot-t7@ap-northeast-2 2026-10-15-1705, lingbot-t6@ap-northeast-2 2026-10-15-1704, lingbot-t5@ap-northeast-2 2026-10-15-1703, lingbot-t4@ap-northeast-2 2026-10-15-1703, lingbot-t3@ap-northeast-2 2026-10-15-1702, lingbot-t2@ap-northeast-2 2026-10-15-1701, lingbot-t1@ap-northeast-2 2026-10-15-1700, lingbot-t0@ap-northeast-2 2026-10-15-1659; `lingbot-va` LIBERO-Plus/background (10): lingbot-va-demo@ap-northeast-2 2026-10-31-1454; `lingbot-va` LIBERO-Plus/camera (10): lingbot-va-demo@ap-northeast-2 2026-10-31-1454; `lingbot-va` LIBERO-Plus/language (10): lingbot-va-demo@ap-northeast-2 2026-10-31-1454; `lingbot-va` LIBERO-Plus/layout (10): lingbot-va-demo@ap-northeast-2 2026-10-31-1454; `lingbot-va` LIBERO-Plus/light (10): lingbot-va-demo@ap-northeast-2 2026-10-31-1454; `lingbot-va` LIBERO-Plus/noise (10): lingbot-va-demo@ap-northeast-2 2026-10-31-1454; `lingbot-va` LIBERO-Plus/robot (10): lingbot-va-demo@ap-northeast-2 2026-10-31-1454; `lingbot-vla2` RoboTwin2/clean (subset): lingbot-vla2-demo@ap-northeast-2 2026-10-30-1728; `molmoact2` LIBERO-Goal: molmoact2-demo@ap-northeast-2 2026-10-09-1348; `molmoact2` LIBERO-Plus/background (Goal): molmoact2-demo@ap-northeast-2 2026-10-31-1238; `molmoact2` LIBERO-Plus/camera (Goal): molmoact2-demo@ap-northeast-2 2026-10-31-1238; `molmoact2` LIBERO-Plus/language (Goal): molmoact2-demo@ap-northeast-2 2026-10-31-1238; `molmoact2` LIBERO-Plus/layout (Goal): molmoact2-demo@ap-northeast-2 2026-10-31-1238; `molmoact2` LIBERO-Plus/light (Goal): molmoact2-demo@ap-northeast-2 2026-10-31-1238; `molmoact2` LIBERO-Plus/noise (Goal): molmoact2-demo@ap-northeast-2 2026-10-31-1238; `molmoact2` LIBERO-Plus/robot (Goal): molmoact2-demo@ap-northeast-2 2026-10-31-1238; `oftb3e1g` LIBERO-Goal: oftb3e1g@ap-northeast-2 2026-10-30-1818; `oftb3e1l` LIBERO-10: oftb3e1l@ap-northeast-2 2026-10-30-1818; `openvla-oft` LIBERO-Spatial: oft-spatial-h@us-east-1 2026-10-15-1149; `openvla-oft` LIBERO-Object: openvla-oft-object-demo@us-east-1 2026-10-15-1147; `openvla-oft` LIBERO-Goal: openvla-oft-goal-demo@us-east-1 2026-10-15-0854; `openvla-oft` LIBERO-10: openvla-oft-demo@ap-northeast-1 2026-10-15-0947; `openvla-oft` LIBERO-Plus/background (Spatial): openvla-oft-spatial@ap-northeast-2 2026-10-30-1516; `openvla-oft` LIBERO-Plus/camera (Spatial): openvla-oft-spatial@ap-northeast-2 2026-10-30-1516; `openvla-oft` LIBERO-Plus/language (Spatial): openvla-oft-spatial@ap-northeast-2 2026-10-30-1516; `openvla-oft` LIBERO-Plus/layout (Spatial): openvla-oft-spatial@ap-northeast-2 2026-10-30-1516; `openvla-oft` LIBERO-Plus/light (Spatial): openvla-oft-spatial@ap-northeast-2 2026-10-30-1516; `openvla-oft` LIBERO-Plus/noise (Spatial): openvla-oft-spatial@ap-northeast-2 2026-10-30-1516; `openvla-oft` LIBERO-Plus/robot (Spatial): openvla-oft-spatial@ap-northeast-2 2026-10-30-1516; `openvla-oft` LIBERO-R2S/collision (Object): openvla-oft-object@ap-northeast-2 2026-10-31-0725; `openvla-oft` LIBERO-R2S/full (Object): openvla-oft-object@ap-northeast-2 2026-10-31-0725; `openvla-oft` LIBERO-R2S/public (Object): openvla-oft-object@ap-northeast-2 2026-10-31-0725; `pi` LIBERO-Spatial: pi-demo@us-east-1 2026-10-26-1911; `pi` LIBERO-Object: pi-demo@ap-northeast-2 2026-10-15-0948; `pi` LIBERO-Goal: pi-demo@ap-northeast-2 2026-10-15-0948; `pi` LIBERO-10: pi-demo@ap-northeast-2 2026-10-15-0948; `pi` LIBERO-Plus/background (Spatial): pi-demo@ap-northeast-2 2026-10-31-1336; `pi` LIBERO-Plus/camera (Spatial): pi-demo@ap-northeast-2 2026-10-31-1336; `pi` LIBERO-Plus/language (Spatial): pi-demo@ap-northeast-2 2026-10-31-1336; `pi` LIBERO-Plus/layout (Spatial): pi-demo@ap-northeast-2 2026-10-31-1336; `pi` LIBERO-Plus/light (Spatial): pi-demo@ap-northeast-2 2026-10-31-1336; `pi` LIBERO-Plus/noise (Spatial): pi-demo@ap-northeast-2 2026-10-31-1336; `pi` LIBERO-Plus/robot (Spatial): pi-demo@ap-northeast-2 2026-10-31-1336; `pi` LIBERO-R2S/collision (Object): pi-demo@ap-northeast-2 2026-10-31-0812; `pi` LIBERO-R2S/full (Object): pi-demo@ap-northeast-2 2026-10-31-0812; `pi` LIBERO-R2S/public (Object): pi-demo@ap-northeast-2 2026-10-31-0812; `pib3e1` LIBERO-Goal: pib3e1@ap-northeast-2 2026-10-30-1812; `pib3e1` LIBERO-10: pib3e1@ap-northeast-2 2026-10-30-1812; `pib3e3s01` LIBERO-Spatial: pib3e3s01@ap-northeast-2 2026-10-30-1829; `pib3e3s02` LIBERO-Spatial: pib3e3s02@ap-northeast-2 2026-10-30-1829; `pib3e3s03` LIBERO-Spatial: pib3e3s03@us-west-2 2026-10-30-1818; `pib3e3s04` LIBERO-Spatial: pib3e3s04@ap-northeast-2 2026-10-30-1844; `pib3e3s05` LIBERO-Spatial: pib3e3s05@us-east-1 2026-10-30-1816; `pib3e3s06` LIBERO-Spatial: pib3e3s06@us-east-1 2026-10-30-1815; `pib3e3s07` LIBERO-Spatial: pib3e3s07@us-east-1 2026-10-30-1816; `pib3e3s08` LIBERO-Spatial: pib3e3s08@us-east-1 2026-10-30-1816; `pib3e3s09` LIBERO-Spatial: pib3e3s09@us-west-2 2026-10-30-1829; `pib3e3s10` LIBERO-Spatial: pib3e3s10@us-west-2 2026-10-30-1829; `pib3e3s11` LIBERO-Spatial: pib3e3s11@us-west-2 2026-10-30-1829; `pib3e3s12` LIBERO-Spatial: pib3e3s12@us-west-2 2026-10-30-1829; `pib3e3s13` LIBERO-Spatial: pib3e3s13@us-east-1 2026-10-30-1907; `pib3e3s14` LIBERO-Spatial: pib3e3s14@us-east-1 2026-10-30-1907; `pib3e3s15` LIBERO-Spatial: pib3e3s15@us-east-1 2026-10-30-1906; `pib3e3s16` LIBERO-Spatial: pib3e3s16@us-east-1 2026-10-30-1906; `pib3e3s17` LIBERO-Spatial: pib3e3s17@us-east-1 2026-10-30-1903; `pib3e3s18` LIBERO-Spatial: pib3e3s18@us-east-1 2026-10-30-1903; `pib3e3s19` LIBERO-Spatial: pib3e3s19@us-east-1 2026-10-30-1903; `pib3e3s20` LIBERO-Spatial: pib3e3s20@us-east-1 2026-10-30-1903; `pib3e3s22` LIBERO-Spatial: pib3e3s22@ap-northeast-2 2026-10-30-1903; `pib3e3s23` LIBERO-Spatial: pib3e3s23@ap-northeast-2 2026-10-30-1903; `pib3e3s27` LIBERO-Spatial: pib3e3s27@ap-northeast-2 2026-10-30-1903; `pib3e3s29` LIBERO-Spatial: pib3e3s29@us-east-1 2026-10-30-1906; `pib3e3s30` LIBERO-Spatial: pib3e3s30@us-east-1 2026-10-30-1908; `pib3e3s31` LIBERO-Spatial: pib3e3s31@us-east-1 2026-10-30-1906; `pib3e3s32` LIBERO-Spatial: pib3e3s32@us-east-1 2026-10-30-1907; `pib3e3s33` LIBERO-Spatial: pib3e3s33@us-east-1 2026-10-30-1906; `pib3e3s34` LIBERO-Spatial: pib3e3s34@us-east-1 2026-10-30-1921; `real2sim` hope-video-scene-0000: real2sim-demo@ap-northeast-2 2026-10-29-0142; `rldx` LIBERO-Spatial: rldx-demo@ap-northeast-2 2026-08-19-0959; `rldx` LIBERO-Object: rldx-demo@ap-northeast-1 2026-08-19-0855; `rldx` LIBERO-Goal: rldx-demo@us-east-1 2026-08-19-0855; `rldx` LIBERO-10: rldx-demo@ap-northeast-2 2026-10-09-1346; `rldx` LIBERO-Plus/background (Spatial): rldx-demo@ap-northeast-2 2026-10-31-0923; `rldx` LIBERO-Plus/camera (Spatial): rldx-demo@ap-northeast-2 2026-10-31-0923; `rldx` LIBERO-Plus/language (Spatial): rldx-demo@ap-northeast-2 2026-10-31-0923; `rldx` LIBERO-Plus/layout (Spatial): rldx-demo@ap-northeast-2 2026-10-31-0923; `rldx` LIBERO-Plus/light (Spatial): rldx-demo@ap-northeast-2 2026-10-31-0923; `rldx` LIBERO-Plus/noise (Spatial): rldx-demo@ap-northeast-2 2026-10-31-0923; `rldx` LIBERO-Plus/robot (Spatial): rldx-demo@ap-northeast-2 2026-10-31-0923; `rldx-bridge` SimplerEnv-Bridge: rldx-bridge-demo@ap-northeast-2 2026-10-30-1332; `rldx-gr1` gr1_tabletop: rldx-gr1-demo@us-west-2 2026-10-09-1333; `rldx-kitchen` RoboCasa-Kitchen: rldx-kitchen-demo@ap-northeast-2 2026-10-09-1343; `rldx-simpler` simpler_google_vm: rldx-simpler-demo@us-east-1 2026-10-09-1327; `rlinf-oft-libero` LIBERO-Goal: rlinf-oft-libero@ap-northeast-2 2026-10-31-1828; `robolab-cosmos3` RoboLab: robolab-cosmos3@ap-northeast-1 2026-10-31-1058; `robolab-pi05` RoboLab: robolab-pi05-demo@us-west-2 2026-10-31-1532; `smolvla` LIBERO-Spatial: smolvla-demo@ap-northeast-2 2026-10-27-0514; `smolvla` LIBERO-Plus/background (Spatial): smolvla-demo@ap-northeast-2 2026-10-30-1516; `smolvla` LIBERO-Plus/camera (Spatial): smolvla-demo@ap-northeast-2 2026-10-30-1516; `smolvla` LIBERO-Plus/language (Spatial): smolvla-demo@ap-northeast-2 2026-10-30-1516; `smolvla` LIBERO-Plus/layout (Spatial): smolvla-demo@ap-northeast-2 2026-10-30-1610; `smolvla` LIBERO-Plus/light (Spatial): smolvla-demo@ap-northeast-2 2026-10-30-1516; `smolvla` LIBERO-Plus/noise (Spatial): smolvla-demo@ap-northeast-2 2026-10-30-1610; `smolvla` LIBERO-Plus/robot (Spatial): smolvla-demo@ap-northeast-2 2026-10-30-1516; `smolvla-robotwin` RoboTwin2/clean (subset): smolvla-robotwin@ap-northeast-2 2026-10-30-1728; `vla-adapter` LIBERO-Spatial: vla-adapter-demo@ap-northeast-2 2026-10-14-1337; `vla-adapter` LIBERO-Plus/background (Spatial): vla-adapter-demo@ap-northeast-2 2026-10-31-0817; `vla-adapter` LIBERO-Plus/camera (Spatial): vla-adapter-demo@ap-northeast-2 2026-10-31-0817; `vla-adapter` LIBERO-Plus/language (Spatial): vla-adapter-demo@ap-northeast-2 2026-10-31-0817; `vla-adapter` LIBERO-Plus/layout (Spatial): vla-adapter-demo@ap-northeast-2 2026-10-31-0817; `vla-adapter` LIBERO-Plus/light (Spatial): vla-adapter-demo@ap-northeast-2 2026-10-31-0817; `vla-adapter` LIBERO-Plus/noise (Spatial): vla-adapter-demo@ap-northeast-2 2026-10-31-0817; `vla-adapter` LIBERO-Plus/robot (Spatial): vla-adapter-demo@ap-northeast-2 2026-10-31-0817; `xvla` LIBERO-Spatial: xvla-demo@ap-northeast-2 2026-10-14-0642; `xvla` LIBERO-Plus/background (Spatial): xvla-demo@ap-northeast-2 2026-10-31-0726; `xvla` LIBERO-Plus/camera (Spatial): xvla-demo@ap-northeast-2 2026-10-31-0726; `xvla` LIBERO-Plus/language (Spatial): xvla-demo@ap-northeast-2 2026-10-31-0726; `xvla` LIBERO-Plus/layout (Spatial): xvla-demo@ap-northeast-2 2026-10-31-0726; `xvla` LIBERO-Plus/light (Spatial): xvla-demo@ap-northeast-2 2026-10-31-0726; `xvla` LIBERO-Plus/noise (Spatial): xvla-demo@ap-northeast-2 2026-10-31-0726; `xvla` LIBERO-Plus/robot (Spatial): xvla-demo@ap-northeast-2 2026-10-31-0726.
 <!-- leaderboard:end -->
 
+## Comparing two policies (`--compare`)
+
+`python vlasim.py results --compare A B` answers "is A better than B, or is it a tie?" one row per suite and
+evaluation setting. A side is `<stack>[:<condition>]`: without a condition both sides are matched on (suite,
+condition); `openvla-oft:S0 openvla-oft:S3b` compares one policy under two settings, matched on suite.
+
+Each row shows both k/n, a two-sided Fisher exact p and a Benjamini-Hochberg q over all rows of the comparison;
+the verdict is `A>B`, `B>A` or `tie` at q < 0.05 (`--alpha`, `--raw-p` decides on p). When both sides store
+per-episode outcomes (video names `episode=<i>--success=<bool>--task=<t>`), episodes are paired by (task, k-th
+occurrence of that task) — the start-state index in LIBERO — and an exact McNemar p is printed as well.
+With `--all-runs`, runs of one stack with the same suite, condition and stack fingerprint are compared with the
+same test and reported as the **re-run null**: if re-running a stack produces verdicts of its own, a verdict
+between two policies at that sample size means little.
+
+```
+$ python vlasim.py results --compare fastwam:S0 fastwam:S3b --from-csv cells.csv --episodes episodes.json
+suite           condition  A=fastwam:S0  B=fastwam:S3b  fisher_p  bh_q     verdict  paired (only A / only B, p)
+libero_10       S0 vs S3b  48/50         27/50          1.1e-06   4.6e-06  A>B      50 (22/1, p=5.7e-06)
+...
+```
+
+`--from-csv` reads a table with columns `model,suite,condition,successes,episodes` (A and B are model names) and
+needs no AWS access; `--episodes` adds per-episode outcomes for the paired test. The statistics are pure Python
+and are tested against SciPy / statsmodels on the public AMLC 2026 study table (`tests/fixtures/study_cells.csv`).
+`--csv` / `--json` write the rows.
+
+## Protocol card (`protocol.yaml`)
+
+Every task that writes `summary.txt` also writes `protocol.yaml` next to it (`templates/_protocol-card.sh.j2`,
+27 of the 28 targets; `openarm-lift-act` writes no summary). It records what a reader needs to decide whether
+two numbers are comparable:
+
+| field | source |
+|---|---|
+| `target`, `checkpoints` (repo, revision, suite), `code_pins`, `tool_commit` | model YAML and this repository at render time |
+| `suite`, `condition`, `seed`, `start_states`, `chunk_rule`, `step_cap`, `instruction`, `k`, `n` | this task's `summary.txt` (the key that was found is kept, e.g. `replan=1`); where the evaluation takes a value as a flag instead (RoboLab: `--seed`, the variant checkpoint, the instruction type), the value the script passes |
+| `instance_type`, `gpu`, `region`, `written_utc` | instance metadata and `nvidia-smi` at run time |
+
+A field the target does not record is written as `unknown`, never guessed. `--matrix` reads the cards: a cell
+whose tasks all wrote one is no longer marked ‡ (comparability unknown); the CSV / JSON output has a
+`protocol_card` column.
+
+An exact re-run needs the **seed and the GPU type**. On LIBERO, the same seed on the same GPU type repeated 50 of
+50 episodes (videos byte for byte) on a fresh instance 18 hours later; on another GPU type (A10G, L4, L40S) the
+first rendered frame already differs and 1-4 of 50 episodes changed, while the SmolVLA vs X-VLA verdict held on
+all three. So `vlasim results` lists the `seed` and `gpu` of every run from its cards, and `results --compare`
+prints the GPU type of each side, with a note when the runs it compares are on more than one type
+(`--from-csv` takes an optional `gpu` column).
+
+## Shared seed (`--seed`)
+
+A comparison is only reproducible if the randomness behind each number is known and the same for every
+policy. `deploy --seed` sets it for one run:
+
+- `--seed auto` draws one seed when the test starts (`secrets.randbits(31)`) and prints it, for example
+  `[seed] drew 1460571231 at 2026-10-31T05:20:00Z — deploy every other target of this comparison with --seed 1460571231`.
+- `--seed <n>` gives that value to every task of the run. Use the same `<n>` for every target you compare.
+- `--seed model` (the default) keeps the per-task seeds of `models/<target>.yaml`, i.e. the settings behind
+  the numbers already published in this file.
+
+A seed has two jobs: the **env seed** decides start states, object placement and resets; the **policy seed**
+decides sampling noise (diffusion / flow noise, token sampling). On LIBERO the start states come from the
+benchmark's init-state files, so they are already shared between policies (`fixed` below) and the seed
+reaches the policy side. Comparing two policies on the same start states is what the paired McNemar test of
+`--compare` uses; a shared policy seed does not correlate two different networks, it makes each run
+repeatable.
+
+`protocol.yaml` records the plan under `seed_plan` (`mode` drawn / given / model, `value`, `drawn_utc`,
+`status` applied / model / not-controllable, `env_seed`, `policy_seed`, `via`, `not_controllable_reason`).
+The tool writes the seed for 14 of the 28 targets. For the others it does not
+pretend: the card says `not-controllable` and why.
+
+| target | where the tool writes it | env seed | policy seed | how / why not |
+|---|---|---|---|---|
+| `gr00t` | not set by the tool | no | no | rollout_policy.py at Isaac-GR00T 4b1dca9 has no seed and calls env.reset() without one (random resets); upstream 65cc4a1 adds --seed |
+| `gr00t-bridge` | every task's `seed` | no | yes | rollout_policy.py --seed (seeds Python / NumPy / torch) |
+| `gr00t-gr1` | not set by the tool | no | no | the template passes no seed to the RoboCasa GR-1 rollout (random resets) |
+| `gr00t-g1` | not set by the tool | no | no | rollout_policy.py at Isaac-GR00T 7786639 has a seedless env.reset() |
+| `pi` | every task's `seed` | fixed | yes | openpi examples/libero main.py --args.seed |
+| `openvla-oft` | every task's `seed` | fixed | yes | run_libero_eval.py --seed |
+| `lap` | not set by the tool | no | no | the template passes no seed to the LAP evaluation client |
+| `rldx` | not set by the tool | no | no | the template passes no seed to the RLDX evaluation entry point |
+| `rldx-simpler` | not set by the tool | no | no | the template passes no seed to the RLDX evaluation entry point |
+| `rldx-bridge` | not set by the tool | no | no | the template passes no seed to the RLDX evaluation entry point |
+| `rldx-gr1` | not set by the tool | no | no | the template passes no seed to the RLDX evaluation entry point |
+| `rldx-kitchen` | not set by the tool | no | no | the template passes no seed to the RLDX evaluation entry point |
+| `rlinf-oft-libero` | not set by the tool | no | no | the template passes no seed to RLinf evaluations/run_eval.sh (the eval config's own seed applies) |
+| `openarm-isaac` | every task's `seed` | yes | yes | run_eval.py --seed (Isaac Lab env + policy) |
+| `openarm-lift-act` | not set by the tool | no | no | the template passes no seed to the ACT play script; it writes no summary.txt |
+| `molmoact2` | every task's `seed` | fixed | yes | lerobot-eval --seed |
+| `xvla` | every task's `seed` | fixed | yes | lerobot-eval --seed |
+| `smolvla` | every task's `seed` | fixed | yes | lerobot-eval --seed |
+| `lingbot-va` | every task's `seed` | fixed | yes | lerobot-eval --seed |
+| `vla-adapter` | not set by the tool | fixed | no | the template passes no seed to the upstream eval script |
+| `fastwam` | every task's `seed` | fixed | yes | lerobot-eval --seed |
+| `cosmos-policy` | every task's `seed` | fixed | yes | run_libero_eval --seed (with --randomize_seed False) |
+| `aspire` | not set by the tool | fixed | no | scored on LIBERO-Pro saved init states 0..4 (eval_seeds index them); the frozen program has no sampling |
+| `real2sim` | not set by the tool | no | no | reconstruction pipeline, not a policy evaluation (segment_args fix its own seed) |
+| `robolab-cosmos3` | `eval.seed` | yes | yes | RoboLab eval --seed (one seed per run) |
+| `robolab-pi05` | `eval.seed` | yes | yes | RoboLab eval --seed (one seed per run) |
+| `smolvla-robotwin` | every task's `seed` | yes | yes | lerobot-eval --seed (RoboTwin setup_demo seed) |
+| `lingbot-vla2` | every task's `seed` | yes | yes | lerobot-eval --seed (RoboTwin setup_demo seed) |
+
+## Re-run null per simulator
+
+A verdict is only as good as the noise under it. On LIBERO (MuJoCo, CPU physics) an identical re-run gives the
+same episodes back: with the same seed, SmolVLA and X-VLA repeated 50 of 50 LIBERO-Spatial episodes, also on
+another machine and region. On Isaac Lab it does not: an identical RoboLab (Isaac Lab) re-run changed 25 of 120
+pi0.5 episodes and 19 of 120 Cosmos3 episodes and turned a tie (p = 0.69) into a win (p = 0.023); in Isaac Lab
+Arena the same seed on the same machine changed 9 to 46 of 100 episodes between two runs. A shared seed
+(`--seed`) is therefore necessary but not sufficient there: the comparison also needs repeated runs and their spread.
+
+What does not repeat on Isaac Lab is not the physics. Replaying the same actions on one L40S gives the same states,
+episode lengths and outcomes bit for bit (0 of 40 outcomes change; PhysX enhanced determinism changes nothing),
+but the rendered camera images differ from the first frame (0 of 331 identical, 23-45% of pixels by a small amount),
+and the JAX policy server is not bit-exact unless `XLA_FLAGS=--xla_gpu_deterministic_ops=true` (then 331 of 331
+action chunks are identical). With deterministic inference and antialiasing / denoiser off, live re-runs still
+changed 4 of 20 outcomes: a slightly different image changes the action, and the closed loop does the rest. So
+the label is "rendering + inference", and the re-run spread has to be measured, not switched off.
+
+`repeatability.py` records this per simulator (`yes` / `no` / `unmeasured`, with the evidence), and
+`results --compare` applies it:
+
+| simulator class | one finished run per side | two or more finished runs (same stack, suite, condition, fingerprint) |
+|---|---|---|
+| `yes` (LIBERO) | verdict as before | verdict as before; the k range is printed |
+| `no` (RoboLab, Isaac Lab) | `needs re-run`; the one-run verdict is kept as `single_run_verdict` | the re-run spread (k range, episodes that changed between runs) is printed and the verdict is tested on every pair of runs (one run of A x one run of B, two-sided Fisher at `--alpha`); if the pairs disagree the verdict is `unresolved` (named `unstable` before 2026-11) |
+| `unmeasured` (SimplerEnv, RoboCasa, RoboTwin, other MuJoCo) | verdict as before, with a note | as `yes` |
+
+On S3, runs of one bucket are only read with `--all-runs`; runs of the same target in two regions are two buckets
+and both count. Offline, a `run` column in the `--from-csv` table marks several runs of one cell and a `simulator`
+column overrides the target table (`--episodes` entries may carry `run`). `--assume-repeatable` turns the rule off.
+
+```
+$ python vlasim.py results --compare robolab-pi05 robolab-cosmos3 --from-csv tests/fixtures/rerun_cells.csv \
+      --episodes tests/fixtures/rerun_episodes.json
+suite       condition  A=robolab-pi05  B=robolab-cosmos3  ...  verdict       re-run
+robolab-12  C0         54/120          36/120             ...  unresolved    A 45-54/120 over 2 runs, 25 of 120 episodes changed (21%); B 36-41/120 over 2 runs, 19 of 120 episodes changed (16%); run pairs A>B 1 · tie 3
+robolab-12  C1         55/120          36/120             ...  needs re-run  one run only (AB); one-run verdict A>B
+robolab-12  Cs         27/120          51/120             ...  needs re-run  one run only (AB); one-run verdict B>A
+```
+
+The protocol card records the simulator class next to every result (`rerun_null`: `simulator`, `repeatable`,
+`evidence`, `runs_for_a_verdict` = 2 where the simulator does not repeat), so a reader of one result file knows
+whether one run of it can carry a verdict.
+
+### Two runs per deploy where re-runs do not repeat (`--repeats`)
+
+So that the second run is not forgotten, `deploy.py` runs the whole evaluation twice by default on the targets
+whose simulator class is `no` and whose UserData supports it (RoboLab: `robolab-pi05`, `robolab-cosmos3`): one
+deploy, the same instance, servers, seed and start states, a new `RUN_ID` per run. Before the deploy it prints the
+plan and the instance hours expected from measured runs, and it refuses a plan that would not fit the variant's
+deploy limit (`instance.creationpolicy_timeout`):
+
+```
+$ python deploy.py --vla robolab-pi05
+[runs] 2 runs in this deploy: default for RoboLab (Isaac Lab, rendering + inference): an identical re-run does not repeat, so one run cannot call a winner
+[deploy] Runs:   2 run(s) x 60 episodes = 120 episodes, ~2.1-2.2 instance-h (scaled from measured 120-episode runs of 2.08-2.25 h; set-up is shared, so this is an upper bound)
+```
+
+`--repeats 1` turns it off (with a warning: `results --compare` will then say `needs re-run` for that side);
+`--repeats N` (up to 3) asks for more. Targets that run once per deploy (every other template, including
+`openarm-isaac`) refuse `--repeats 2` and are re-run by deploying again. Both runs land in the same results bucket,
+so read them with `results --compare A B --all-runs`. The protocol card of each run records `repeats`,
+`repeat_index` (`1/2`, `2/2`) and the reason. A repeat that fails after the first run is reported in the completion
+e-mail and does not fail the deploy. The name is `--repeats`, not `num_runs`: RoboLab already uses `num_runs` for
+sequential episodes per task inside one run.
+
+Why the default is two (measured with this tool, RoboLab "specific" instructions, 12 tasks x 10 episodes,
+pi0.5-DROID vs Cosmos3, `tests/fixtures/robolab_cs_two_runs.*`): the first run per policy said Cosmos3 better,
+51 vs 27 of 120 (Fisher p = 0.001). The second runs gave 48 and 39 (28 of 120 pi0.5 episodes changed), and
+`results --compare` on both runs prints `unresolved` (run pairs: B>A 2, tie 2).
+
 ## Post-run judge (judge.json)
 
 `python vlasim.py judge --vla <target> [--run RUN_ID]` ([targets](targets.md#post-run-judge-flora-rewarder)) scores every rollout video of a finished run with NVIDIA Flora-Rewarder and writes, next to the run:

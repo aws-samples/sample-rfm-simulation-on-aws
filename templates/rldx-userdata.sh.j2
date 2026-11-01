@@ -168,7 +168,7 @@ rm -f /etc/apt/apt.conf.d/50command-not-found 2>/dev/null || true
 systemctl stop apt-daily.timer apt-daily-upgrade.timer 2>/dev/null || true
 systemctl mask apt-daily.timer apt-daily-upgrade.timer unattended-upgrades.service 2>/dev/null || true
 APT_RETRY=0
-until timeout 600 apt-get update -qq -o DPkg::Lock::Timeout=300 2>&1 | tee /tmp/rldx_apt_update.log; do
+until timeout 2400 apt-get update -qq -o DPkg::Lock::Timeout=1800 2>&1 | tee /tmp/rldx_apt_update.log; do
     APT_RETRY=$((APT_RETRY + 1))
     [ $APT_RETRY -ge 3 ] && die "apt-get update failed after 3 retries"
     log "[warn] apt-get update failed (attempt $APT_RETRY), retrying in 30s..."
@@ -176,7 +176,7 @@ until timeout 600 apt-get update -qq -o DPkg::Lock::Timeout=300 2>&1 | tee /tmp/
 done
 
 APT_RETRY=0
-until apt-get install -y --no-install-recommends -o DPkg::Lock::Timeout=300 \
+until apt-get install -y --no-install-recommends -o DPkg::Lock::Timeout=1800 \
     git git-lfs curl ca-certificates awscli jq iproute2 \
     libgl1-mesa-glx libegl1 libgles2 \
     libglib2.0-0 libsm6 libxext6 libxrender1 \
@@ -235,7 +235,7 @@ nvidia-smi -L 2>&1 | tee /tmp/rldx_nvidia.log \
 # simpler-env/ManiSkill2_real2sim/docker/{Dockerfile,nvidia_icd.json,nvidia_layers.json}.
 log "[2.5/8] FIX 8: installing Vulkan loader + NVIDIA ICD ({{ sim_id }} needs SAPIEN/Vulkan)..."
 APT_RETRY=0
-until apt-get install -y --no-install-recommends -o DPkg::Lock::Timeout=300 \
+until apt-get install -y --no-install-recommends -o DPkg::Lock::Timeout=1800 \
     libvulkan1 vulkan-tools \
     2>&1 | tee /tmp/rldx_fix8_vulkan.log; do
     APT_RETRY=$((APT_RETRY + 1))
@@ -1216,6 +1216,7 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
     [ -f "/tmp/rldx_task${TASK_IDX}_summary.txt" ] && \
         aws s3 cp "/tmp/rldx_task${TASK_IDX}_summary.txt" \
         "${S3_TASK_PREFIX}/summary.txt" --region "$REGION" || true
+    {% from "_protocol-card.sh.j2" import protocol_card with context %}{{ protocol_card('"/tmp/rldx_task${TASK_IDX}_summary.txt"', '"${S3_TASK_PREFIX}"') }}
 {%- if libero_plus %}
     [ -f "${LP_MANIFEST}" ] && \
         aws s3 cp "${LP_MANIFEST}" "${S3_TASK_PREFIX}/libero_plus_variants.json" --region "$REGION" || true

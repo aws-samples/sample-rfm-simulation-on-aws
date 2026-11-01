@@ -78,3 +78,19 @@ def _check_gallery_block(text, name):
 
 def test_every_target_is_covered():
     assert {v for v, _ in CASES} == set(VLA_TARGETS)
+
+
+@pytest.mark.parametrize("vla,extra", CASES, ids=[f"{v}{'-' + e[1] if e else ''}" for v, e in CASES])
+def test_host_apt_waits_for_the_dpkg_lock(vla, extra, tmp_path):
+    """A fresh Ubuntu DLAMI once kept unattended-upgrades on the dpkg lock for 16+ minutes after the UserData
+    had stopped it; three apt-get install attempts with a 5-minute lock wait each failed the deploy. Every
+    host apt-get now waits up to 30 minutes, and the outer `timeout` of apt-get update stays above that."""
+    text = _render(vla, extra, tmp_path).read_text()
+    host = [ln for ln in text.splitlines() if re.search(r"\bapt-get (update|install)\b", ln)
+            and not re.match(r"\s*(#|RUN |\"|\()", ln) and "die " not in ln and "log " not in ln]
+    if not host:
+        pytest.skip(f"{vla}: no host apt-get")
+    waits = [int(x) for x in re.findall(r"DPkg::Lock::Timeout=(\d+)", text)]
+    assert waits and all(w == 1800 for w in waits), (vla, waits)
+    outer = [int(x) for x in re.findall(r"\btimeout (\d+) apt-get", text)]
+    assert all(t > 1800 for t in outer), (vla, outer)

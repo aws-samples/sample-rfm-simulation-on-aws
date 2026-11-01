@@ -100,7 +100,7 @@ rm -f /etc/apt/apt.conf.d/50command-not-found 2>/dev/null || true
 systemctl stop apt-daily.timer apt-daily-upgrade.timer 2>/dev/null || true
 systemctl mask apt-daily.timer apt-daily-upgrade.timer unattended-upgrades.service 2>/dev/null || true
 APT_RETRY=0
-until timeout 600 apt-get update -qq -o DPkg::Lock::Timeout=300 2>&1 | tee /tmp/oft_apt_update.log; do
+until timeout 2400 apt-get update -qq -o DPkg::Lock::Timeout=1800 2>&1 | tee /tmp/oft_apt_update.log; do
     APT_RETRY=$((APT_RETRY + 1))
     [ $APT_RETRY -ge 3 ] && die "apt-get update failed after 3 retries"
     log "[warn] apt-get update failed (attempt $APT_RETRY), retrying in 30s..."
@@ -108,7 +108,7 @@ until timeout 600 apt-get update -qq -o DPkg::Lock::Timeout=300 2>&1 | tee /tmp/
 done
 
 APT_RETRY=0
-until apt-get install -y --no-install-recommends -o DPkg::Lock::Timeout=300 \
+until apt-get install -y --no-install-recommends -o DPkg::Lock::Timeout=1800 \
     git git-lfs curl ca-certificates awscli jq \
     libgl1-mesa-glx libegl1 libgles2 \
     libglib2.0-0 libsm6 libxext6 libxrender1 \
@@ -353,7 +353,7 @@ log "  LIBERO config: /root/.libero/config.yaml"
 # pip pins must be in place before the import check below (the full fork setup runs in [5.5/6]; repeating the
 # apt/pip install there is a no-op). First GPU run without this died here with "No module named 'wand'".
 log "[4/6] LIBERO-Plus: ImageMagick + {{ libero_plus.pip_pins }} before the import check..."
-apt-get install -y --no-install-recommends -o DPkg::Lock::Timeout=300 libmagickwand-dev \
+apt-get install -y --no-install-recommends -o DPkg::Lock::Timeout=1800 libmagickwand-dev \
     2>&1 | tee /tmp/oft_lp_apt_early.log || die "LIBERO-Plus: apt-get install libmagickwand-dev failed"
 pip install --no-cache-dir {{ libero_plus.pip_pins }} 2>&1 | tee /tmp/oft_lp_pip_early.log \
     || die "LIBERO-Plus: early pip pins failed (see /tmp/oft_lp_pip_early.log)"
@@ -689,6 +689,7 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
     [ -f "/tmp/oft_task${TASK_IDX}_summary.txt" ] && \
         aws s3 cp "/tmp/oft_task${TASK_IDX}_summary.txt" \
         "${S3_TASK_PREFIX}/summary.txt" --region "$REGION" || true
+    {% from "_protocol-card.sh.j2" import protocol_card with context %}{{ protocol_card('"/tmp/oft_task${TASK_IDX}_summary.txt"', '"${S3_TASK_PREFIX}"') }}
 {%- if libero_plus %}
     [ -f "${LP_MANIFEST}" ] && \
         aws s3 cp "${LP_MANIFEST}" "${S3_TASK_PREFIX}/libero_plus_variants.json" --region "$REGION" || true

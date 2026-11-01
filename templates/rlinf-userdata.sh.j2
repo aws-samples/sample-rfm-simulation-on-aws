@@ -38,6 +38,8 @@ RL_PROFILE="{{ profile }}"
 RL_STEPS={{ rl_steps }}
 RL_SAVE_INTERVAL={{ save_interval }}
 EVAL_NUM_ENVS={{ eval_num_envs }}
+# GPUs the eval places its env/rollout processes on (one each per GPU, see models/<vla>.yaml eval_gpus).
+EVAL_GPUS={{ eval_gpus }}
 MAX_WALL_HOURS={{ max_wall_hours }}
 EARLY_SIGNAL={{ 'true' if early_signal else 'false' }}
 EVAL_RUN="{{ eval_run }}"
@@ -298,7 +300,11 @@ SFT_DIR=/workspace/work/ckpt/sft
 TRAIN_LOG_DIR=/workspace/work/train
 TRAIN_OVERRIDES="runner.logger.log_path=${TRAIN_LOG_DIR} runner.max_steps=${RL_STEPS} runner.save_interval=${RL_SAVE_INTERVAL} actor.model.model_path=${SFT_DIR} rollout.model.model_path=${SFT_DIR}{% for o in overrides %} {{ o }}{% endfor %}"
 EVAL_OVERRIDES="env.eval.total_num_envs=${EVAL_NUM_ENVS}{% for o in eval_overrides %} {{ o }}{% endfor %}"
-# Hydra compose of the exact training command (no run): a wrong override key fails here, not after the downloads.
+{% if eval_gpus < min_gpus %}
+# Eval on GPUs 0..EVAL_GPUS-1 only: replace the eval config's "env,rollout: all" placement (one env process per
+# GPU, each building its envs from a round-robin share of the states; see models/<vla>.yaml eval_gpus).
+EVAL_OVERRIDES="${EVAL_OVERRIDES} '~cluster.component_placement' +cluster.component_placement.env=0-$((EVAL_GPUS - 1)) +cluster.component_placement.rollout=0-$((EVAL_GPUS - 1))"
+{% endif %}# Hydra compose of the exact training command (no run): a wrong override key fails here, not after the downloads.
 log "[5/9] Composing the training config with the run's overrides (hydra --cfg job)..."
 in_env "python examples/embodiment/train_embodied_agent.py --config-path /workspace/RLinf/examples/embodiment/config/ --config-name {{ train_config }} ${TRAIN_OVERRIDES} --cfg job" \
     < /dev/null > "${WORK}/logs/train_config.yaml.log" 2>&1 || die "training config does not compose with the overrides (see ${WORK}/logs/train_config.yaml.log)"
@@ -348,7 +354,7 @@ run_eval() {
     local phase=$1 task=$2 extra=$3
     local marker="${WORK}/out/${phase}.marker"
     touch "${marker}"
-    log "  eval ${phase}: {{ eval_config }} with ${EVAL_NUM_ENVS} envs ${extra}"
+    log "  eval ${phase}: {{ eval_config }} with ${EVAL_NUM_ENVS} envs on ${EVAL_GPUS} GPU(s) ${extra}"
     gpu_check "eval ${phase}"
     : > "${WORK}/logs/eval_${phase}.log"
     watch_dead_actor "${WORK}/logs/eval_${phase}.log" &

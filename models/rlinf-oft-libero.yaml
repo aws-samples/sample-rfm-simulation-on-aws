@@ -107,7 +107,12 @@ profiles:
     # the run signals the stack after the verify + baseline stage and keeps going (max_wall_hours cap, then
     # the instance terminates itself), because 100 recipe steps do not fit the 12 h WaitCondition maximum.
     steps: 100
-    eval_num_envs: 500            # the upstream eval protocol (10 tasks x 50 init states)
+    # The upstream protocol: 10 tasks x 50 init states = 500 episodes. RLinf runs one eval env process per visible
+    # GPU, deals the 500 states round-robin to them and builds each process's envs from its share, so the per-GPU
+    # env count must equal the share: 500 on 8 GPUs fails the divisibility assert, 504 on 8 indexes past a 62-state
+    # share (both measured 2026-11-01). The eval is placed on GPUs 0-3 (eval_gpus): 4 x 125 = every state once.
+    eval_num_envs: 500
+    eval_gpus: 4
     overrides: []
     early_signal: true
     max_wall_hours: 40

@@ -40,6 +40,9 @@ export interface AzSelectorProps {
   // Tag that RunInstances must set and TerminateInstances requires (e.g. StackName=<stack>).
   // It must also be one of `tags`.
   scopeTag: { key: string; value: string };
+  // After every On-Demand type/AZ has no capacity, try the same list again as one-time Spot
+  // (interruption = terminate). Off by default; models/<vla>.yaml instance.spot_fallback: true.
+  spotFallback?: boolean;
 }
 
 export class AzSelectorConstruct extends Construct {
@@ -47,6 +50,7 @@ export class AzSelectorConstruct extends Construct {
   public readonly availabilityZone: string;
   public readonly resolvedInstanceType: string;
   public readonly subnetId: string;
+  public readonly market: string;
 
   constructor(scope: Construct, id: string, props: AzSelectorProps) {
     super(scope, id);
@@ -92,6 +96,8 @@ export class AzSelectorConstruct extends Construct {
                 ...props.securityGroupIds.map((id) => ec2Arn(`security-group/${id}`)),
                 ec2Arn('volume/*'),
                 ec2Arn('network-interface/*'),
+                // A one-time Spot launch also creates a spot-instances-request (only with spotFallback).
+                ...(props.spotFallback ? [ec2Arn('spot-instances-request/*')] : []),
               ],
             }),
             // Tags only as part of the launch (TagSpecifications), never on existing resources.
@@ -137,6 +143,7 @@ export class AzSelectorConstruct extends Construct {
         SecurityGroupIds: props.securityGroupIds.join(','),
         EbsGb: props.ebsGb.toString(),
         Tags: JSON.stringify(props.tags),
+        SpotFallback: props.spotFallback ? 'true' : 'false',
         Timestamp: Date.now().toString(),
       },
     });
@@ -149,6 +156,7 @@ export class AzSelectorConstruct extends Construct {
     this.availabilityZone = customResource.getAttString('AvailabilityZone');
     this.resolvedInstanceType = customResource.getAttString('InstanceType');
     this.subnetId = customResource.getAttString('SubnetId');
+    this.market = customResource.getAttString('Market');
 
     acknowledge(lambdaRole, [
       {
@@ -174,6 +182,15 @@ export class AzSelectorConstruct extends Construct {
           'Resource::arn:<AWS::Partition>:ec2:<AWS::Region>:<AWS::AccountId>:network-interface/*',
         ],
       },
+      ...(props.spotFallback
+        ? [
+            {
+              id: 'AwsSolutions-IAM5',
+              reason: 'A one-time Spot launch (spotFallback only) creates a spot-instances-request whose ID is unknown until RunInstances returns. The instance statement still requires the scope tag and IMDSv2.',
+              appliesTo: ['Resource::arn:<AWS::Partition>:ec2:<AWS::Region>:<AWS::AccountId>:spot-instances-request/*'],
+            },
+          ]
+        : []),
     ]);
 
     acknowledge(azSelectorFn, [
@@ -219,6 +236,7 @@ def handler(event, context):
         sg_ids = props['SecurityGroupIds'].split(',')
         ebs_gb = int(props['EbsGb'])
         tags = json.loads(props['Tags'])
+        markets = ['on-demand'] + (['spot'] if props.get('SpotFallback') == 'true' else [])
 
         subnets_resp = ec2.describe_subnets(SubnetIds=subnet_ids)
         subnet_az_map = {s['SubnetId']: s['AvailabilityZone'] for s in subnets_resp['Subnets']}
@@ -226,8 +244,9 @@ def handler(event, context):
 
         all_tried = []
 
-        for instance_type in instance_types:
-            print(f'--- Trying instance type: {instance_type} ---')
+        for market, instance_type in [(m, t) for m in markets for t in instance_types]:
+            print(f'--- Trying instance type: {instance_type} ({market}) ---')
+            label = instance_type if market == 'on-demand' else f'{instance_type}[spot]'
 
             resp = ec2.describe_instance_type_offerings(
                 LocationType='availability-zone',
@@ -239,19 +258,24 @@ def handler(event, context):
             candidates = [(sid, az) for sid, az in subnet_az_map.items() if az in supported_azs]
             if not candidates:
                 print(f'{instance_type} not available in any VPC subnet AZ, skipping...')
-                all_tried.append(f'{instance_type}(no subnet AZ match)')
+                all_tried.append(f'{label}(no subnet AZ match)')
                 continue
 
             random.shuffle(candidates)
 
             for subnet_id, az in candidates:
-                print(f'Launching {instance_type} in {az} (subnet: {subnet_id})')
+                print(f'Launching {instance_type} ({market}) in {az} (subnet: {subnet_id})')
                 try:
                     tag_specs = [{
                         'ResourceType': 'instance',
                         'Tags': [{'Key': t['key'], 'Value': t['value']} for t in tags]
                     }]
+                    market_opts = {} if market == 'on-demand' else {'InstanceMarketOptions': {
+                        'MarketType': 'spot',
+                        'SpotOptions': {'SpotInstanceType': 'one-time', 'InstanceInterruptionBehavior': 'terminate'},
+                    }}
                     run_resp = ec2.run_instances(
+                        **market_opts,
                         InstanceType=instance_type,
                         ImageId=ami_id,
                         MinCount=1,
@@ -279,29 +303,30 @@ def handler(event, context):
                         },
                     )
                     instance_id = run_resp['Instances'][0]['InstanceId']
-                    print(f'SUCCESS: {instance_type} in {az} (instance: {instance_id})')
+                    print(f'SUCCESS: {instance_type} ({market}) in {az} (instance: {instance_id})')
 
                     cfnresponse.send(event, context, cfnresponse.SUCCESS,
                         {'InstanceId': instance_id, 'AvailabilityZone': az,
-                         'InstanceType': instance_type, 'SubnetId': subnet_id},
+                         'InstanceType': instance_type, 'SubnetId': subnet_id, 'Market': market},
                         physicalResourceId=instance_id)
                     return
 
                 except Exception as e:
                     error_msg = str(e)
-                    if 'InsufficientInstanceCapacity' in error_msg:
-                        print(f'InsufficientCapacity: {instance_type} in {az}')
-                        all_tried.append(f'{instance_type}/{az}')
+                    if any(c in error_msg for c in ('InsufficientInstanceCapacity', 'SpotMaxPriceTooLow',
+                                                    'MaxSpotInstanceCountExceeded')):
+                        print(f'InsufficientCapacity: {label} in {az}')
+                        all_tried.append(f'{label}/{az}')
                         continue
                     elif 'Unsupported' in error_msg:
                         print(f'Unsupported: {instance_type} in {az}')
-                        all_tried.append(f'{instance_type}/{az}(unsupported)')
+                        all_tried.append(f'{label}/{az}(unsupported)')
                         continue
                     else:
                         print(f'Unexpected error: {e}')
                         raise
 
-            print(f'All AZs exhausted for {instance_type}, falling back...')
+            print(f'All AZs exhausted for {label}, falling back...')
 
         cfnresponse.send(event, context, cfnresponse.FAILED, {},
             reason=f'No capacity available for any instance type: {all_tried}',

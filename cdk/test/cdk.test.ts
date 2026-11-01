@@ -125,6 +125,15 @@ describe('rlinf-oft-libero', () => {
     expect(json).toContain('vla-sim-results-rlinf-oft-libero-ap-northeast-2-123456789012');
   });
 
+  test('full falls back to one-time Spot, smoke stays On-Demand only', () => {
+    const full = synth('full');
+    full.hasResourceProperties('AWS::CloudFormation::CustomResource', { SpotFallback: 'true' });
+    expect(JSON.stringify(full.toJSON())).toContain('spot-instances-request/*');
+    const smoke = synth('smoke');
+    smoke.hasResourceProperties('AWS::CloudFormation::CustomResource', { SpotFallback: 'false' });
+    expect(JSON.stringify(smoke.toJSON())).not.toContain('spot-instances-request');
+  });
+
   test('unknown profiles and rl_profile on other targets are rejected', () => {
     expect(() => synth('huge')).toThrow(/rl_profile "huge" is not one of smoke, full/);
     expect(() => resolveInstanceCfg('xvla', { instance: { preferred: ['g6.xlarge'] } }, 'full'))

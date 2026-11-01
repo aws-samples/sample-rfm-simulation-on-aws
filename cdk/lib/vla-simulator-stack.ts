@@ -548,6 +548,7 @@ export class VlaSimulatorStack extends cdk.Stack {
         { key: 'StackName', value: stackName },
       ],
       scopeTag: { key: 'StackName', value: stackName },
+      spotFallback: instanceCfg.spot_fallback === true,
     });
     // WaitCondition timeout starts when CFN processes it. The instance is launched by AzSelector
     // Lambda. No explicit DependsOn needed — WaitConditionHandle URL is embedded in UserData,
@@ -664,6 +665,10 @@ export class VlaSimulatorStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'InstanceId', {
       value: azSelector.instanceId,
       description: 'EC2 instance ID',
+    });
+    new cdk.CfnOutput(this, 'SelectedMarket', {
+      value: azSelector.market,
+      description: 'on-demand, or spot when instance.spot_fallback found no On-Demand capacity',
     });
     new cdk.CfnOutput(this, 'SelectedInstanceType', {
       value: azSelector.resolvedInstanceType,

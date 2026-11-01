@@ -217,13 +217,14 @@ def rerun_null(runs, alpha=0.05):
 def cells_from_csv(path, model):
     """Offline input: CSV with model,suite,condition,successes,episodes (the study table format). Optional columns:
     `run` (several rows of one cell = several runs; the last run in sort order is the cell, all of them are its
-    `runs`) and `simulator` (a repeatability.SIMULATORS key, overrides the target table)."""
+    `runs`), `simulator` (a repeatability.SIMULATORS key, overrides the target table) and `gpu`."""
     groups = collections.defaultdict(list)
     with open(path) as f:
         for r in csv.DictReader(f):
             if r["model"] == model:
                 groups[(r["suite"], r["condition"])].append(
-                    dict(k=int(r["successes"]), n=int(r["episodes"]), run=r.get("run") or ""))
+                    dict(k=int(r["successes"]), n=int(r["episodes"]), run=r.get("run") or "",
+                         **({"gpu": r["gpu"]} if r.get("gpu") else {})))
     cells = {}
     for key, runs in groups.items():
         runs.sort(key=lambda x: x["run"])
@@ -258,7 +259,7 @@ def attach_episodes(cells, path, model):
 def cells_from_rows(rows, stack_prefix):
     """S3 rows (results.collect) of every bucket whose stack starts with stack_prefix -> latest run per (suite, condition).
     Returns (cells, reruns) where reruns feeds rerun_null."""
-    groups = collections.defaultdict(lambda: dict(k=0, n=0, episodes=[], fp={}, ok=True))
+    groups = collections.defaultdict(lambda: dict(k=0, n=0, episodes=[], fp={}, ok=True, gpu=set()))
     for r in rows:
         if not r["bucket_stack"].startswith(stack_prefix):
             continue
@@ -270,6 +271,8 @@ def cells_from_rows(rows, stack_prefix):
         g["k"] += r["k"] or 0
         g["n"] += r["n"]
         g["fp"].update(r.get("stack") or {})
+        if r.get("gpu"):
+            g["gpu"].add(r["gpu"])
         g["episodes"].extend(dict(e, task=f"{r['task']}/{e['task']}") for e in r.get("episodes") or [])
     cells, reruns = {}, collections.defaultdict(list)
     for (s, c, stack, region, run), g in sorted(groups.items(), key=lambda x: x[0][4]):
@@ -278,6 +281,8 @@ def cells_from_rows(rows, stack_prefix):
         fp = " ".join(f"{k}={v}" for k, v in sorted(g["fp"].items()))
         reruns[(s, c, f"{stack}@{region} {fp}")].append((run, g["k"], g["n"]))
         cell = dict(k=g["k"], n=g["n"], run=f"{stack}@{region} {run}", fp=fp)
+        if g["gpu"]:
+            cell["gpu"] = ", ".join(sorted(g["gpu"]))
         if g["episodes"] and len(g["episodes"]) == g["n"]:
             cell["episodes"] = g["episodes"]
         prev = cells.get((s, c))
@@ -288,6 +293,24 @@ def cells_from_rows(rows, stack_prefix):
         if len(v["runs"]) < 2:
             v.pop("runs")
     return cells, reruns
+
+
+def cell_gpus(cells):
+    """GPU types (protocol card `gpu`) of every run behind these cells."""
+    return {x["gpu"] for c in cells.values() for x in c.get("runs") or [c] if x.get("gpu")}
+
+
+def gpu_lines(gpus):
+    """Lines under a comparison: the GPU type of each side, and a note when runs were on more than one type.
+    Measured on LIBERO: one GPU type repeats 50 of 50 episodes; another type changes 1-4 of 50."""
+    if not any(gpus.values()):
+        return []
+    sides = {s: ", ".join(sorted(v)) or "not recorded" for s, v in gpus.items()}
+    out = ["GPU: " + " · ".join(f"{s} {v}" for s, v in sides.items())]
+    if len(set().union(*gpus.values())) > 1:
+        out.append("note: these runs are on more than one GPU type; an exact re-run needs the same seed and the same "
+                   "GPU type (LIBERO: 50 of 50 episodes repeat on one GPU type, 1-4 of 50 change on another)")
+    return out
 
 
 def fmt_spread(sp):

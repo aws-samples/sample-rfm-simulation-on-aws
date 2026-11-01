@@ -361,12 +361,19 @@ two numbers are comparable:
 | field | source |
 |---|---|
 | `target`, `checkpoints` (repo, revision, suite), `code_pins`, `tool_commit` | model YAML and this repository at render time |
-| `suite`, `condition`, `seed`, `start_states`, `chunk_rule`, `step_cap`, `instruction`, `k`, `n` | this task's `summary.txt` (the key that was found is kept, e.g. `replan=1`) |
+| `suite`, `condition`, `seed`, `start_states`, `chunk_rule`, `step_cap`, `instruction`, `k`, `n` | this task's `summary.txt` (the key that was found is kept, e.g. `replan=1`); where the evaluation takes a value as a flag instead (RoboLab: `--seed`, the variant checkpoint, the instruction type), the value the script passes |
 | `instance_type`, `gpu`, `region`, `written_utc` | instance metadata and `nvidia-smi` at run time |
 
 A field the target does not record is written as `unknown`, never guessed. `--matrix` reads the cards: a cell
 whose tasks all wrote one is no longer marked ‡ (comparability unknown); the CSV / JSON output has a
 `protocol_card` column.
+
+An exact re-run needs the **seed and the GPU type**. On LIBERO, the same seed on the same GPU type repeated 50 of
+50 episodes (videos byte for byte) on a fresh instance 18 hours later; on another GPU type (A10G, L4, L40S) the
+first rendered frame already differs and 1-4 of 50 episodes changed, while the SmolVLA vs X-VLA verdict held on
+all three. So `vlasim results` lists the `seed` and `gpu` of every run from its cards, and `results --compare`
+prints the GPU type of each side, with a note when the runs it compares are on more than one type
+(`--from-csv` takes an optional `gpu` column).
 
 ## Shared seed (`--seed`)
 

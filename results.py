@@ -130,6 +130,9 @@ def task_row(s3, region, bucket, run, task_prefix, episodes=False):
                condition=(kv.get("condition") or "-").split()[0], k=k, n=n, rate=rate, stack=stack_fp)
     if kv.get("benchmark"):
         row.update(benchmark=kv["benchmark"], perturbation=kv.get("perturbation", "-"))
+    card = read_protocol_card(s3, region, bucket, task_prefix)
+    if card:  # an exact re-run needs the same seed and the same GPU type (docs/results.md "Protocol card")
+        row.update({x: str(card[x]) for x in ("seed", "gpu") if card.get(x) not in (None, "", "unknown")})
     if episodes:
         import compare
         eps = compare.episodes_from_keys(s3.keys(region, bucket, task_prefix + "videos/"))
@@ -227,6 +230,9 @@ def aggregate(rows):
             g["not_done"] += 1
             continue
         g["stack"].update(r.get("stack") or {})
+        for x in ("seed", "gpu"):
+            if r.get(x):
+                g.setdefault(x, set()).add(r[x])
         if r.get("n"):
             g["k"] += r["k"] or 0
             g["n"] += r["n"]
@@ -334,6 +340,9 @@ def run_compare(a, boto3=None):
         print("No suite/condition row exists on both sides.")
         return 1
     compare.print_rows(a.compare[0], a.compare[1], rows, null, a.alpha, a.raw_p, repeat_info=repeat_info)
+    gpus = {"A": compare.cell_gpus(A), "B": compare.cell_gpus(B)}
+    for line in compare.gpu_lines(gpus):
+        print(line)
     if not a.from_csv and not a.all_runs and any(r.get("verdict") == "needs re-run" for r in rows):
         # deploy.py --repeats writes the runs of one deploy into one bucket; without --all-runs only the latest is read
         print("hint: earlier runs in the same bucket (deploy --repeats, or a second deploy) are read with --all-runs")
@@ -347,7 +356,7 @@ def run_compare(a, boto3=None):
     if a.json:
         with open(a.json, "w") as f:
             json.dump(dict(a=a.compare[0], b=a.compare[1], alpha=a.alpha, raw_p=a.raw_p, rows=rows, rerun_null=null,
-                           simulators=repeat_info), f, indent=1, default=str)
+                           simulators=repeat_info, gpu={k: sorted(v) for k, v in gpus.items()}), f, indent=1, default=str)
     return 0
 
 
@@ -435,8 +444,10 @@ def main(argv=None):
                           rate="" if rate is None else f"{rate:.2f}",
                           ci95="" if lo is None else f"{lo:.2f}-{hi:.2f}",
                           tasks=g["tasks"], not_done=g["not_done"],
+                          seed=", ".join(sorted(g.get("seed") or ())) or "-",
+                          gpu=", ".join(sorted(g.get("gpu") or ())) or "-",
                           fingerprint=" ".join(f"{k}={v}" for k, v in sorted(g["stack"].items()))))
-    cols = ["stack", "region", "run", "suite", "condition", "k_n", "rate", "ci95", "tasks", "not_done"]
+    cols = ["stack", "region", "run", "suite", "condition", "k_n", "rate", "ci95", "tasks", "not_done", "seed", "gpu"]
     _print_table(table, cols)
     fps = collections.OrderedDict()
     for t in table:

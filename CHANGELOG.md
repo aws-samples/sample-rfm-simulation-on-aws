@@ -32,6 +32,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `vlasim results` lists the `seed` and `gpu` of each run (from its protocol card), and `results --compare` prints the GPU type of each side with a note when the compared runs are on more than one type (`--json`: `gpu`; `--from-csv`: optional `gpu` column). Measured motivation: on LIBERO the same seed repeats 50 of 50 episodes on one GPU type and changes 1-4 of 50 on another, so an exact re-run needs both.
+
 - Video history: a video whose caption carries a judge score shows a `Flora N/5` badge, and a re-uploaded caption is read again instead of reusing the cached text.
 - `destroy.py` asks what to do with the data: `--keep-data` (default, today's behaviour: results bucket and gallery are kept) or `--delete-all` (also deletes the results bucket, the stack's Lambda log groups and this target's gallery videos, and the whole gallery when no other target stack is left in the region). A terminal gets a numbered prompt; without one, destroy keeps the data.
 - `requirements.txt` installs `boto3[crt]` (the CloudFront KeyValueStore API needs SigV4A).

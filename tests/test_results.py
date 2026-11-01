@@ -217,3 +217,40 @@ def test_collect_attaches_judge_to_judged_runs(monkeypatch, capsys):
     assert results.main(["--all-runs"]) == 0
     out = capsys.readouterr().out
     assert "post-run judge (judge.json):" in out and "2026-10-19-0558: agreement 0.80 (8/10)" in out
+
+
+def test_task_row_reads_seed_and_gpu_from_the_protocol_card():
+    """An exact re-run needs the seed and the GPU type, so the run listing shows both (protocol.yaml)."""
+    s3 = FakeS3({BUCKET: {
+        "R/task-0/summary.txt": "suite: libero_spatial\nn_episodes: 10\nn_success: 8\nsuccess_rate: 0.8\n",
+        "R/task-0/protocol.yaml": "schema: rfm-simulation/protocol-card/v1\nseed: '7'\ngpu: '1x NVIDIA L4'\n",
+        "R/task-1/summary.txt": "suite: libero_spatial\nn_episodes: 10\nn_success: 9\nsuccess_rate: 0.9\n",
+        "R/task-1/protocol.yaml": "schema: rfm-simulation/protocol-card/v1\nseed: unknown\ngpu: unknown\n",
+    }})
+    r0 = results.task_row(s3, "us-east-1", BUCKET, "R", "R/task-0/")
+    r1 = results.task_row(s3, "us-east-1", BUCKET, "R", "R/task-1/")
+    assert (r0["seed"], r0["gpu"]) == ("7", "1x NVIDIA L4")
+    assert "seed" not in r1 and "gpu" not in r1
+    base = dict(bucket_stack="s", region="us-east-1", run="R")
+    g = results.aggregate([dict(base, **r0), dict(base, **r1)])[("s", "us-east-1", "R", "libero_spatial", "-")]
+    assert g["gpu"] == {"1x NVIDIA L4"} and g["seed"] == {"7"}
+
+
+def test_compare_prints_the_gpu_types_and_warns_when_they_differ(tmp_path, capsys):
+    csv_path = tmp_path / "cells.csv"
+    csv_path.write_text("model,suite,condition,successes,episodes,run,gpu\n"
+                        "a,LIBERO-Spatial,S0,40,50,r1,1x NVIDIA A10G\n"
+                        "b,LIBERO-Spatial,S0,20,50,r1,1x NVIDIA A10G\n")
+    assert results.main(["--compare", "a", "b", "--from-csv", str(csv_path)]) == 0
+    text = capsys.readouterr().out
+    assert "GPU: A 1x NVIDIA A10G · B 1x NVIDIA A10G" in text and "more than one GPU type" not in text
+    csv_path.write_text(csv_path.read_text().replace("b,LIBERO-Spatial,S0,20,50,r1,1x NVIDIA A10G",
+                                                     "b,LIBERO-Spatial,S0,20,50,r1,1x NVIDIA L40S"))
+    out_json = tmp_path / "c.json"
+    assert results.main(["--compare", "a", "b", "--from-csv", str(csv_path), "--json", str(out_json)]) == 0
+    text = capsys.readouterr().out
+    assert "more than one GPU type" in text and "same seed and the same GPU type" in text
+    assert json.loads(out_json.read_text())["gpu"] == {"A": ["1x NVIDIA A10G"], "B": ["1x NVIDIA L40S"]}
+    csv_path.write_text("model,suite,condition,successes,episodes\na,LIBERO-Spatial,S0,40,50\nb,LIBERO-Spatial,S0,20,50\n")
+    assert results.main(["--compare", "a", "b", "--from-csv", str(csv_path)]) == 0
+    assert "GPU:" not in capsys.readouterr().out

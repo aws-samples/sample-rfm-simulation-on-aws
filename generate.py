@@ -1404,6 +1404,20 @@ def generate_rlinf(config: dict, dry_run: bool, vla: str, profile: str = "smoke"
             f"profiles.{profile}: eval_num_envs {eval_num_envs} must be a multiple of eval_gpus {eval_gpus} "
             f"(RLinf runs one eval env process per GPU)"
         )
+    # eval_rollout_separate: env processes on GPUs 0..eval_gpus-1, policy copies on the next eval_gpus GPUs.
+    eval_rollout_separate = bool(prof.get("eval_rollout_separate", False))
+    if eval_rollout_separate and 2 * eval_gpus > int(inst.get("min_gpus", 1)):
+        fail(f"profiles.{profile}: eval_rollout_separate needs 2 x eval_gpus ({2 * eval_gpus}) <= instance.min_gpus")
+    # eval_pipeline_stages: rollout.pipeline_stage_num for the evals; each env process splits its envs into that
+    # many groups and the policy runs one group per forward (RLinf asserts the per-process share divides evenly).
+    stages = int(prof.get("eval_pipeline_stages") or 1)
+    if stages < 1 or (eval_num_envs // eval_gpus) % stages:
+        fail(
+            f"profiles.{profile}: eval_pipeline_stages {stages} must divide the per-GPU eval envs "
+            f"{eval_num_envs // eval_gpus}"
+        )
+    if stages > 1:
+        eval_overrides = eval_overrides + [f"rollout.pipeline_stage_num={stages}"]
     ctx = {
         "vla": vla,
         "deployment": config.get("deployment", {}),
@@ -1428,6 +1442,7 @@ def generate_rlinf(config: dict, dry_run: bool, vla: str, profile: str = "smoke"
         "save_interval": int(prof.get("save_interval") or min(25, rl_steps)),
         "eval_num_envs": eval_num_envs,
         "eval_gpus": eval_gpus,
+        "eval_rollout_separate": eval_rollout_separate,
         "overrides": overrides,
         "eval_overrides": eval_overrides,
         "early_signal": bool(prof.get("early_signal", False)),

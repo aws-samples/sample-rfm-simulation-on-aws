@@ -113,6 +113,11 @@ profiles:
     # share (both measured 2026-11-01). The eval is placed on GPUs 0-3 (eval_gpus): 4 x 125 = every state once.
     eval_num_envs: 500
     eval_gpus: 4
+    # The 4 policy copies run on GPUs 4-7 (125 renderers + a policy copy on one 80 GB H100 ran out of memory,
+    # run 2026-11-01-0355), and each forward takes 125 / 5 = 25 envs: one policy copy alone on its H100 still ran
+    # out of memory with a 125-env forward (78.5 GB in use, run 2026-11-01-0542).
+    eval_rollout_separate: true
+    eval_pipeline_stages: 5
     overrides: []
     early_signal: true
     max_wall_hours: 40

@@ -303,7 +303,13 @@ EVAL_OVERRIDES="env.eval.total_num_envs=${EVAL_NUM_ENVS}{% for o in eval_overrid
 {% if eval_gpus < min_gpus %}
 # Eval on GPUs 0..EVAL_GPUS-1 only: replace the eval config's "env,rollout: all" placement (one env process per
 # GPU, each building its envs from a round-robin share of the states; see models/<vla>.yaml eval_gpus).
+{% if eval_rollout_separate %}
+# The policy copies go to the next EVAL_GPUS GPUs: 125 LIBERO renderers (~57 GB) plus a policy copy (~21 GB) did
+# not fit one 80 GB H100 (CUDA OOM in the first rollout forward, 2026-11-01).
+EVAL_OVERRIDES="${EVAL_OVERRIDES} '~cluster.component_placement' +cluster.component_placement.env=0-$((EVAL_GPUS - 1)) +cluster.component_placement.rollout=${EVAL_GPUS}-$((2 * EVAL_GPUS - 1))"
+{% else %}
 EVAL_OVERRIDES="${EVAL_OVERRIDES} '~cluster.component_placement' +cluster.component_placement.env=0-$((EVAL_GPUS - 1)) +cluster.component_placement.rollout=0-$((EVAL_GPUS - 1))"
+{% endif %}
 {% endif %}# Hydra compose of the exact training command (no run): a wrong override key fails here, not after the downloads.
 log "[5/9] Composing the training config with the run's overrides (hydra --cfg job)..."
 in_env "python examples/embodiment/train_embodied_agent.py --config-path /workspace/RLinf/examples/embodiment/config/ --config-name {{ train_config }} ${TRAIN_OVERRIDES} --cfg job" \

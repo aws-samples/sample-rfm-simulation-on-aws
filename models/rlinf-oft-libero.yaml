@@ -118,7 +118,13 @@ profiles:
     # out of memory with a 125-env forward (78.5 GB in use, run 2026-11-01-0542).
     eval_rollout_separate: true
     eval_pipeline_stages: 5
-    overrides: []
+    # Bucket weight sync (512 MB buckets) instead of the recipe's patch syncer: after a full-parameter step
+    # nearly every weight changes, the "sparse" patch is dense and is built on actor rank 0's GPU, and the
+    # rollout rank sharing GPU 0 then ran out of memory receiving it (run 2026-11-01-0634, sync before step 2).
+    # Same weights reach the rollout either way.
+    overrides:
+      - weight_syncer.type=bucket
+      - +weight_syncer.bucket.bucket_size=536870912
     early_signal: true
     max_wall_hours: 40
     # 80 GB GPUs only: the 500 eval envs are 62.5 renderers per GPU next to a policy copy, and one 44 GB L40S

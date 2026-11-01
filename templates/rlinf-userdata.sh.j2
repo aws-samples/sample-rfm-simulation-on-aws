@@ -341,13 +341,15 @@ gpu_check() {
         < /dev/null >> "${WORK}/logs/gpu_check.log" 2>&1 || die "$1: torch sees no GPU in the container (see ${WORK}/logs/gpu_check.log)"
 }
 
-# Ray keeps the driver waiting when a worker dies in its constructor; stop the run instead of idling
-# until the timeout. $1 = log file. Run in the background next to the Ray command.
+# Ray keeps the driver waiting when a worker dies in its constructor, and a CUDA OOM in a worker's comm
+# thread leaves the other ranks spinning in the collective (2026-11-01: 8 x H100 idle-billed after an OOM
+# in the weight sync); stop the run instead of idling until the timeout. $1 = log file. Run in the
+# background next to the Ray command.
 watch_dead_actor() {
     local logf=$1
     while sleep 30; do
-        if grep -aq "The actor died because of an error raised in its creation task" "${logf}" 2>/dev/null; then
-            log "[warn] a Ray worker died at creation (see ${logf}); stopping the run"
+        if grep -aqE "The actor died because of an error raised in its creation task|torch\.OutOfMemoryError" "${logf}" 2>/dev/null; then
+            log "[warn] a Ray worker died at creation or ran out of GPU memory (see ${logf}); stopping the run"
             docker exec "${CTR}" pkill -f "embodied_agent.py" >/dev/null 2>&1 || true
             docker exec "${CTR}" bash -c "ray stop --force" >/dev/null 2>&1 || true
             return 0

@@ -182,6 +182,15 @@ export class AzSelectorConstruct extends Construct {
           'Resource::arn:<AWS::Partition>:ec2:<AWS::Region>:<AWS::AccountId>:network-interface/*',
         ],
       },
+      ...(props.spotFallback
+        ? [
+            {
+              id: 'AwsSolutions-IAM5',
+              reason: 'A one-time Spot launch (spotFallback only) creates a spot-instances-request whose ID is unknown until RunInstances returns. The instance statement still requires the scope tag and IMDSv2.',
+              appliesTo: ['Resource::arn:<AWS::Partition>:ec2:<AWS::Region>:<AWS::AccountId>:spot-instances-request/*'],
+            },
+          ]
+        : []),
     ]);
 
     acknowledge(azSelectorFn, [

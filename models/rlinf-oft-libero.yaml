@@ -113,6 +113,9 @@ profiles:
     # share (both measured 2026-11-01). The eval is placed on GPUs 0-3 (eval_gpus): 4 x 125 = every state once.
     eval_num_envs: 500
     eval_gpus: 4
+    # The 4 policy copies run on GPUs 4-7: 125 renderers (~57 GB) + a policy copy (~21 GB) on one 80 GB H100 ran
+    # out of memory in the first rollout forward (2026-11-01, run 2026-11-01-0355).
+    eval_rollout_separate: true
     overrides: []
     early_signal: true
     max_wall_hours: 40

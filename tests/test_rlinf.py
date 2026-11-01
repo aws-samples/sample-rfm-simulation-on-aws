@@ -193,10 +193,12 @@ def test_eval_envs_split_over_eval_gpus(tmp_path, capsys):
     text = path.read_text()
     assert f"EVAL_GPUS={CFG['profiles']['full']['eval_gpus']}" in text
     assert "'~cluster.component_placement' +cluster.component_placement.env=0-$((EVAL_GPUS - 1))" in text
+    assert "+cluster.component_placement.rollout=${EVAL_GPUS}-$((2 * EVAL_GPUS - 1))" in text
     smoke, spath = _render(tmp_path / "s", "--rl-profile", "smoke")
     assert smoke.returncode == 0 and "~cluster.component_placement" not in spath.read_text()
     for bad, msg in ((dict(eval_num_envs=500, eval_gpus=8), "multiple of eval_gpus 8"),
-                     (dict(eval_gpus=9), "between 1 and instance.min_gpus")):
+                     (dict(eval_gpus=9), "between 1 and instance.min_gpus"),
+                     (dict(eval_gpus=5, eval_num_envs=500, eval_rollout_separate=True), "2 x eval_gpus")):
         cfg = json.loads(json.dumps(CFG))
         cfg["profiles"]["full"].update(bad)
         with pytest.raises(SystemExit):

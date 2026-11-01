@@ -1,8 +1,8 @@
 """Re-run null per simulator: does running the same stack again give the same episodes?
 
 A verdict between two policies is only as good as the noise floor under it. On some simulators an identical
-re-run (same stack, same seed, same start states) gives the same episodes back; on GPU physics it does not,
-and one run per policy is then not enough to call a winner (docs/results.md "Re-run null per simulator").
+re-run (same stack, same seed, same start states) gives the same episodes back; on Isaac Lab it does not
+(the physics repeats, the rendered camera images and the GPU policy inference do not), and one run per policy is then not enough to call a winner (docs/results.md "Re-run null per simulator").
 
 This table records, per simulator, what has been measured with this tool:
 
@@ -26,11 +26,14 @@ SIMULATORS: dict[str, dict] = {
                  "another machine and region (2026-10-31); exact re-runs of 4 policies: 10 of 12 cells identical "
                  "k, at most 2 points apart"),
     "robolab": dict(
-        label="RoboLab (Isaac Lab, GPU physics)", repeatable="no",
+        label="RoboLab (Isaac Lab, rendering + inference)", repeatable="no",
         evidence="identical re-run, 12 tasks x 10 episodes: 25 of 120 pi0.5 episodes and 19 of 120 Cosmos3 "
-                 "episodes changed, and one pair verdict changed (tie, p = 0.69 -> p = 0.023) (2026-10-31)"),
+                 "episodes changed, and one pair verdict changed (tie, p = 0.69 -> p = 0.023) (2026-10-31); replaying the "
+                 "same actions repeats the physics bit for bit (0 of 40 outcomes change) but the camera images differ on "
+                 "every frame (0 of 331 identical), and the policy server is not bit-exact without deterministic XLA "
+                 "ops (2026-10-31)"),
     "isaaclab": dict(
-        label="Isaac Lab (GPU physics)", repeatable="no",
+        label="Isaac Lab (rendering + inference)", repeatable="no",
         evidence="Isaac Lab Arena, same seed, same machine: 9 to 46 of 100 episodes changed between two runs "
                  "(2026-10-31); RoboLab (Isaac Lab) above"),
     "simpler": dict(label="SimplerEnv (SAPIEN / ManiSkill)", repeatable="unmeasured", evidence=""),

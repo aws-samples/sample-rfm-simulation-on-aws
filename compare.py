@@ -21,7 +21,7 @@ fingerprint, those runs are compared with the same test. That is the noise floor
 only meaningful if re-running the same stack does not produce verdicts of its own.
 
 Re-run null per simulator (repeatability.py): on a simulator where an identical re-run is measured NOT to repeat
-(GPU physics: RoboLab / Isaac Lab), one run per side is not enough. Such a row says "needs re-run" (the one-run
+(Isaac Lab: RoboLab, Arena; the rendering and the GPU policy inference do not repeat, the physics does), one run per side is not enough. Such a row says "needs re-run" (the one-run
 verdict is kept as `single_run_verdict`) unless that side has two or more finished runs of the same stack, suite,
 condition and fingerprint. With two or more runs the row prints the re-run spread (k range, episodes that changed
 between runs) and the verdict is tested on every pair of runs (one run of A x one run of B, two-sided Fisher at

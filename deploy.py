@@ -438,7 +438,7 @@ def main():
     parser.add_argument("--repeats", default="auto", metavar="auto|N",
                         help="Runs of the whole evaluation in this deploy, each under its own RUN_ID (same stack, "
                              "seed and start states). auto (default) = 2 where an identical re-run does not repeat "
-                             "(GPU physics: RoboLab; repeatability.py), 1 elsewhere; --repeats 1 turns it off. "
+                             "(RoboLab: rendering + inference; repeatability.py), 1 elsewhere; --repeats 1 turns it off. "
                              "results --compare needs two runs per side there before it calls a winner.")
     parser.add_argument("--rl-profile", default="smoke", choices=list(RL_PROFILES),
                         help="rlinf-oft-libero: smoke = 1 GPU, LoRA, a few GRPO steps (~2-4 h); full = 8 GPU, recipe "

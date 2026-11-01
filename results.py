@@ -383,7 +383,7 @@ def main(argv=None):
     c.add_argument("--alpha", type=float, default=0.05, help="significance level for the verdict (default 0.05)")
     c.add_argument("--raw-p", action="store_true", help="decide on the uncorrected Fisher p instead of the BH q")
     c.add_argument("--assume-repeatable", action="store_true", help="ignore the per-simulator re-run rule "
-                   "(repeatability.py) and call a winner from one run per side even on GPU physics")
+                   "(repeatability.py) and call a winner from one run per side even on Isaac Lab")
     a = p.parse_args(argv)
     if a.compare:
         return run_compare(a)

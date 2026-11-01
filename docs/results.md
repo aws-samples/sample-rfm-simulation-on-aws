@@ -426,10 +426,18 @@ pretend: the card says `not-controllable` and why.
 
 A verdict is only as good as the noise under it. On LIBERO (MuJoCo, CPU physics) an identical re-run gives the
 same episodes back: with the same seed, SmolVLA and X-VLA repeated 50 of 50 LIBERO-Spatial episodes, also on
-another machine and region. On GPU physics it does not: an identical RoboLab (Isaac Lab) re-run changed 25 of 120
+another machine and region. On Isaac Lab it does not: an identical RoboLab (Isaac Lab) re-run changed 25 of 120
 pi0.5 episodes and 19 of 120 Cosmos3 episodes and turned a tie (p = 0.69) into a win (p = 0.023); in Isaac Lab
 Arena the same seed on the same machine changed 9 to 46 of 100 episodes between two runs. A shared seed
 (`--seed`) is therefore necessary but not sufficient there: the comparison also needs repeated runs and their spread.
+
+What does not repeat on Isaac Lab is not the physics. Replaying the same actions on one L40S gives the same states,
+episode lengths and outcomes bit for bit (0 of 40 outcomes change; PhysX enhanced determinism changes nothing),
+but the rendered camera images differ from the first frame (0 of 331 identical, 23-45% of pixels by a small amount),
+and the JAX policy server is not bit-exact unless `XLA_FLAGS=--xla_gpu_deterministic_ops=true` (then 331 of 331
+action chunks are identical). With deterministic inference and antialiasing / denoiser off, live re-runs still
+changed 4 of 20 outcomes: a slightly different image changes the action, and the closed loop does the rest. So
+the label is "rendering + inference", and the re-run spread has to be measured, not switched off.
 
 `repeatability.py` records this per simulator (`yes` / `no` / `unmeasured`, with the evidence), and
 `results --compare` applies it:
@@ -467,7 +475,7 @@ deploy limit (`instance.creationpolicy_timeout`):
 
 ```
 $ python deploy.py --vla robolab-pi05
-[runs] 2 runs in this deploy: default for RoboLab (Isaac Lab, GPU physics): an identical re-run does not repeat, so one run cannot call a winner
+[runs] 2 runs in this deploy: default for RoboLab (Isaac Lab, rendering + inference): an identical re-run does not repeat, so one run cannot call a winner
 [deploy] Runs:   2 run(s) x 60 episodes = 120 episodes, ~2.1-2.2 instance-h (scaled from measured 120-episode runs of 2.08-2.25 h; set-up is shared, so this is an upper bound)
 ```
 

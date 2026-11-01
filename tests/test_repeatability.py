@@ -88,7 +88,7 @@ def test_repeatable_and_unmeasured_keep_one_run_verdicts():
         got = {r["condition_a"]: r for r in compare.compare(a, b, repeat=(cls, cls))}
         assert {k: r["verdict"] for k, r in got.items()} == plain
         assert all(r["rerun_class"] == cls for r in got.values())
-    # one side GPU physics with one run is enough to hold the verdict
+    # one side on a non-repeating simulator with one run is enough to hold the verdict
     got = {r["condition_a"]: r for r in compare.compare(a, b, repeat=("yes", "no"))}
     assert got["Cs"]["verdict"] == "needs re-run" and got["Cs"]["needs_rerun"] == "B"
 
@@ -115,7 +115,7 @@ def test_cli_prints_the_rule(capsys, tmp_path):
     text = capsys.readouterr().out
     assert "needs re-run 2" in text and "unresolved 1" in text
     assert "25 of 120 episodes changed (21%)" in text and "run pairs A>B 1 · tie 3" in text
-    assert "re-run null, A and B: RoboLab (Isaac Lab, GPU physics) — no" in text
+    assert "re-run null, A and B: RoboLab (Isaac Lab, rendering + inference) — no" in text
     data = json.loads(out_json.read_text())
     assert data["simulators"]["A and B"]["repeatable"] == "no"
     rc = results.main(["--compare", "robolab-pi05", "robolab-cosmos3", "--from-csv", str(CSV), "--assume-repeatable"])
@@ -126,7 +126,7 @@ def test_cli_prints_the_rule(capsys, tmp_path):
 def test_cli_simulator_column_overrides_the_target_table(capsys):
     rc = results.main(["--compare", "arena-pi05", "arena-smolvla", "--from-csv", str(CSV), "--episodes", str(EPS)])
     text = capsys.readouterr().out
-    assert rc == 0 and "Isaac Lab (GPU physics) — no" in text and "run pairs tie 4" in text
+    assert rc == 0 and "Isaac Lab (rendering + inference) — no" in text and "run pairs tie 4" in text
 
 
 def test_unresolved_is_the_printed_name_and_unstable_stays_an_alias():

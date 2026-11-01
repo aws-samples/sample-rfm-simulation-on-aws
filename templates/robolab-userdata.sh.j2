@@ -419,7 +419,8 @@ run_shard() {
 }
 # Repeats (generate.py --repeats; repeatability.py): the whole evaluation runs {{ repeats }} time(s) on this
 # instance with the same servers, seed and start states, each under its own RUN_ID, so `results --compare`
-# sees {{ repeats }} run(s) of one fingerprint (GPU physics does not repeat an identical run).
+# sees {{ repeats }} run(s) of one fingerprint (an identical run does not repeat:
+# the rendered camera images and the policy inference differ, the physics does not).
 REPEATS={{ repeats }}
 RUN_IDS=()
 REPEAT_FAILED=()

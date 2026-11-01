@@ -194,11 +194,13 @@ def test_eval_envs_split_over_eval_gpus(tmp_path, capsys):
     assert f"EVAL_GPUS={CFG['profiles']['full']['eval_gpus']}" in text
     assert "'~cluster.component_placement' +cluster.component_placement.env=0-$((EVAL_GPUS - 1))" in text
     assert "+cluster.component_placement.rollout=${EVAL_GPUS}-$((2 * EVAL_GPUS - 1))" in text
+    assert f"rollout.pipeline_stage_num={CFG['profiles']['full']['eval_pipeline_stages']}" in text
     smoke, spath = _render(tmp_path / "s", "--rl-profile", "smoke")
     assert smoke.returncode == 0 and "~cluster.component_placement" not in spath.read_text()
     for bad, msg in ((dict(eval_num_envs=500, eval_gpus=8), "multiple of eval_gpus 8"),
                      (dict(eval_gpus=9), "between 1 and instance.min_gpus"),
-                     (dict(eval_gpus=5, eval_num_envs=500, eval_rollout_separate=True), "2 x eval_gpus")):
+                     (dict(eval_gpus=5, eval_num_envs=500, eval_rollout_separate=True), "2 x eval_gpus"),
+                     (dict(eval_pipeline_stages=4), "must divide the per-GPU eval envs 125")):
         cfg = json.loads(json.dumps(CFG))
         cfg["profiles"]["full"].update(bad)
         with pytest.raises(SystemExit):

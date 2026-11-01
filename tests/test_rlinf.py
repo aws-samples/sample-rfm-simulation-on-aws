@@ -182,6 +182,17 @@ def test_bad_override_rejected(capsys):
     assert "hydra overrides" in capsys.readouterr().err
 
 
+def test_eval_envs_multiple_of_gpus(capsys):
+    # RLinf asserts env.eval.total_num_envs % (one env process per GPU) == 0; 500 on 8 GPUs failed live.
+    for name, prof in CFG["profiles"].items():
+        assert prof["eval_num_envs"] % prof["instance"]["min_gpus"] == 0, name
+    cfg = json.loads(json.dumps(CFG))
+    cfg["profiles"]["full"]["eval_num_envs"] = 500
+    with pytest.raises(SystemExit):
+        generate.generate_rlinf(cfg, True, VLA, profile="full")
+    assert "multiple of instance.min_gpus 8" in capsys.readouterr().err
+
+
 def test_profiles_instance_floors():
     """smoke = one GPU, full = eight; full signals early because the run does not fit the 12 h WaitCondition."""
     smoke, full = CFG["profiles"]["smoke"], CFG["profiles"]["full"]

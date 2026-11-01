@@ -1334,7 +1334,7 @@ def generate_flora_judge(config: dict, dry_run: bool, judge: str = "flora-judge"
 # RLinf evaluate -> RL -> re-evaluate targets (templates/rlinf-userdata.sh.j2). Profiles: models/<vla>.yaml profiles.
 RLINF_TARGETS = ("rlinf-oft-libero",)
 RL_PROFILES = ("smoke", "full")
-_HYDRA_OVERRIDE_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_.]*=[A-Za-z0-9_.,:/\[\]\-]+$")
+_HYDRA_OVERRIDE_RE = re.compile(r"^\+?[A-Za-z_][A-Za-z0-9_.]*=[A-Za-z0-9_.,:/\[\]\-]+$")
 
 
 def rl_profile_cfg(config: dict, vla: str, profile: str) -> dict:

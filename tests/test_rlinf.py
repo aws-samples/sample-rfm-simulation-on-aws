@@ -356,3 +356,13 @@ def test_watcher_kill_and_wait_cannot_trip_the_err_trap():
     for line in text.splitlines():
         if line.strip().startswith("kill ") and "wait " in line:
             assert line.count("|| true") == 2, line
+
+
+def test_full_profile_bucket_weight_sync_and_oom_watch(tmp_path):
+    # Full-parameter steps make the patch syncer's patch dense on actor rank 0's GPU; the rollout rank on
+    # GPU 0 ran out of memory receiving it and the other ranks hung (run 2026-11-01-0634).
+    proc, path = _render(tmp_path, "--rl-profile", "full")
+    assert proc.returncode == 0, proc.stderr
+    text = path.read_text()
+    assert "weight_syncer.type=bucket +weight_syncer.bucket.bucket_size=536870912" in text
+    assert "torch\\.OutOfMemoryError" in text

@@ -126,13 +126,13 @@ def test_card_records_repeats(tmp_path):
     assert re.search(r'echo "  repeat_index: \$\(pc_q "\$\{PC_REPEAT_INDEX:-1\}"\)"', text)
 
 
-def test_measured_two_runs_are_unstable():
-    """T4 (measured): one run per policy says B>A (51 vs 27, p = 0.001); with the second runs the tool says unstable."""
+def test_measured_two_runs_are_unresolved():
+    """T4 (measured): one run per policy says B>A (51 vs 27, p = 0.001); with the second runs the tool says unresolved."""
     a = compare.attach_episodes(compare.cells_from_csv(CS_CSV, "robolab-pi05"), CS_EPS, "robolab-pi05")
     b = compare.attach_episodes(compare.cells_from_csv(CS_CSV, "robolab-cosmos3"), CS_EPS, "robolab-cosmos3")
     (row,) = compare.compare(a, b, repeat=("no", "no"))
     assert (row["k_a"], row["k_b"]) == (39, 48)  # the latest run of each side is the cell
-    assert row["verdict"] == "unstable" and row["pair_verdicts"] == {"B>A": 2, "tie": 2}
+    assert row["verdict"] == "unresolved" and row["pair_verdicts"] == {"B>A": 2, "tie": 2}
     assert (row["rerun_a"]["changed"], row["rerun_b"]["changed"]) == (28, 13)
     assert compare.fisher_two_sided(27, 120, 51, 120) < 0.002  # what the first runs alone would have said
     first = {k: dict(v, k=v["runs"][0]["k"], n=v["runs"][0]["n"]) for k, v in a.items()}
@@ -148,4 +148,4 @@ def test_measured_two_runs_cli(capsys):
     rc = results.main(["--compare", "robolab-pi05", "robolab-cosmos3", "--from-csv", str(CS_CSV),
                        "--episodes", str(CS_EPS)])
     text = capsys.readouterr().out
-    assert rc == 0 and "unstable 1" in text and "28 of 120 episodes changed (23%)" in text
+    assert rc == 0 and "unresolved 1" in text and "28 of 120 episodes changed (23%)" in text

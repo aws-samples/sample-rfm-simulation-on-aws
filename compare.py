@@ -25,7 +25,7 @@ Re-run null per simulator (repeatability.py): on a simulator where an identical 
 verdict is kept as `single_run_verdict`) unless that side has two or more finished runs of the same stack, suite,
 condition and fingerprint. With two or more runs the row prints the re-run spread (k range, episodes that changed
 between runs) and the verdict is tested on every pair of runs (one run of A x one run of B, two-sided Fisher at
-alpha): if the pairs disagree the verdict is "unstable". Simulators measured to repeat (LIBERO) keep the one-run
+alpha): if the pairs disagree the verdict is "unresolved" (called "unstable" before 2026-11). Simulators measured to repeat (LIBERO) keep the one-run
 verdict; unmeasured ones keep it with a note. `--assume-repeatable` turns the rule off.
 """
 import collections
@@ -38,6 +38,8 @@ import re
 import repeatability
 
 EPISODE_RE = re.compile(r"episode=(\d+)--success=(True|False)--task=([^/]+?)\.mp4$")
+UNRESOLVED = "unresolved"  # pair verdicts depend on which runs are paired
+UNSTABLE = UNRESOLVED  # pre-rename name of the same verdict, kept for callers that import it
 REL_TOL = 1 + 1e-7  # same tolerance as R's fisher.test / SciPy's binomtest for "as or less likely" tables
 
 
@@ -175,7 +177,7 @@ def rerun_spread(runs):
 
 def apply_rerun_rule(row, runs_a, runs_b, repeat, alpha):
     """Adds rerun_class / rerun_a / rerun_b / pair_verdicts to a compare row and replaces the verdict with
-    "needs re-run" or "unstable" where the simulator does not repeat (see the module docstring)."""
+    "needs re-run" or "unresolved" where the simulator does not repeat (see the module docstring)."""
     cls_a, cls_b = repeat
     row["rerun_class"] = repeatability.worst(cls_a, cls_b)
     for side, runs in (("a", runs_a), ("b", runs_b)):
@@ -196,7 +198,7 @@ def apply_rerun_rule(row, runs_a, runs_b, repeat, alpha):
     row["pair_verdicts"] = dict(pv)
     if len(pv) > 1:
         row["one_run_verdict"] = row["verdict"]
-        row["verdict"] = "unstable"
+        row["verdict"] = UNRESOLVED
 
 
 def rerun_null(runs, alpha=0.05):
@@ -331,7 +333,7 @@ def print_rows(a, b, rows, null, alpha, raw_p, out=print, repeat_info=None):
     for t in table:
         out("  ".join(str(x).ljust(w[i]) for i, x in enumerate(t)))
     v = collections.Counter(r["verdict"] for r in rows)
-    extra = "".join(f" · {k} {v[k]}" for k in ("needs re-run", "unstable") if v[k])
+    extra = "".join(f" · {k} {v[k]}" for k in ("needs re-run", UNRESOLVED) if v[k])
     out(f"\n{len(rows)} rows: A>B {v['A>B']} · B>A {v['B>A']} · tie {v['tie']}{extra} "
         f"(two-sided Fisher exact; verdict = {'p' if raw_p else 'Benjamini-Hochberg q'} < {alpha} over these rows)")
     for side, info in (repeat_info or {}).items():
@@ -342,9 +344,9 @@ def print_rows(a, b, rows, null, alpha, raw_p, out=print, repeat_info=None):
     if v["needs re-run"]:
         out("needs re-run = this simulator does not repeat an identical run; finish a second run of the same stack, "
             "suite and condition, then compare again with --all-runs (the one-run verdict is in the JSON as single_run_verdict)")
-    if v["unstable"]:
-        out(f"unstable = one run of A against one run of B gives different verdicts depending on which runs "
-            f"(two-sided Fisher, p < {alpha} per pair of runs); report it as unresolved")
+    if v[UNRESOLVED]:
+        out(f"unresolved = one run of A against one run of B gives different verdicts depending on which runs "
+            f"(two-sided Fisher, p < {alpha} per pair of runs); no winner until more runs agree")
     if null is not None:
         if null:
             d = sum(1 for x in null if x["differs"])

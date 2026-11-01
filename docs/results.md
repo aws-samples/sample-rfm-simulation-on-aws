@@ -437,7 +437,7 @@ Arena the same seed on the same machine changed 9 to 46 of 100 episodes between 
 | simulator class | one finished run per side | two or more finished runs (same stack, suite, condition, fingerprint) |
 |---|---|---|
 | `yes` (LIBERO) | verdict as before | verdict as before; the k range is printed |
-| `no` (RoboLab, Isaac Lab) | `needs re-run`; the one-run verdict is kept as `single_run_verdict` | the re-run spread (k range, episodes that changed between runs) is printed and the verdict is tested on every pair of runs (one run of A x one run of B, two-sided Fisher at `--alpha`); if the pairs disagree the verdict is `unstable` |
+| `no` (RoboLab, Isaac Lab) | `needs re-run`; the one-run verdict is kept as `single_run_verdict` | the re-run spread (k range, episodes that changed between runs) is printed and the verdict is tested on every pair of runs (one run of A x one run of B, two-sided Fisher at `--alpha`); if the pairs disagree the verdict is `unresolved` (named `unstable` before 2026-11) |
 | `unmeasured` (SimplerEnv, RoboCasa, RoboTwin, other MuJoCo) | verdict as before, with a note | as `yes` |
 
 On S3, runs of one bucket are only read with `--all-runs`; runs of the same target in two regions are two buckets
@@ -448,7 +448,7 @@ column overrides the target table (`--episodes` entries may carry `run`). `--ass
 $ python vlasim.py results --compare robolab-pi05 robolab-cosmos3 --from-csv tests/fixtures/rerun_cells.csv \
       --episodes tests/fixtures/rerun_episodes.json
 suite       condition  A=robolab-pi05  B=robolab-cosmos3  ...  verdict       re-run
-robolab-12  C0         54/120          36/120             ...  unstable      A 45-54/120 over 2 runs, 25 of 120 episodes changed (21%); B 36-41/120 over 2 runs, 19 of 120 episodes changed (16%); run pairs A>B 1 · tie 3
+robolab-12  C0         54/120          36/120             ...  unresolved    A 45-54/120 over 2 runs, 25 of 120 episodes changed (21%); B 36-41/120 over 2 runs, 19 of 120 episodes changed (16%); run pairs A>B 1 · tie 3
 robolab-12  C1         55/120          36/120             ...  needs re-run  one run only (AB); one-run verdict A>B
 robolab-12  Cs         27/120          51/120             ...  needs re-run  one run only (AB); one-run verdict B>A
 ```
@@ -482,7 +482,7 @@ sequential episodes per task inside one run.
 Why the default is two (measured with this tool, RoboLab "specific" instructions, 12 tasks x 10 episodes,
 pi0.5-DROID vs Cosmos3, `tests/fixtures/robolab_cs_two_runs.*`): the first run per policy said Cosmos3 better,
 51 vs 27 of 120 (Fisher p = 0.001). The second runs gave 48 and 39 (28 of 120 pi0.5 episodes changed), and
-`results --compare` on both runs prints `unstable` (run pairs: B>A 2, tie 2).
+`results --compare` on both runs prints `unresolved` (run pairs: B>A 2, tie 2).
 
 ## Post-run judge (judge.json)
 

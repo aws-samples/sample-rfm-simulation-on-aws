@@ -59,7 +59,7 @@ def test_csv_runs_and_spread():
     assert (sp["k_min"], sp["k_max"], sp["changed"]) == (69, 77, 46)
 
 
-def test_robolab_one_run_needs_rerun_and_two_runs_are_unstable():
+def test_robolab_one_run_needs_rerun_and_two_runs_are_unresolved():
     rows = {r["condition_a"]: r for r in compare.compare(_cells("robolab-pi05"), _cells("robolab-cosmos3"),
                                                           repeat=("no", "no"))}
     # Cs: the instruction-wording result is one run per policy -> not a verdict yet
@@ -69,7 +69,7 @@ def test_robolab_one_run_needs_rerun_and_two_runs_are_unstable():
     # C0 ran twice per policy: 45/54 vs 41/36 -> tie on three pairs of runs, A>B on one (54 vs 36, p = 0.023)
     c0 = rows["C0"]
     assert c0["pair_verdicts"] == {"tie": 3, "A>B": 1}
-    assert c0["verdict"] == "unstable" and c0["one_run_verdict"] == "A>B"
+    assert c0["verdict"] == "unresolved" and c0["one_run_verdict"] == "A>B"
     assert compare.fisher_two_sided(54, 120, 36, 120) == pytest.approx(0.0232, abs=5e-4)
     assert compare.fisher_two_sided(45, 120, 41, 120) == pytest.approx(0.6864, abs=5e-4)
 
@@ -113,7 +113,7 @@ def test_cli_prints_the_rule(capsys, tmp_path):
                        "--episodes", str(EPS), "--json", str(out_json)])
     assert rc == 0
     text = capsys.readouterr().out
-    assert "needs re-run 2" in text and "unstable 1" in text
+    assert "needs re-run 2" in text and "unresolved 1" in text
     assert "25 of 120 episodes changed (21%)" in text and "run pairs A>B 1 · tie 3" in text
     assert "re-run null, A and B: RoboLab (Isaac Lab, GPU physics) — no" in text
     data = json.loads(out_json.read_text())
@@ -127,3 +127,8 @@ def test_cli_simulator_column_overrides_the_target_table(capsys):
     rc = results.main(["--compare", "arena-pi05", "arena-smolvla", "--from-csv", str(CSV), "--episodes", str(EPS)])
     text = capsys.readouterr().out
     assert rc == 0 and "Isaac Lab (GPU physics) — no" in text and "run pairs tie 4" in text
+
+
+def test_unresolved_is_the_printed_name_and_unstable_stays_an_alias():
+    """The verdict is printed as "unresolved" (the word the poster and docs use); the old constant name still works."""
+    assert compare.UNRESOLVED == "unresolved" and compare.UNSTABLE == compare.UNRESOLVED

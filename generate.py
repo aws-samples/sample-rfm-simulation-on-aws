@@ -1391,16 +1391,18 @@ def generate_rlinf(config: dict, dry_run: bool, vla: str, profile: str = "smoke"
         print(f"[error] --rl-eval-run must look like YYYY-MM-DD-HHMM, got {eval_run!r}", file=sys.stderr)
         sys.exit(1)
     inst = prof["instance"]
-    # RLinf's eval places one env process per GPU (component_placement "all") and asserts
-    # env.eval.total_num_envs % processes == 0; the eval reset states are dealt round-robin, so a
-    # count that is not a multiple of the GPU count fails before the first step (seen 2026-11-01:
-    # 500 envs on 8 x H100, "must be divisible by the number of environment processes").
+    # RLinf's eval runs one env process per visible GPU and asserts env.eval.total_num_envs % processes == 0;
+    # each process builds its envs from a round-robin share of the eval reset states, so a count that does not
+    # split evenly fails before the first step (2026-11-01: 500 and 504 envs on 8 x H100). The eval is placed
+    # on the first eval_gpus GPUs (default: all of instance.min_gpus).
     eval_num_envs = int(prof.get("eval_num_envs", 500))
-    eval_gpus = int(inst.get("min_gpus", 1))
+    eval_gpus = int(prof.get("eval_gpus") or inst.get("min_gpus", 1))
+    if not 1 <= eval_gpus <= int(inst.get("min_gpus", 1)):
+        fail(f"profiles.{profile}: eval_gpus {eval_gpus} must be between 1 and instance.min_gpus")
     if eval_num_envs % eval_gpus:
         fail(
-            f"profiles.{profile}: eval_num_envs {eval_num_envs} must be a multiple of "
-            f"instance.min_gpus {eval_gpus} (RLinf runs one eval env process per GPU)"
+            f"profiles.{profile}: eval_num_envs {eval_num_envs} must be a multiple of eval_gpus {eval_gpus} "
+            f"(RLinf runs one eval env process per GPU)"
         )
     ctx = {
         "vla": vla,
@@ -1425,6 +1427,7 @@ def generate_rlinf(config: dict, dry_run: bool, vla: str, profile: str = "smoke"
         "steps_overridden": steps is not None,
         "save_interval": int(prof.get("save_interval") or min(25, rl_steps)),
         "eval_num_envs": eval_num_envs,
+        "eval_gpus": eval_gpus,
         "overrides": overrides,
         "eval_overrides": eval_overrides,
         "early_signal": bool(prof.get("early_signal", False)),

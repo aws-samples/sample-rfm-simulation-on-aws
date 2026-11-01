@@ -182,15 +182,26 @@ def test_bad_override_rejected(capsys):
     assert "hydra overrides" in capsys.readouterr().err
 
 
-def test_eval_envs_multiple_of_gpus(capsys):
-    # RLinf asserts env.eval.total_num_envs % (one env process per GPU) == 0; 500 on 8 GPUs failed live.
+def test_eval_envs_split_over_eval_gpus(tmp_path, capsys):
+    # RLinf: one eval env process per visible GPU, total_num_envs % processes == 0 and each process's envs come
+    # from its round-robin share of the states (500 and 504 on 8 GPUs both failed live, 2026-11-01).
     for name, prof in CFG["profiles"].items():
-        assert prof["eval_num_envs"] % prof["instance"]["min_gpus"] == 0, name
-    cfg = json.loads(json.dumps(CFG))
-    cfg["profiles"]["full"]["eval_num_envs"] = 500
-    with pytest.raises(SystemExit):
-        generate.generate_rlinf(cfg, True, VLA, profile="full")
-    assert "multiple of instance.min_gpus 8" in capsys.readouterr().err
+        gpus = prof.get("eval_gpus") or prof["instance"]["min_gpus"]
+        assert prof["eval_num_envs"] % gpus == 0 and gpus <= prof["instance"]["min_gpus"], name
+    proc, path = _render(tmp_path, "--rl-profile", "full")
+    assert proc.returncode == 0, proc.stderr
+    text = path.read_text()
+    assert f"EVAL_GPUS={CFG['profiles']['full']['eval_gpus']}" in text
+    assert "'~cluster.component_placement' +cluster.component_placement.env=0-$((EVAL_GPUS - 1))" in text
+    smoke, spath = _render(tmp_path / "s", "--rl-profile", "smoke")
+    assert smoke.returncode == 0 and "~cluster.component_placement" not in spath.read_text()
+    for bad, msg in ((dict(eval_num_envs=500, eval_gpus=8), "multiple of eval_gpus 8"),
+                     (dict(eval_gpus=9), "between 1 and instance.min_gpus")):
+        cfg = json.loads(json.dumps(CFG))
+        cfg["profiles"]["full"].update(bad)
+        with pytest.raises(SystemExit):
+            generate.generate_rlinf(cfg, True, VLA, profile="full")
+        assert msg in capsys.readouterr().err
 
 
 def test_profiles_instance_floors():

@@ -38,6 +38,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Found in the first real `--repeats 2` run on RoboLab (pi0-FAST-DROID, two runs on one instance per condition):
+  - the RoboLab protocol card said `seed: unknown`, `checkpoints: []`, `condition: unknown`, `start_states: unknown`. RoboLab takes the seed as a client flag and the checkpoint from the variant, not from `summary.txt`; the card now records the seed, the checkpoint, `condition: instruction_type=<type>` and the start-state rule (a value in `summary.txt` still wins);
+  - a RoboLab variant with another openpi checkpoint under the same target id was named after the target ("pi0.5-DROID (pi0_fast_droid_jointpos)"); the name now follows the policy config (`pi0-FAST-DROID`, or `variants.<v>.policy_label`), and the protocol description follows the episode count and instruction type the run uses;
+  - `results --compare` looked the re-run rule up by target id only, so a side with a new id printed "unknown simulator — unmeasured" although its runs were RoboLab runs; it now falls back to the simulator of the side's suite labels (`repeatability.for_side`).
 - Shared LeRobot x LIBERO template: videos are uploaded as `<suite>_<task_id>--eval_episode_N.mp4`. A task entry with several `task_ids` used to upload only the last task id's videos, because every task id restarts at `eval_episode_0.mp4`.
 
 ## [1.0.0] - 2026-10-22

@@ -132,3 +132,23 @@ def test_cli_simulator_column_overrides_the_target_table(capsys):
 def test_unresolved_is_the_printed_name_and_unstable_stays_an_alias():
     """The verdict is printed as "unresolved" (the word the poster and docs use); the old constant name still works."""
     assert compare.UNRESOLVED == "unresolved" and compare.UNSTABLE == compare.UNRESOLVED
+
+
+def test_unknown_target_id_falls_back_to_the_suite_simulator(capsys, tmp_path):
+    """T5: a policy row under a new id (here robolab-pi0fast) is still a RoboLab run; the rule must apply to it
+    instead of "unknown simulator - unmeasured"."""
+    assert repeatability.for_target("robolab-pi0fast")["simulator"] == "unknown"
+    assert repeatability.for_side("robolab-pi0fast", ["robolab-12"])["repeatable"] == "no"
+    assert repeatability.for_side("my-policy", ["LIBERO-Spatial"])["simulator"] == "libero"
+    assert repeatability.for_side("my-policy", ["robolab-12", "LIBERO-Spatial"])["simulator"] == "unknown"
+    assert repeatability.for_side("robolab-pi05", ["LIBERO-Spatial"])["simulator"] == "robolab"  # the table wins
+    csv_new = tmp_path / "cells.csv"
+    csv_new.write_text(CSV.read_text().replace("robolab-cosmos3,", "robolab-pi0fast,"))
+    eps_new = tmp_path / "eps.json"
+    eps_new.write_text(EPS.read_text().replace('"robolab-cosmos3"', '"robolab-pi0fast"'))
+    rc = results.main(["--compare", "robolab-pi05", "robolab-pi0fast", "--from-csv", str(csv_new),
+                       "--episodes", str(eps_new)])
+    text = capsys.readouterr().out
+    assert rc == 0 and "unknown simulator" not in text
+    assert "re-run null, A and B: RoboLab (Isaac Lab, rendering + inference) — no" in text
+    assert "needs re-run 2" in text and "unresolved 1" in text

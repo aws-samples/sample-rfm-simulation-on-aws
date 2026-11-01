@@ -68,6 +68,32 @@ def for_target(name: str | None) -> dict:
     return dict(simulator=sim, **SIMULATORS[sim])
 
 
+# Suite label prefix -> simulator, for a side whose target id is not in TARGET_SIMULATOR (a new target id, a
+# local variant, a CSV row named after the policy): the runs are still runs of that simulator.
+SUITE_SIMULATOR = (
+    ("robolab", "robolab"), ("libero", "libero"), ("isaaclab", "isaaclab"), ("isaac-lab", "isaaclab"),
+    ("simplerenv", "simpler"), ("simpler", "simpler"), ("robotwin", "robotwin"), ("robocasa", "robocasa"),
+)
+
+
+def for_suite(suite: str | None) -> dict | None:
+    """Simulator entry from a suite label (`RoboLab/subset12`, `robolab-12`, `LIBERO-Spatial`); None if unknown."""
+    s = (suite or "").lower()
+    for prefix, sim in SUITE_SIMULATOR:
+        if s.startswith(prefix):
+            return dict(simulator=sim, **SIMULATORS[sim])
+    return None
+
+
+def for_side(name: str | None, suites=()) -> dict:
+    """for_target, and when the target id is unknown, the simulator of the side's suites (if they agree)."""
+    rep = for_target(name)
+    if rep["simulator"] != "unknown":
+        return rep
+    found = {r["simulator"]: r for r in (for_suite(x) for x in suites) if r}
+    return found.popitem()[1] if len(found) == 1 else rep
+
+
 def for_simulator(sim: str) -> dict:
     sim = (sim or "").lower()
     if sim in SIMULATORS:

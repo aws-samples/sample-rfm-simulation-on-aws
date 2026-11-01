@@ -54,11 +54,19 @@
             echo "  {}"
 {%- endfor %}
             echo "suite: $(pc_q "$(pc_val suite env_name task_suite benchmark)")"
-            echo "condition: $(pc_q "$(pc_val condition)")"
+{%- set fb = protocol_static.fallback | default({}) %}
+            PC_COND=$(pc_val condition)
+{%- if fb.condition %}
+            [ "${PC_COND}" = unknown ] && PC_COND='{{ fb.condition }}'
+{%- endif %}
+            echo "condition: $(pc_q "${PC_COND}")"
             PC_SEED=$(pc_val seed)
 {%- set sp = protocol_static.seed_plan | default({}) %}
 {%- if sp.status == "applied" %}
             [ "${PC_SEED}" = unknown ] && PC_SEED='{{ sp.value }}'
+{%- endif %}
+{%- if fb.seed %}
+            [ "${PC_SEED}" = unknown ] && PC_SEED='{{ fb.seed }}'
 {%- endif %}
             echo "seed: $(pc_q "${PC_SEED}")"
             echo "seed_plan:"
@@ -79,7 +87,11 @@
             echo "  repeats: {{ rn.repeats | default(1) }}"
             echo "  repeat_index: $(pc_q "${PC_REPEAT_INDEX:-1}")"
             echo "  repeats_reason: $(pc_q '{{ rn.repeats_reason | default("") }}')"
-            echo "start_states: $(pc_q "$(pc_get init_states init_file task_ids random_init num_trials_per_task)")"
+            PC_START=$(pc_get init_states init_file task_ids random_init num_trials_per_task)
+{%- if fb.start_states %}
+            [ "${PC_START}" = unknown ] && PC_START='{{ fb.start_states }}'
+{%- endif %}
+            echo "start_states: $(pc_q "${PC_START}")"
             echo "chunk_rule: $(pc_q "$(pc_get replan replan_head n_action_steps action_horizon execute_steps)")"
             echo "step_cap: $(pc_q "$(pc_get max_episode_steps max_steps step_scale episode_length)")"
             echo "instruction: $(pc_q "$(pc_get instruction instruction_type prompt)")"

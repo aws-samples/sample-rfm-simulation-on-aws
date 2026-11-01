@@ -163,3 +163,54 @@ def test_card_says_when_a_target_cannot_be_seeded(tmp_path):
     text = _render("gr00t", tmp_path, ("--seed", "5"))
     block = _card_block(text)
     assert "not-controllable" in block and "4b1dca9" in block
+
+
+ROBOLAB_SUMMARY = ("model: robolab-pi05 (pi0.5-DROID (pi05_droid_jointpos))\n"
+                   "checkpoint: gs://openpi-assets-simeval/pi05_droid_jointpos\nsuite: RoboLab/subset12\n"
+                   "n_episodes: 60\nn_success: 20\nsuccess_rate: 0.3333\ninstruction_type: default\n")
+
+
+def test_robolab_card_records_seed_checkpoint_condition_and_start_states(tmp_path):
+    """T5 (first real --repeats run): RoboLab takes the seed as a client flag and the checkpoint from the variant,
+    so the card said unknown / [] for seed, checkpoints, condition and start states. It now records them."""
+    text = _render("robolab-pi05", tmp_path)
+    block = _card_block(text)
+    summ = tmp_path / "summary.txt"
+    summ.write_text(ROBOLAB_SUMMARY)
+    block = block.replace('"${UPLOAD_DIR}/summary.txt"', f'"{summ}"')
+    script = "set -euo pipefail\n" + block + "\necho CARD_OK\n"
+    env = {"PATH": f"{_stubs(tmp_path)}:/usr/bin:/bin", "STUB_LOG": str(tmp_path / "aws.log"),
+           "REGION": "us-east-1", "S3_TASK_PREFIX": "s3://b/run/task-0", "HOME": str(tmp_path),
+           "PC_REPEAT_INDEX": "1/2"}
+    out = subprocess.run([BASH, "-c", script], capture_output=True, text=True, env=env)
+    assert out.returncode == 0 and "CARD_OK" in out.stdout, out.stderr
+    card = yaml.safe_load((tmp_path / "summary.protocol.yaml").read_text())
+    assert card["seed"] == "0" and card["condition"] == "instruction_type=default"
+    assert card["start_states"] == "RoboLab --seed 0, num_envs 5 x num_runs 1 per task"
+    assert {"repo": "gs://openpi-assets-simeval/pi05_droid_jointpos", "revision": "unversioned"} in card["checkpoints"]
+    # a value the summary does record still wins over the fallback
+    summ.write_text(ROBOLAB_SUMMARY + "seed: 42\ncondition: Cs\n")
+    out = subprocess.run([BASH, "-c", script], capture_output=True, text=True, env=env)
+    card = yaml.safe_load((tmp_path / "summary.protocol.yaml").read_text())
+    assert (card["seed"], card["condition"]) == ("42", "Cs")
+
+
+def test_robolab_card_takes_a_shared_seed(tmp_path):
+    text = _render("robolab-cosmos3", tmp_path, ("--seed", "777"))
+    assert "--seed 777" in text and "PC_SEED='777'" in text
+
+
+def test_robolab_variant_with_another_checkpoint_keeps_its_own_name():
+    """T5: a pi0-FAST variant under the pi0.5 target was labelled "pi0.5-DROID (pi0_fast_droid_jointpos)"."""
+    assert generate.openpi_policy_name("pi05_droid_jointpos") == "pi0.5-DROID"
+    assert generate.openpi_policy_name("pi0_fast_droid_jointpos") == "pi0-FAST-DROID"
+    assert generate.openpi_policy_name("pi0_droid") == "pi0-DROID"
+    assert generate.openpi_policy_name("other_config") == "other_config"
+
+
+def test_robolab_description_follows_the_episode_count_and_instruction():
+    d = "RoboLab-120 subset: 12 tasks x 5 episodes (default instructions)"
+    assert generate.robolab_description(d, 12, 5, "default") == d
+    assert generate.robolab_description(d, 12, 10, "specific") == \
+        "RoboLab-120 subset: 12 tasks x 10 episodes (specific instructions)"
+    assert generate.robolab_description("free text", 3, 2, "vague") == "free text"

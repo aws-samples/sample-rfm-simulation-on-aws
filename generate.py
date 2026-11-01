@@ -112,9 +112,19 @@ def protocol_static(config: dict, target: str) -> dict:
                 checkpoints=checkpoints, code_pins=dict(sorted(pins.items())), seed_plan=plan, rerun_null=rerun_null)
 
 
-def _with_protocol(ctx: dict, config: dict) -> dict:
+def _with_protocol(ctx: dict, config: dict, card: dict | None = None) -> dict:
+    """card = values the template passes to the evaluation but does not write into summary.txt: `checkpoints`
+    (added to the YAML walk), `seed` / `condition` / `start_states` (used where summary.txt has none)."""
     target = ctx.get("vla") or (config.get("model") or {}).get("id") or "unknown"
-    return {**ctx, "protocol_static": protocol_static(config, str(target))}
+    ps = protocol_static(config, str(target))
+    card = card or {}
+    for c in card.get("checkpoints") or []:
+        repo, rev = str(c.get("repo", "")), str(c.get("revision", "unknown"))
+        if SAFE_VALUE_RE.match(repo) and repo not in {x["repo"] for x in ps["checkpoints"]}:
+            ps["checkpoints"].append(dict(repo=repo, revision=rev if SAFE_VALUE_RE.match(rev) else "unknown", suite=""))
+    ps["fallback"] = {k: re.sub(r"['\n\r]", "", str(card[k])) for k in ("seed", "condition", "start_states")
+                      if card.get(k) not in (None, "")}
+    return {**ctx, "protocol_static": ps}
 
 
 def _tasks_json_for_bash(tasks: list) -> str:
@@ -1227,6 +1237,26 @@ def resolve_variant(config: dict, vla: str) -> tuple:
     return name, dict(variants[name] or {})
 
 
+# openpi policy config prefix -> policy name (a variant with another checkpoint under the same target id keeps
+# its own name; variants.<v>.policy_label overrides it)
+OPENPI_POLICY_NAMES = (("pi05_", "pi0.5-DROID"), ("pi0_fast_", "pi0-FAST-DROID"), ("pi0_", "pi0-DROID"))
+
+
+def openpi_policy_name(policy_config: str) -> str:
+    for prefix, name in OPENPI_POLICY_NAMES:
+        if str(policy_config).startswith(prefix):
+            return name
+    return str(policy_config)
+
+
+def robolab_description(description: str, n_tasks: int, per_task: int, instruction_type: str) -> str:
+    """The protocol description with the episode count and instruction type this run actually uses
+    (num_envs x num_runs and eval.instruction_type can differ from the numbers written in the YAML)."""
+    d = re.sub(r"(\d+) tasks x \d+ episodes",
+               lambda m: f"{n_tasks or m.group(1)} tasks x {per_task} episodes", str(description))
+    return re.sub(r"\((default|vague|specific) instructions\)", f"({instruction_type} instructions)", d)
+
+
 def robolab_plan(config: dict, vla: str) -> dict:
     """Episodes per run and time limits of the selected RoboLab variant (deploy.py prints the plan from it).
     Reads the same keys as generate_robolab(); returns {} when the model has no RoboLab protocol."""
@@ -1302,7 +1332,7 @@ def generate_robolab(config: dict, dry_run: bool, vla: str) -> str:
             if not var.get(key):
                 fail(f"variants.{variant}.{key} is required")
         checkpoint_ref = var["checkpoint_dir"]
-        policy_label = f"pi0.5-DROID ({var['policy_config']})"
+        policy_label = var.get("policy_label") or f"{openpi_policy_name(var['policy_config'])} ({var['policy_config']})"
         client_script = "policies/pi0_family/run.py"
     tokens = [str(t) for t in (list(var.get("server_args") or []) + list(var.get("client_args") or [])
                                + list(model.get("server_uv_groups") or []))]
@@ -1339,7 +1369,8 @@ def generate_robolab(config: dict, dry_run: bool, vla: str) -> str:
         "client_script": client_script,
         "client_args": [str(a) for a in var.get("client_args") or []],
         "label": _shell_safe(proto.get("label", "RoboLab/" + str(var.get("protocol"))), "protocol label"),
-        "description": _shell_safe(proto.get("description", ""), "protocol description"),
+        "description": _shell_safe(robolab_description(proto.get("description", ""), len(tasks), num_envs * num_runs,
+                                                       instruction_type), "protocol description"),
         "leaderboard": _shell_safe(var.get("leaderboard", "see docs/results.md"), "leaderboard"),
         "tasks": tasks,
         "num_envs": num_envs,
@@ -1357,8 +1388,15 @@ def generate_robolab(config: dict, dry_run: bool, vla: str) -> str:
         "report_py_b64": base64.encodebytes(asset.read_bytes()).decode(),
         "repeats": int((config.get("repeat_plan") or {}).get("repeats", 1)),
     }
+    # protocol card: RoboLab takes the seed as a client flag and the checkpoint from the variant, not from
+    # summary.txt, so the card gets them (and the start-state rule) from what this script passes
+    ckpt = (dict(repo=var["hf_repo"], revision=str(var["hf_model_revision"])) if backend == "cosmos3"
+            else dict(repo=var["checkpoint_dir"], revision="unversioned"))
+    card = dict(seed=ctx["seed"], condition=f"instruction_type={instruction_type}",
+                start_states=f"RoboLab --seed {ctx['seed']}, num_envs {num_envs} x num_runs {num_runs} per task",
+                checkpoints=[ckpt])
     env = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)), keep_trailing_newline=True)  # nosec B701 - shell script template
-    return env.get_template("robolab-userdata.sh.j2").render(**_with_protocol(ctx, config))
+    return env.get_template("robolab-userdata.sh.j2").render(**_with_protocol(ctx, config, card))
 
 
 def _shell_safe(value: str, what: str) -> str:

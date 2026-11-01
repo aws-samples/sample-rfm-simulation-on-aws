@@ -324,8 +324,9 @@ def run_compare(a, boto3=None):
         import repeatability
         sim_a = compare.simulator_from_csv(a.from_csv, sa) if a.from_csv else None
         sim_b = compare.simulator_from_csv(a.from_csv, sb) if a.from_csv else None
-        ia = repeatability.for_simulator(sim_a) if sim_a else repeatability.for_target(sa)
-        ib = repeatability.for_simulator(sim_b) if sim_b else repeatability.for_target(sb)
+        # a target id the table does not know (new id, local variant) falls back to the simulator of its suites
+        ia = repeatability.for_simulator(sim_a) if sim_a else repeatability.for_side(sa, [k[0] for k in A])
+        ib = repeatability.for_simulator(sim_b) if sim_b else repeatability.for_side(sb, [k[0] for k in B])
         repeat_info = ({"A and B": ia} if ia == ib else {f"A={a.compare[0]}": ia, f"B={a.compare[1]}": ib})
     rows = compare.compare(A, B, ca, cb, alpha=a.alpha, raw_p=a.raw_p,
                            repeat=None if repeat_info is None else (ia["repeatable"], ib["repeatable"]))

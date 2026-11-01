@@ -383,6 +383,7 @@ run_eval() {
     local prefix="s3://${S3_BUCKET}/${RUN_ID}/${task}"
     aws s3 cp "${WORK}/logs/eval_${phase}.log" "${prefix}/eval.log" --region "$REGION" >/dev/null 2>&1 || true
     [ -f "${WORK}/out/${phase}_summary.txt" ] && aws s3 cp "${WORK}/out/${phase}_summary.txt" "${prefix}/summary.txt" --region "$REGION" >/dev/null
+    {% from "_protocol-card.sh.j2" import protocol_card with context %}{{ protocol_card('"${WORK}/out/${phase}_summary.txt"', '"${prefix}"') }}
     # Eval videos (RLinf writes them under the eval log dir): the first N of this phase into the gallery.
     local n=0 f
     while IFS= read -r f; do

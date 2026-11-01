@@ -355,7 +355,7 @@ and are tested against SciPy / statsmodels on the public AMLC 2026 study table (
 ## Protocol card (`protocol.yaml`)
 
 Every task that writes `summary.txt` also writes `protocol.yaml` next to it (`templates/_protocol-card.sh.j2`,
-26 of the 27 targets; `openarm-lift-act` writes no summary). It records what a reader needs to decide whether
+27 of the 28 targets; `openarm-lift-act` writes no summary). It records what a reader needs to decide whether
 two numbers are comparable:
 
 | field | source |
@@ -388,7 +388,7 @@ repeatable.
 
 `protocol.yaml` records the plan under `seed_plan` (`mode` drawn / given / model, `value`, `drawn_utc`,
 `status` applied / model / not-controllable, `env_seed`, `policy_seed`, `via`, `not_controllable_reason`).
-The tool writes the seed for 14 of the 27 targets. For the others it does not
+The tool writes the seed for 14 of the 28 targets. For the others it does not
 pretend: the card says `not-controllable` and why.
 
 | target | where the tool writes it | env seed | policy seed | how / why not |
@@ -405,6 +405,7 @@ pretend: the card says `not-controllable` and why.
 | `rldx-bridge` | not set by the tool | no | no | the template passes no seed to the RLDX evaluation entry point |
 | `rldx-gr1` | not set by the tool | no | no | the template passes no seed to the RLDX evaluation entry point |
 | `rldx-kitchen` | not set by the tool | no | no | the template passes no seed to the RLDX evaluation entry point |
+| `rlinf-oft-libero` | not set by the tool | no | no | the template passes no seed to RLinf evaluations/run_eval.sh (the eval config's own seed applies) |
 | `openarm-isaac` | every task's `seed` | yes | yes | run_eval.py --seed (Isaac Lab env + policy) |
 | `openarm-lift-act` | not set by the tool | no | no | the template passes no seed to the ACT play script; it writes no summary.txt |
 | `molmoact2` | every task's `seed` | fixed | yes | lerobot-eval --seed |

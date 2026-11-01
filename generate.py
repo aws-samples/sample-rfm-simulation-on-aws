@@ -1537,7 +1537,7 @@ def generate_rlinf(config: dict, dry_run: bool, vla: str, profile: str = "smoke"
         "report_py_b64": base64.encodebytes((BASE_DIR / "assets" / "rlinf" / "rlinf_report.py").read_bytes()).decode(),
     }
     env = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)), keep_trailing_newline=True)  # nosec B701 - shell script template
-    return env.get_template("rlinf-userdata.sh.j2").render(**ctx)
+    return env.get_template("rlinf-userdata.sh.j2").render(**_with_protocol(ctx, config))
 
 
 def generate_pi(config: dict, resolved_vpc: str, resolved_nlb: str, dry_run: bool, plus: tuple = None,

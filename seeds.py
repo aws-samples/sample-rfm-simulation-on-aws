@@ -67,6 +67,9 @@ SEED_CONTROL: dict[str, dict] = {
                      reason="reconstruction pipeline, not a policy evaluation (segment_args fix its own seed)"),
     "openarm-lift-act": dict(where=None, env="no", policy="no",
                              reason="the template passes no seed to the ACT play script; it writes no summary.txt"),
+    "rlinf-oft-libero": dict(where=None, env="no", policy="no",
+                             reason="the template passes no seed to RLinf evaluations/run_eval.sh (the eval config's "
+                                    "own seed applies)"),
     **{t: dict(where=None, env="no", policy="no", reason="the template passes no seed to the RLDX evaluation entry point")
        for t in ("rldx", "rldx-simpler", "rldx-bridge", "rldx-gr1", "rldx-kitchen")},
 }

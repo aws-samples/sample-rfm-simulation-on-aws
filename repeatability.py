@@ -41,7 +41,8 @@ SIMULATORS: dict[str, dict] = {
 
 TARGET_SIMULATOR: dict[str, str] = {
     **{t: "libero" for t in ("aspire", "cosmos-policy", "fastwam", "gr00t", "lap", "lingbot-va", "molmoact2",
-                             "openvla-oft", "pi", "rldx", "smolvla", "vla-adapter", "xvla")},
+                             "openvla-oft", "pi", "rldx", "rlinf-oft-libero", "smolvla", "vla-adapter",
+                             "xvla")},
     **{t: "robolab" for t in ("robolab-cosmos3", "robolab-pi05")},
     **{t: "isaaclab" for t in ("openarm-isaac", "openarm-lift-act")},
     **{t: "simpler" for t in ("gr00t-bridge", "rldx-bridge", "rldx-simpler")},

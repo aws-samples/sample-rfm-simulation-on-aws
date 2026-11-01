@@ -40,7 +40,7 @@ jobs:
       # MuJoCo Menagerie fetched at the pinned commit). Skipped in the run above: it has no numpy.
       - name: pytest (real2sim geometry + MuJoCo)
         run: |
-          pip install "numpy<2" scipy trimesh==5.2.0 rtree open3d==0.18.0 mujoco==3.16.0 pillow
+          pip install "numpy<2" scipy trimesh==5.2.0 networkx rtree open3d==0.18.0 mujoco==3.16.0 pillow
           python -m pytest -q tests/test_real2sim.py
       # targets.py is the single source of the --vla targets; the parity test above ties it to
       # deploy/destroy/generate/vlasim, models/*.yaml and the cdk/bin/app.ts maps.

@@ -72,6 +72,13 @@ SEED_CONTROL: dict[str, dict] = {
     "rlinf-oft-libero": dict(where=None, env="no", policy="no",
                              reason="the template passes no seed to RLinf evaluations/run_eval.sh (the eval config's "
                                     "own seed applies)"),
+    # SimplerEnv main_inference has no seed flag; start states are the fixed robot-pose x object grids / episode ids
+    "spatialvla": dict(where=None, env=_LIBERO_FIXED, policy="no",
+                       reason="SimplerEnv main_inference.py has no seed flag (start states are the fixed grids / episode "
+                              "ids of each task); the policy decodes greedily (do_sample=False)"),
+    "magma": dict(where=None, env=_LIBERO_FIXED, policy="no",
+                  reason="SimplerEnv main_inference_magma.py has no seed flag (start states are the fixed grids / "
+                         "episode ids of each task); MagmaInference samples action tokens (temperature 0.7) unseeded"),
     **{t: dict(where=None, env="no", policy="no", reason="the template passes no seed to the RLDX evaluation entry point")
        for t in ("rldx", "rldx-simpler", "rldx-bridge", "rldx-gr1", "rldx-kitchen")},
 }

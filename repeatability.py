@@ -49,7 +49,7 @@ TARGET_SIMULATOR: dict[str, str] = {
                              "vla-adapter", "xvla")},
     **{t: "robolab" for t in ("robolab-cosmos3", "robolab-pi05")},
     **{t: "isaaclab" for t in ("openarm-isaac", "openarm-lift-act")},
-    **{t: "simpler" for t in ("gr00t-bridge", "rldx-bridge", "rldx-simpler")},
+    **{t: "simpler" for t in ("gr00t-bridge", "rldx-bridge", "rldx-simpler", "spatialvla", "magma")},
     **{t: "robocasa" for t in ("gr00t-gr1", "rldx-gr1", "rldx-kitchen")},
     **{t: "robotwin" for t in ("smolvla-robotwin", "lingbot-vla2")},
     **{t: "mujoco" for t in ("gr00t-g1", "real2sim")},

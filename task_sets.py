@@ -67,6 +67,12 @@ KNOWN = {
     "alohainsertion-v0": "bimanual",
     "alohatransfercube-v0": "bimanual",
     "pusht-v0": "push",
+    # SimplerEnv (spatialvla, magma): the Google pick task is named "grasp"; the drawer-placement task opens the
+    # closed drawer first (articulated sub-goal, as PnPCupToDrawerClose)
+    "graspsingleopenedcokecaninscene-v0": "pick-place",
+    "placeintoclosedtopdrawercustominscene-v0": "articulated",
+    "placeintoclosedmiddledrawercustominscene-v0": "articulated",
+    "placeintoclosedbottomdrawercustominscene-v0": "articulated",
     # Unitree G1 loco-manipulation (gr00t-g1)
     "lmpnpappletoplatedc_g1_gear_wbc": "locomotion",
 }

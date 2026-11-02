@@ -26,6 +26,8 @@
  *   npx cdk deploy SmolVLA-RoboTwin-Demo       -c region=us-east-1 -c vla=smolvla-robotwin [-c robotwin_protocol=clean]
  *   npx cdk deploy LingBot-VLA2-Demo           -c region=us-east-1 -c vla=lingbot-vla2
  *   npx cdk deploy RLinf-OFT-LIBERO-Demo       -c region=us-east-1 -c vla=rlinf-oft-libero [-c rl_profile=full]
+ *   npx cdk deploy LeRobot-Gym-Demo            -c region=us-east-1 -c vla=lerobot-gym
+ *   npx cdk deploy MultiTask-DiT-Demo          -c region=us-east-1 -c vla=multitask-dit
  */
 
 import * as cdk from 'aws-cdk-lib';
@@ -38,9 +40,9 @@ const app = new cdk.App();
 const region = app.node.tryGetContext('region') ?? 'ap-northeast-2';
 const vla: string = app.node.tryGetContext('vla');
 
-if (!vla || !['gr00t', 'gr00t-bridge', 'gr00t-gr1', 'gr00t-g1', 'pi', 'openvla-oft', 'lap', 'rldx', 'rldx-simpler', 'rldx-bridge', 'rldx-gr1', 'rldx-kitchen', 'openarm-isaac', 'openarm-lift-act', 'molmoact2', 'xvla', 'smolvla', 'lingbot-va', 'vla-adapter', 'fastwam', 'cosmos-policy', 'aspire', 'real2sim', 'robolab-cosmos3', 'robolab-pi05', 'smolvla-robotwin', 'lingbot-vla2', 'rlinf-oft-libero'].includes(vla)) {
+if (!vla || !['gr00t', 'gr00t-bridge', 'gr00t-gr1', 'gr00t-g1', 'pi', 'openvla-oft', 'lap', 'rldx', 'rldx-simpler', 'rldx-bridge', 'rldx-gr1', 'rldx-kitchen', 'openarm-isaac', 'openarm-lift-act', 'molmoact2', 'xvla', 'smolvla', 'lingbot-va', 'vla-adapter', 'fastwam', 'cosmos-policy', 'aspire', 'real2sim', 'robolab-cosmos3', 'robolab-pi05', 'smolvla-robotwin', 'lingbot-vla2', 'rlinf-oft-libero', 'lerobot-gym', 'multitask-dit'].includes(vla)) {
   throw new Error(
-    'CDK context "vla" is required. Pass -c vla=gr00t, -c vla=gr00t-bridge, -c vla=gr00t-gr1, -c vla=gr00t-g1, -c vla=pi, -c vla=openvla-oft, -c vla=lap, -c vla=rldx, -c vla=rldx-simpler, -c vla=rldx-bridge, -c vla=rldx-gr1, -c vla=rldx-kitchen, -c vla=openarm-isaac, -c vla=openarm-lift-act, -c vla=molmoact2, -c vla=xvla, -c vla=smolvla, -c vla=lingbot-va, -c vla=vla-adapter, -c vla=fastwam, -c vla=cosmos-policy, -c vla=aspire, -c vla=real2sim, -c vla=robolab-cosmos3, -c vla=robolab-pi05, -c vla=smolvla-robotwin, -c vla=lingbot-vla2, or -c vla=rlinf-oft-libero.\n' +
+    'CDK context "vla" is required. Pass -c vla=gr00t, -c vla=gr00t-bridge, -c vla=gr00t-gr1, -c vla=gr00t-g1, -c vla=pi, -c vla=openvla-oft, -c vla=lap, -c vla=rldx, -c vla=rldx-simpler, -c vla=rldx-bridge, -c vla=rldx-gr1, -c vla=rldx-kitchen, -c vla=openarm-isaac, -c vla=openarm-lift-act, -c vla=molmoact2, -c vla=xvla, -c vla=smolvla, -c vla=lingbot-va, -c vla=vla-adapter, -c vla=fastwam, -c vla=cosmos-policy, -c vla=aspire, -c vla=real2sim, -c vla=robolab-cosmos3, -c vla=robolab-pi05, -c vla=smolvla-robotwin, -c vla=lingbot-vla2, -c vla=rlinf-oft-libero, -c vla=lerobot-gym, or -c vla=multitask-dit.\n' +
     'Use deploy.py which sets this automatically.',
   );
 }
@@ -105,6 +107,8 @@ const stackNameMap: Record<string, string> = {
   'smolvla-robotwin': 'SmolVLA-RoboTwin-Demo',
   'lingbot-vla2': 'LingBot-VLA2-Demo',
   'rlinf-oft-libero': 'RLinf-OFT-LIBERO-Demo',
+  'lerobot-gym': 'LeRobot-Gym-Demo',
+  'multitask-dit': 'MultiTask-DiT-Demo',
 };
 const stackName = stackNameMap[vla];
 
@@ -142,6 +146,8 @@ const descriptionMap: Record<string, string> = {
   'smolvla-robotwin': 'SmolVLA-450M (Hugging Face) + RoboTwin 2.0 bimanual (Aloha-AgileX, SAPIEN + CuRobo, upstream LeRobot lerobot-eval, in-process)',
   'lingbot-vla2': 'LingBot-VLA 2.0 (Robbyant) + RoboTwin 2.0 bimanual (Aloha-AgileX, SAPIEN + CuRobo, upstream LeRobot lerobot-eval, in-process)',
   'rlinf-oft-libero': 'RLinf GRPO RL post-training of OpenVLA-OFT + LIBERO (baseline eval, GRPO, re-eval; RLinf Docker image)',
+  'lerobot-gym': 'LeRobot reference policies (ACT, Diffusion Policy) + LeRobot gym sims (gym-aloha bimanual insertion / cube transfer, gym-pusht), upstream LeRobot lerobot-eval, in-process',
+  'multitask-dit': 'LBM-style Multi-task DiT (LeRobot port, community LIBERO-10 checkpoint, not TRI weights) + LIBERO (Franka Panda, upstream LeRobot lerobot-eval, in-process)',
 };
 
 const stack = new VlaSimulatorStack(app, stackName, {

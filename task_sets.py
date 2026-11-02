@@ -63,6 +63,10 @@ KNOWN = {
     "coffeepressbutton": "press",
     # LIBERO
     "push_the_plate_to_the_front_of_the_stove": "push",
+    # LeRobot gym sims (lerobot-gym): gym-aloha dual-arm ALOHA, gym-pusht planar pusher
+    "alohainsertion-v0": "bimanual",
+    "alohatransfercube-v0": "bimanual",
+    "pusht-v0": "push",
     # Unitree G1 loco-manipulation (gr00t-g1)
     "lmpnpappletoplatedc_g1_gear_wbc": "locomotion",
 }

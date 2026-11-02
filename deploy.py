@@ -78,12 +78,14 @@ LEROBOT_LIBERO_STACKS = {
     "smolvla": "SmolVLA-Demo",
     "lingbot-va": "LingBot-VA-Demo",
     "fastwam": "FastWAM-Demo",
+    "multitask-dit": "MultiTask-DiT-Demo",
 }
 LEROBOT_LIBERO_TARGETS = tuple(LEROBOT_LIBERO_STACKS)
 # Local-only targets with their own template (same CLI handling as the LeRobot family).
 OTHER_LOCAL_STACKS = {"vla-adapter": "VLA-Adapter-Demo", "cosmos-policy": "Cosmos-Policy-Demo", "aspire": "ASPIRE-Demo",
                       "real2sim": "Real2Sim-Demo", "robolab-cosmos3": "RoboLab-Cosmos3-Demo",
-                      "robolab-pi05": "RoboLab-Pi05-Demo", "rlinf-oft-libero": "RLinf-OFT-LIBERO-Demo"}
+                      "robolab-pi05": "RoboLab-Pi05-Demo", "rlinf-oft-libero": "RLinf-OFT-LIBERO-Demo",
+                      "lerobot-gym": "LeRobot-Gym-Demo"}
 # RLinf RL post-training targets (evaluate -> GRPO -> re-evaluate); --rl-profile picks models/<vla>.yaml profiles.
 RLINF_TARGETS = ("rlinf-oft-libero",)
 RL_PROFILES = ("smoke", "full")
@@ -911,6 +913,9 @@ def main():
                   f"{' + ~11 GB textures' if any(u['setting'] == 'randomized' for u in robotwin_units) else ''}) + "
                   f"episode loop up to ~{hours:.1f} h (every episode at its step limit, "
                   f"{ROBOTWIN_EST_SEC_PER_STEP} s/step; not measured yet)")
+        elif args.vla == "lerobot-gym":
+            print("  Estimated time: ~30-60 min (uv sync LeRobot source ~10-20 min + 3 small checkpoints + "
+                  "lerobot-eval per task, 10 episodes each; estimate, not measured yet)")
         elif args.vla in LEROBOT_LIBERO_TARGETS:
             print("  Estimated time: ~40-80 min for the pipe-proof cap (uv sync LeRobot source ~15-30min + ckpt DL + LIBERO eval; scale via models/<vla>.yaml tasks)")
         else:

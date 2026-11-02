@@ -36,7 +36,9 @@ _LIBERO_FIXED = "fixed"  # LIBERO / LIBERO-Pro start states come from the benchm
 SEED_CONTROL: dict[str, dict] = {
     # LeRobot lerobot-eval --seed: set_seed (Python / NumPy / torch) + env.reset(seed=...)
     **{t: dict(where="tasks", env=_LIBERO_FIXED, policy="yes", via="lerobot-eval --seed")
-       for t in ("smolvla", "xvla", "lingbot-va", "fastwam")},
+       for t in ("smolvla", "xvla", "lingbot-va", "fastwam", "multitask-dit")},
+    # gym-aloha / gym-pusht: lerobot-eval --seed also seeds env.reset, so start states follow the seed
+    "lerobot-gym": dict(where="tasks", env="yes", policy="yes", via="lerobot-eval --seed (gym env.reset seed)"),
     **{t: dict(where="tasks", env="yes", policy="yes", via="lerobot-eval --seed (RoboTwin setup_demo seed)")
        for t in ("smolvla-robotwin", "lingbot-vla2")},
     "molmoact2": dict(where="tasks", env=_LIBERO_FIXED, policy="yes", via="lerobot-eval --seed"),

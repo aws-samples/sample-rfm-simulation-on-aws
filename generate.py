@@ -860,7 +860,7 @@ def generate_molmoact2(config: dict, dry_run: bool, plus: tuple = None) -> str:
 
 # Targets that run an upstream-LeRobot policy through `lerobot-eval --env.type=libero` with the shared
 # lerobot-libero template. Adding one = a models/<id>.yaml + the CDK/CLI name maps; no new template.
-LEROBOT_LIBERO_TARGETS = ("xvla", "smolvla", "lingbot-va", "fastwam")
+LEROBOT_LIBERO_TARGETS = ("xvla", "smolvla", "lingbot-va", "fastwam", "multitask-dit")
 
 
 def generate_lerobot_libero(config: dict, dry_run: bool, vla: str, plus: tuple = None) -> str:
@@ -918,6 +918,109 @@ def generate_lerobot_libero(config: dict, dry_run: bool, vla: str, plus: tuple =
 
     env = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)), keep_trailing_newline=True)  # nosec B701 - shell script template
     return env.get_template("lerobot-libero-userdata.sh.j2").render(**_with_protocol(ctx, config))
+
+
+# LeRobot gym simulators the lerobot-gym template can drive: env.type -> (uv extra, python package).
+LEROBOT_GYM_ENVS = {"aloha": ("aloha", "gym_aloha"), "pusht": ("pusht", "gym_pusht")}
+# policy_type -> LeRobot uv extra it needs at the pinned commit (diffusion imports diffusers; act needs none).
+LEROBOT_POLICY_EXTRAS = {"diffusion": "diffusion", "multi_task_dit": "multi_task_dit"}
+_GYM_TOKEN_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
+_HF_REPO_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*$")
+
+
+def lerobot_gym_tasks(config: dict, vla: str = "lerobot-gym") -> list:
+    """Validated `tasks:` of a lerobot-gym model yaml, each with `action_type` and `ckpt_dir` filled in.
+
+    Every entry names its own checkpoint (hf_repo + 40-hex hf_model_revision), LeRobot env type
+    (LEROBOT_GYM_ENVS), gym task id and policy_type. Raises ValueError with the offending entry."""
+    tasks = config.get("tasks") or []
+    if not isinstance(tasks, list) or not tasks:
+        raise ValueError(f"models/{vla}.yaml has no tasks entry")
+    out = []
+    for i, t in enumerate(tasks):
+        where = f"models/{vla}.yaml tasks[{i}]"
+        if not isinstance(t, dict):
+            raise ValueError(f"{where}: not a mapping")
+        for key in ("task", "env_type", "hf_repo", "hf_model_revision", "policy_type"):
+            if not t.get(key):
+                raise ValueError(f"{where}: {key} is required")
+        if t["env_type"] not in LEROBOT_GYM_ENVS:
+            raise ValueError(f"{where}: env_type {t['env_type']!r} is not one of {', '.join(LEROBOT_GYM_ENVS)}")
+        if not _HF_REPO_RE.match(str(t["hf_repo"])):
+            raise ValueError(f"{where}: hf_repo {t['hf_repo']!r} is not <org>/<name>")
+        if not re.fullmatch(r"[0-9a-f]{40}", str(t["hf_model_revision"])):
+            raise ValueError(f"{where}: hf_model_revision must be a 40-hex commit")
+        for key in ("task", "policy_type"):
+            if not _GYM_TOKEN_RE.match(str(t[key])):
+                raise ValueError(f"{where}: {key} {t[key]!r} has characters outside [A-Za-z0-9_.-]")
+        n = t.get("n_episodes", 10)
+        if not isinstance(n, int) or isinstance(n, bool) or n < 1:
+            raise ValueError(f"{where}: n_episodes must be a positive integer")
+        for a in t.get("extra_args") or []:
+            if str(a).split("=", 1)[0] in ("--env.type", "--env.task", "--policy.path"):
+                raise ValueError(f"{where}: {str(a).split('=', 1)[0]} is set by the template")
+        out.append(dict(t, n_episodes=n, seed=int(t.get("seed", 1000)), action_type=task_sets.action_type(t),
+                        ckpt_dir=f"{t['task']}--{str(t['hf_repo']).replace('/', '--')}"))
+    return out
+
+
+def generate_lerobot_gym(config: dict, dry_run: bool, vla: str = "lerobot-gym") -> str:
+    """Upstream LeRobot reference policies x LeRobot gym sims (gym-aloha, gym-pusht), in-process.
+
+    One lerobot-eval call per task entry, each with its own checkpoint (ACT for ALOHA, Diffusion Policy for
+    Push-T). The hub checkpoints predate the processor pipeline, so the template converts each one with the
+    migration script of the pinned LeRobot commit before the eval (see models/lerobot-gym.yaml)."""
+    model = config.get("model", {})
+    instance = config.get("instance", {})
+    if not model.get("lerobot_commit"):
+        print(f"[error] models/{vla}.yaml: model.lerobot_commit is required", file=sys.stderr)
+        sys.exit(1)
+    try:
+        tasks = lerobot_gym_tasks(config, vla)
+    except ValueError as e:
+        print(f"[error] {e}", file=sys.stderr)
+        sys.exit(1)
+    for t in tasks:
+        if "'" in json.dumps(t.get("extra_args") or []):
+            print(f"[error] models/{vla}.yaml: single quote not allowed in extra_args", file=sys.stderr)
+            sys.exit(1)
+    env_types = sorted({t["env_type"] for t in tasks})
+    extras = list(model.get("uv_extras") or [])
+    needed = [LEROBOT_GYM_ENVS[e][0] for e in env_types]
+    needed += sorted({LEROBOT_POLICY_EXTRAS[t["policy_type"]] for t in tasks if t["policy_type"] in LEROBOT_POLICY_EXTRAS})
+    missing = [x for x in needed if x not in extras]
+    if missing:
+        print(f"[error] models/{vla}.yaml: model.uv_extras lacks {', '.join(missing)} (needed by the tasks)",
+              file=sys.stderr)
+        sys.exit(1)
+    ckpts, seen = [], set()
+    for t in tasks:
+        if t["ckpt_dir"] not in seen:
+            seen.add(t["ckpt_dir"])
+            ckpts.append(dict(hf_repo=t["hf_repo"], hf_model_revision=t["hf_model_revision"], ckpt_dir=t["ckpt_dir"]))
+    gym_packages = [LEROBOT_GYM_ENVS[e][1] for e in env_types]
+    ctx = {
+        "vla": vla,
+        "task_set": config.get("task_set") or "",
+        "tasks_json": _tasks_json_for_bash(tasks),
+        "ckpts": ckpts,
+        "deployment": config.get("deployment", {}),
+        "display_name": model.get("display_name", vla),
+        "policy_desc": model.get("policy_desc", vla),
+        "license": model.get("license", "see model card"),
+        "lerobot_repo": model.get("lerobot_repo", "https://github.com/huggingface/lerobot.git"),
+        "lerobot_commit": model["lerobot_commit"],
+        "python_version": model.get("python_version", "3.12"),
+        "uv_extras": extras,
+        "policy_modules_json": json.dumps(sorted({t["policy_type"] for t in tasks})),
+        "gym_packages_json": json.dumps(gym_packages),
+        "gym_packages": gym_packages,
+        "min_gpu_mib": int(instance.get("min_gpu_mib", 15000)),
+        "min_host_mib": int(instance.get("min_host_mib", 15000)),
+    }
+    card = {"checkpoints": [dict(repo=c["hf_repo"], revision=c["hf_model_revision"]) for c in ckpts]}
+    env = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)), keep_trailing_newline=True)  # nosec B701 - shell script template
+    return env.get_template("lerobot-gym-userdata.sh.j2").render(**_with_protocol(ctx, config, card))
 
 
 # Targets that run an upstream-LeRobot policy through `lerobot-eval --env.type=robotwin` (RoboTwin 2.0,
@@ -1807,6 +1910,8 @@ def main():
         rendered = generate_molmoact2(config, args.dry_run, plus=plus)
     elif args.vla in LEROBOT_LIBERO_TARGETS:
         rendered = generate_lerobot_libero(config, args.dry_run, vla=args.vla, plus=plus)
+    elif args.vla == "lerobot-gym":
+        rendered = generate_lerobot_gym(config, args.dry_run, vla=args.vla)
     elif args.vla in LEROBOT_ROBOTWIN_TARGETS:
         rendered = generate_lerobot_robotwin(config, args.dry_run, vla=args.vla,
                                              protocol=args.robotwin_protocol, shard=args.robotwin_shard)

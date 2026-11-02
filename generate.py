@@ -26,6 +26,7 @@ Usage:
     python generate.py --vla robolab-cosmos3 [--dry-run]   # model.variant in the yaml: edge | nano | edge-full
     python generate.py --vla smolvla-robotwin [--robotwin-protocol subset|clean|randomized|full] [--robotwin-shard K/N]
     python generate.py --vla spatialvla  [--task-set bridge|actions]   # also: magma (SimplerEnv, authors' eval)
+    python generate.py --vla univla      [--task-set actions]   # also: ge-act (LIBERO, authors' eval loop)
     python generate.py --vla rlinf-oft-libero [--rl-profile smoke|full] [--rl-steps N] [--rl-eval-run RUN_ID]
     python generate.py --judge-target flora-judge [--dry-run]   # post-run judge (deploy.py --judge)
 """
@@ -1246,6 +1247,216 @@ def generate_simpler(config: dict, dry_run: bool, vla: str) -> str:
     return env.get_template("simpler-userdata.sh.j2").render(**_with_protocol(ctx, config, card))
 
 
+# ── LIBERO targets: the authors' own LIBERO evaluation loop (shared templates/libero-own-userdata.sh.j2) ─────────
+# The authors' repository is cloned at a pinned commit, LIBERO at a pinned commit, one venv comes from a lock file in
+# assets/libero/, the weights come from the Hugging Face Hub or a pinned direct URL (sha256-checked), and
+# assets/libero/own_eval_runner.py calls the authors' episode loop for a subset of tasks and keeps one video per
+# episode (models/univla.yaml, models/ge-act.yaml). A task is one LIBERO task (suite + task id); consecutive tasks of
+# one suite with the same episode count share one runner call (one model load).
+LIBERO_OWN_TARGETS = ("univla", "ge-act")
+LIBERO_OWN_ADAPTERS = ("univla", "ge-act")
+LIBERO_OWN_RUNNER = BASE_DIR / "assets" / "libero" / "own_eval_runner.py"
+# LIBERO @8f1084e3 libero/libero/benchmark/libero_suite_task_map.py (task order 0 = the order the suites use).
+LIBERO_TASKS = {
+    "libero_spatial": [
+        "pick_up_the_black_bowl_between_the_plate_and_the_ramekin_and_place_it_on_the_plate",
+        "pick_up_the_black_bowl_next_to_the_ramekin_and_place_it_on_the_plate",
+        "pick_up_the_black_bowl_from_table_center_and_place_it_on_the_plate",
+        "pick_up_the_black_bowl_on_the_cookie_box_and_place_it_on_the_plate",
+        "pick_up_the_black_bowl_in_the_top_drawer_of_the_wooden_cabinet_and_place_it_on_the_plate",
+        "pick_up_the_black_bowl_on_the_ramekin_and_place_it_on_the_plate",
+        "pick_up_the_black_bowl_next_to_the_cookie_box_and_place_it_on_the_plate",
+        "pick_up_the_black_bowl_on_the_stove_and_place_it_on_the_plate",
+        "pick_up_the_black_bowl_next_to_the_plate_and_place_it_on_the_plate",
+        "pick_up_the_black_bowl_on_the_wooden_cabinet_and_place_it_on_the_plate",
+    ],
+    "libero_object": [f"pick_up_the_{o}_and_place_it_in_the_basket" for o in (
+        "alphabet_soup", "cream_cheese", "salad_dressing", "bbq_sauce", "ketchup", "tomato_sauce", "butter", "milk",
+        "chocolate_pudding", "orange_juice")],
+    "libero_goal": [
+        "open_the_middle_drawer_of_the_cabinet", "put_the_bowl_on_the_stove", "put_the_wine_bottle_on_top_of_the_cabinet",
+        "open_the_top_drawer_and_put_the_bowl_inside", "put_the_bowl_on_top_of_the_cabinet",
+        "push_the_plate_to_the_front_of_the_stove", "put_the_cream_cheese_in_the_bowl", "turn_on_the_stove",
+        "put_the_bowl_on_the_plate", "put_the_wine_bottle_on_the_rack",
+    ],
+    "libero_10": [
+        "LIVING_ROOM_SCENE2_put_both_the_alphabet_soup_and_the_tomato_sauce_in_the_basket",
+        "LIVING_ROOM_SCENE2_put_both_the_cream_cheese_box_and_the_butter_in_the_basket",
+        "KITCHEN_SCENE3_turn_on_the_stove_and_put_the_moka_pot_on_it",
+        "KITCHEN_SCENE4_put_the_black_bowl_in_the_bottom_drawer_of_the_cabinet_and_close_it",
+        "LIVING_ROOM_SCENE5_put_the_white_mug_on_the_left_plate_and_put_the_yellow_and_white_mug_on_the_right_plate",
+        "STUDY_SCENE1_pick_up_the_book_and_place_it_in_the_back_compartment_of_the_caddy",
+        "LIVING_ROOM_SCENE6_put_the_white_mug_on_the_plate_and_put_the_chocolate_pudding_to_the_right_of_the_plate",
+        "LIVING_ROOM_SCENE1_put_both_the_alphabet_soup_and_the_cream_cheese_box_in_the_basket",
+        "KITCHEN_SCENE8_put_both_moka_pots_on_the_stove",
+        "KITCHEN_SCENE6_put_the_yellow_and_white_mug_in_the_microwave_and_close_it",
+    ],
+}
+_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+_ENV_KEY_RE = re.compile(r"^[A-Z_][A-Z0-9_]*$")
+_REL_PATH_RE = re.compile(r"^(?!.*(^|/)\.{1,2}(/|$))[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)*$")  # no . / .. segments
+
+
+def libero_own_tasks(config: dict, vla: str) -> list:
+    """Validated `tasks:` of a libero-own model yaml (suite, task_id, env_name = the LIBERO task name at that id,
+    n_episodes, action_type). Raises ValueError."""
+    tasks = config.get("tasks") or []
+    if not isinstance(tasks, list) or not tasks:
+        raise ValueError(f"models/{vla}.yaml has no tasks entry")
+    out, seen = [], set()
+    for i, t in enumerate(tasks):
+        where = f"models/{vla}.yaml tasks[{i}]"
+        if not isinstance(t, dict):
+            raise ValueError(f"{where}: not a mapping")
+        suite = t.get("suite")
+        if suite not in LIBERO_TASKS:
+            raise ValueError(f"{where}: suite must be one of {', '.join(LIBERO_TASKS)}, got {suite!r}")
+        tid = t.get("task_id")
+        if not isinstance(tid, int) or isinstance(tid, bool) or not 0 <= tid < len(LIBERO_TASKS[suite]):
+            raise ValueError(f"{where}: task_id must be an integer 0-{len(LIBERO_TASKS[suite]) - 1}, got {tid!r}")
+        name = LIBERO_TASKS[suite][tid]
+        if t.get("env_name", name) != name:
+            raise ValueError(f"{where}: env_name {t.get('env_name')!r} is not task {tid} of {suite} ({name})")
+        if (suite, tid) in seen:
+            raise ValueError(f"{where}: {suite} task {tid} is listed twice")
+        seen.add((suite, tid))
+        n = t.get("n_episodes")
+        if not isinstance(n, int) or isinstance(n, bool) or not 1 <= n <= 50:
+            raise ValueError(f"{where}: n_episodes must be an integer 1-50 (LIBERO has 50 init states), got {n!r}")
+        desc = str(t.get("description") or f"{suite} task {tid}: {name}")
+        out.append(dict(suite=suite, task_id=tid, env_name=name, n_episodes=n, description=desc,
+                        action_type=task_sets.action_type(dict(t, env_name=name))))
+    return out
+
+
+def libero_own_runs(tasks: list) -> list:
+    """Consecutive tasks with the same suite and episode count -> one runner call each (the authors' loops run one
+    episode count for every task of a suite)."""
+    runs = []
+    for i, t in enumerate(tasks):
+        if runs and runs[-1]["suite"] == t["suite"] and runs[-1]["n_episodes"] == t["n_episodes"]:
+            runs[-1]["tasks"].append(i)
+        else:
+            runs.append(dict(suite=t["suite"], n_episodes=t["n_episodes"], tasks=[i]))
+    for k, r in enumerate(runs):
+        r["run"] = k
+        r["task_ids"] = ",".join(str(tasks[i]["task_id"]) for i in r["tasks"])
+        r["expect_names"] = ",".join(tasks[i]["env_name"] for i in r["tasks"])
+    return runs
+
+
+def generate_libero_own(config: dict, dry_run: bool, vla: str) -> str:
+    """A VLA's own LIBERO evaluation loop, in-process on one GPU (assets/libero/own_eval_runner.py adapters)."""
+    model = config.get("model", {})
+    instance = config.get("instance", {})
+
+    def fail(msg):
+        print(f"[error] models/{vla}.yaml: {msg}", file=sys.stderr)
+        sys.exit(1)
+
+    for key in ("checkpoint", "revision", "code_repo", "code_commit", "libero_commit", "adapter",
+                "python_version", "requirements", "downloads"):
+        if not model.get(key):
+            fail(f"model.{key} is required")
+    if not _HF_REPO_RE.match(str(model["checkpoint"])):
+        fail(f"model.checkpoint {model['checkpoint']!r} is not <org>/<name>")
+    for key in ("revision", "code_commit", "libero_commit"):
+        if not _COMMIT_RE.match(str(model[key])):
+            fail(f"model.{key} must be a 40-hex commit")
+    if model["adapter"] not in LIBERO_OWN_ADAPTERS:
+        fail(f"model.adapter must be one of {', '.join(LIBERO_OWN_ADAPTERS)}")
+    req = BASE_DIR / str(model["requirements"])
+    if not req.is_file():
+        fail(f"model.requirements {model['requirements']} not found")
+    try:
+        tasks = libero_own_tasks(config, vla)
+    except ValueError as e:
+        print(f"[error] {e}", file=sys.stderr)
+        sys.exit(1)
+    runs = libero_own_runs(tasks)
+    suites = {r["suite"] for r in runs}
+    downloads = []
+    for d in model["downloads"]:
+        if not isinstance(d, dict) or not _REL_PATH_RE.match(str(d.get("dir") or d.get("file") or "")):
+            fail(f"model.downloads entries need a relative `dir` (Hub) or `file` (URL) of [A-Za-z0-9_.-/], got {d}")
+        if d.get("suite") and d["suite"] not in LIBERO_TASKS:
+            fail(f"model.downloads suite {d['suite']!r} is not a LIBERO suite")
+        if d.get("suite") and d["suite"] not in suites:
+            continue  # a per-suite file no task of this run needs
+        if d.get("repo"):
+            if not _HF_REPO_RE.match(str(d["repo"])) or not _COMMIT_RE.match(str(d.get("revision", ""))):
+                fail(f"model.downloads Hub entries need repo <org>/<name> and a 40-hex revision, got {d}")
+            pats = [str(p) for p in d.get("allow_patterns") or []]
+            if any(not re.fullmatch(r"[A-Za-z0-9_.*/-]+", p) for p in pats):
+                fail(f"model.downloads allow_patterns must be plain glob patterns: {pats}")
+            downloads.append(dict(kind="hub", repo=d["repo"], revision=d["revision"], dir=d["dir"],
+                                  allow_patterns_py=repr(pats) if pats else "None"))
+        elif d.get("url"):
+            if not re.fullmatch(r"https://[A-Za-z0-9_.:/?&=%-]+", str(d["url"])) \
+                    or not _SHA256_RE.match(str(d.get("sha256", ""))):
+                fail(f"model.downloads URL entries need an https url (no quotes) and a sha256, got {d}")
+            downloads.append(dict(kind="url", url=d["url"], sha256=d["sha256"], file=d["file"],
+                                  size=int(d.get("size") or 0)))
+        else:
+            fail(f"model.downloads entries need `repo` or `url`, got {d}")
+    root = f"/home/ubuntu/{vla}"
+    for r in runs:
+        args = []
+        for a in [str(x) for x in model.get("runner_args") or []]:
+            a = a.replace("{assets}", f"{root}/assets").replace("{code}", f"{root}/code").replace("{suite}", r["suite"])
+            if not _SIMPLER_TOKEN_RE.match(a):
+                fail(f"model.runner_args has an unsafe token: {a!r}")
+            args.append(a)
+        sargs = [str(x) for x in (model.get("suite_args") or {}).get(r["suite"], [])]
+        if any(not _SIMPLER_TOKEN_RE.match(x) for x in sargs):
+            fail(f"model.suite_args.{r['suite']} has unsafe tokens: {sargs}")
+        r["args"] = args + sargs
+    env_vars = {}
+    for k, v in (model.get("env") or {}).items():
+        if not _ENV_KEY_RE.match(str(k)) or not _SIMPLER_TOKEN_RE.match(str(v)):
+            fail(f"model.env {k}={v!r}: names [A-Z0-9_], values plain tokens")
+        env_vars[str(k)] = str(v)
+    imports = [str(x) for x in model.get("import_check") or []]
+    if any(not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_.]*", m) for m in imports):
+        fail(f"model.import_check entries must be module names: {imports}")
+    pypath = [str(x) for x in model.get("pythonpath") or []]
+    if any(not _REL_PATH_RE.match(p) for p in pypath):
+        fail(f"model.pythonpath entries must be paths relative to the checkout: {pypath}")
+    ctx = {
+        "vla": vla,
+        "task_set": config.get("task_set") or "",
+        "tasks_json": _tasks_json_for_bash(tasks),
+        "runs_json": _tasks_json_for_bash(runs),
+        "tasks": tasks,
+        "runs": runs,
+        "n_episodes_total": sum(t["n_episodes"] for t in tasks),
+        "display_name": _shell_safe(model.get("display_name", vla), "display_name"),
+        "policy_desc": _shell_safe(model.get("policy_desc", vla), "policy_desc"),
+        "license": _shell_safe(model.get("license", "see model card"), "license"),
+        "hf_repo": model["checkpoint"],
+        "hf_model_revision": model["revision"],
+        "code_repo": _shell_safe(model["code_repo"], "code_repo"),
+        "code_commit": model["code_commit"],
+        "libero_commit": model["libero_commit"],
+        "adapter": model["adapter"],
+        "downloads": downloads,
+        "env_vars": env_vars,
+        "pythonpath": pypath,
+        "python_version": _shell_safe(model["python_version"], "python_version"),
+        "requirements_name": req.name,
+        "requirements_b64": base64.encodebytes(req.read_bytes()).decode(),
+        "runner_b64": base64.encodebytes(LIBERO_OWN_RUNNER.read_bytes()).decode(),
+        "import_check_json": json.dumps(imports),
+        "eval_label": _shell_safe(model.get("eval_label", "authors LIBERO loop"), "eval_label"),
+        "min_gpu_mib": int(instance.get("min_gpu_mib", 15000)),
+        "min_host_mib": int(instance.get("min_host_mib", 15000)),
+    }
+    card = {"start_states": "LIBERO fixed init states (episode k = init state k of the task, k < n_episodes)",
+            "checkpoints": [dict(repo=d["repo"], revision=d["revision"]) for d in downloads if d["kind"] == "hub"]}
+    env = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)), keep_trailing_newline=True)  # nosec B701 - shell script template
+    return env.get_template("libero-own-userdata.sh.j2").render(**_with_protocol(ctx, config, card))
+
+
 # Targets that run an upstream-LeRobot policy through `lerobot-eval --env.type=robotwin` (RoboTwin 2.0,
 # SAPIEN + CuRobo) with the shared lerobot-robotwin template. Adding one = models/<id>.yaml + the name maps.
 LEROBOT_ROBOTWIN_TARGETS = ("smolvla-robotwin", "lingbot-vla2")
@@ -2137,6 +2348,8 @@ def main():
         rendered = generate_lerobot_gym(config, args.dry_run, vla=args.vla)
     elif args.vla in SIMPLER_TARGETS:
         rendered = generate_simpler(config, args.dry_run, vla=args.vla)
+    elif args.vla in LIBERO_OWN_TARGETS:
+        rendered = generate_libero_own(config, args.dry_run, vla=args.vla)
     elif args.vla in LEROBOT_ROBOTWIN_TARGETS:
         rendered = generate_lerobot_robotwin(config, args.dry_run, vla=args.vla,
                                              protocol=args.robotwin_protocol, shard=args.robotwin_shard)

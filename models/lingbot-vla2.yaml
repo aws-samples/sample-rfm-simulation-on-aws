@@ -52,5 +52,19 @@ tasks:
     seed: 100000
     description: "RoboTwin 2.0 clean pipe-proof (LingBot-VLA 2.0, 5 tasks x 5 ep)"
 
+# Task sets (deploy.py --task-set NAME; see task_sets.py). The default subset above is already non-pick-and-place
+# (bimanual handover / lift, a bell press, hammer and stamp tool use); `actions` names it explicitly and adds two
+# more press tasks of the 50-task suite (envs/turn_switch.py, envs/click_alarmclock.py @0aeea2d6). Tags come
+# from task_sets.KNOWN.
+task_sets:
+  actions:
+    description: "RoboTwin 2.0 clean: handover, lift, bell, hammer, stamp, switch, alarm clock (7 tasks x 5 ep)"
+    tasks:
+      - setting: clean
+        robotwin_tasks: [handover_block, lift_pot, click_bell, turn_switch, click_alarmclock, beat_block_hammer, stamp_seal]
+        n_episodes: 5
+        seed: 100000
+        description: "RoboTwin 2.0 clean action set (LingBot-VLA 2.0, 7 tasks x 5 ep)"
+
 bridge:
   enabled: false

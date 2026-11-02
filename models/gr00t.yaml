@@ -49,6 +49,46 @@ tasks:
     video_crf: 22
     steps_per_render: 2
 
+# Task sets (deploy.py --task-set NAME; see task_sets.py). The default LIBERO-10 tasks above already include a
+# stove knob and a drawer close, but each is chained with a pick-and-place. `actions` runs three LIBERO-Goal tasks
+# that are the motion alone, on the libero_goal checkpoint of the same repo and revision (nvidia/GR00T-N1.7-LIBERO
+# ships libero_10 / libero_goal / libero_object / libero_spatial; Isaac-GR00T examples/LIBERO/README.md @4b1dca9d
+# reports Goal 97.5% and lists these env ids; libero_env.py:186-204 registers every libero_goal task as
+# libero_sim/<task>). Same embodiment tag, step cap and video settings as the default run.
+task_sets:
+  actions:
+    description: "LIBERO-Goal single motions on the libero_goal checkpoint: open drawer, turn on stove, push plate (3 tasks x 5 ep)"
+    model:
+      hf_subfolder: libero_goal
+    tasks:
+      - env_name: libero_sim/open_the_middle_drawer_of_the_cabinet
+        action_type: articulated
+        embodiment: LIBERO_PANDA
+        n_episodes: 5
+        n_envs: 1
+        max_episode_steps: 720
+        video_fps: 30
+        video_crf: 18
+        steps_per_render: 1
+      - env_name: libero_sim/turn_on_the_stove
+        action_type: articulated
+        embodiment: LIBERO_PANDA
+        n_episodes: 5
+        n_envs: 1
+        max_episode_steps: 720
+        video_fps: 30
+        video_crf: 18
+        steps_per_render: 1
+      - env_name: libero_sim/push_the_plate_to_the_front_of_the_stove
+        action_type: push
+        embodiment: LIBERO_PANDA
+        n_episodes: 5
+        n_envs: 1
+        max_episode_steps: 720
+        video_fps: 30
+        video_crf: 18
+        steps_per_render: 1
+
 # Bridge mode (experimental) — bring-your-own gRPC inference endpoint (leave empty for local mode)
 # Read from SSM (only used with --bridge): ssm:/vla-hub/gr00t/n1-7/grpc-endpoint — create it yourself
 # Or set directly:  remote_grpc_endpoint: "internal-xxx.elb.amazonaws.com:50051"

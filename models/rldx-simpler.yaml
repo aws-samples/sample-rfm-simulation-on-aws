@@ -130,6 +130,25 @@ tasks:
     num_episodes: 5
     description: "SimplerEnv Google-VM — move near target object (real-robot Fractal embodiment)"
 
+# Task sets (deploy.py --task-set NAME; see task_sets.py). `actions` = the two drawer tasks of the same Google
+# visual-matching protocol (eval_simpler.sh google_vm TASKS @ecbfaf80 lists pick_coke_can, move_near, open_drawer,
+# close_drawer for RLDX-1-FT-SIMPLER-GOOGLE; the reported 81.5% Google-VM average covers all four). Both ids are
+# registered by register_simpler_envs() (rldx/eval/sim/SimplerEnv/simpler_env.py:227-239). Same rollout args.
+task_sets:
+  actions:
+    description: "SimplerEnv Google-VM drawer tasks: open / close a drawer (2 tasks x 5 ep)"
+    tasks:
+      - suite: simpler_google_vm
+        env_name: "simpler_env_google/google_robot_open_drawer"
+        num_episodes: 5
+        action_type: articulated
+        description: "SimplerEnv Google-VM — open a cabinet drawer (real-robot Fractal embodiment, articulated)"
+      - suite: simpler_google_vm
+        env_name: "simpler_env_google/google_robot_close_drawer"
+        num_episodes: 5
+        action_type: articulated
+        description: "SimplerEnv Google-VM — close a cabinet drawer (real-robot Fractal embodiment, articulated)"
+
 # Bridge mode NOT supported — same rationale as the rldx LIBERO target
 # (fused-kernel/ZeroMQ serving does not fit the bridge-mode gRPC adapters).
 bridge:

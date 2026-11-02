@@ -139,6 +139,32 @@ Rendered at 768×768, captured during a `--vla openarm-lift-act` collection run 
 | ![OpenArm Lift-Cube — table view (scripted collection)](showcase/openarm-lift-act/lift-cube-table-success.gif) | ![OpenArm Lift-Cube — wrist view (scripted collection)](showcase/openarm-lift-act/lift-cube-wrist-success.gif) |
 | MP4: [`openarm-lift-act/lift-cube-table-success.mp4`](showcase/openarm-lift-act/lift-cube-table-success.mp4) | MP4: [`openarm-lift-act/lift-cube-wrist-success.mp4`](showcase/openarm-lift-act/lift-cube-wrist-success.mp4) |
 
+### `spatialvla` · `magma` — zero-shot VLAs on SimplerEnv WidowX (Bridge, authors' eval)
+
+The authors' own SimplerEnv evaluation for both checkpoints ([targets note 19](targets.md#note-19-simplerenv-with-the-authors-own-eval-spatialvla-magma)), ap-northeast-2, 2026-11-02: `spatialvla` run `2026-11-02-1355` on `g6.xlarge`, `magma` run `2026-11-02-1425` on `g6.2xlarge`, 24 episodes per WidowX task. SimplerEnv records the full episode (60 steps carrot, 120 eggplant, 5 fps) whatever the outcome, so the GIFs are sped up. Per-task numbers and the published ones: [results](results.md#simplerenv-with-the-authors-own-eval-spatialvla-magma).
+
+| `magma` — Success, `widowx_put_eggplant_in_basket` (SR 0.79, 19/24) | `magma` — Failure, `widowx_carrot_on_plate` (SR 0.33, 8/24) |
+|---|---|
+| ![Magma-8B — eggplant into basket (success)](showcase/magma/simpler-widowx-eggplant-in-basket-success.gif) | ![Magma-8B — carrot on plate (failure)](showcase/magma/simpler-widowx-carrot-on-plate-failure.gif) |
+| MP4: [`magma/simpler-widowx-eggplant-in-basket-success.mp4`](showcase/magma/simpler-widowx-eggplant-in-basket-success.mp4) (GIF is 4× speed) | MP4: [`magma/simpler-widowx-carrot-on-plate-failure.mp4`](showcase/magma/simpler-widowx-carrot-on-plate-failure.mp4) (GIF is 2× speed) |
+| | _The gripper picks the carrot and carries it toward the plate but does not release it there._ |
+
+| `spatialvla` — Failure, `widowx_carrot_on_plate` (SR 0.29, 7/24; published 20.8%) |
+|---|
+| ![SpatialVLA — carrot on plate (failure)](showcase/spatialvla/simpler-widowx-carrot-on-plate-failure.gif) |
+| MP4: [`spatialvla/simpler-widowx-carrot-on-plate-failure.mp4`](showcase/spatialvla/simpler-widowx-carrot-on-plate-failure.mp4) (GIF is 2× speed) |
+| _The gripper hovers over the carrot and does not close on it. Carrot on plate is SpatialVLA's lowest WidowX task upstream as well (20.8% success, 41.7% grasp)._ |
+
+### `ge-act` — GE-Act on LIBERO-Goal: the default pick-and-place tasks
+
+GE-Act (AgiBot Genie Envisioner) through the authors' LIBERO loop ([targets note 20](targets.md#note-20-libero-with-the-authors-own-loop-univla-ge-act)), ap-northeast-2, `g6.2xlarge`, run `2026-11-02-1355`: bowl on stove 10/10, cream cheese in bowl 8/10, bowl on plate 10/10. The two misses of the run are both on cream cheese; one is below. `univla` scored 30/30 on the same three tasks (run `2026-11-02-1426`). Labels come from the video names (`<task>--episode_<k>-<success|failure>.mp4`).
+
+| Failure — `put the cream cheese in the bowl` (SR 0.8, 8/10; episode 4) |
+|---|
+| ![GE-Act — cream cheese into bowl (failure)](showcase/ge-act/libero-goal-cream-cheese-in-bowl-failure.gif) |
+| MP4: [`ge-act/libero-goal-cream-cheese-in-bowl-failure.mp4`](showcase/ge-act/libero-goal-cream-cheese-in-bowl-failure.mp4) (GIF is 7× speed) |
+| _The arm picks up the bowl instead of the cream cheese and carries it around until the step cap (1,000 frames)._ |
+
 ## Articulated: doors, drawers, knobs
 
 Open, close or turn a jointed fixture: cabinet doors, drawers, a microwave door, a stove knob.
@@ -228,6 +254,32 @@ Same RLDX-1 SimplerEnv target as in [pick and place](#rldx-simpler--rldx-1-rlwrl
 | MP4: [`rldx-simpler/simpler-google-open-drawer-success.mp4`](showcase/rldx-simpler/simpler-google-open-drawer-success.mp4) | MP4: [`rldx-simpler/simpler-google-close-drawer-success.mp4`](showcase/rldx-simpler/simpler-google-close-drawer-success.mp4) |
 | _54 env-steps; the other success took 100. Opening is the harder direction here._ | _12 env-steps; successes take 12–38 steps._ |
 
+### `spatialvla` — SpatialVLA on Google Robot open / close top drawer (SimplerEnv, authors' eval)
+
+`--task-set actions` run, ap-northeast-2, `g6.xlarge`, 2026-11-02, run `2026-11-02-1556`: the authors' `drawer_visual_matching.sh` with the first URDF variant, 9 robot positions per task. `google_robot_open_top_drawer` **0.56 (5/9)**, `google_robot_close_top_drawer` **0.44 (4/9)**; the SpatialVLA README reports 59.3% for open / close drawer (visual matching, all drawers). Every episode runs the 113-step cap (about 23 s at 5 fps), so the GIFs are 3× speed.
+
+| Success — `open top drawer` (SR 0.56, 5/9) | Failure — `open top drawer` (4/9 of this task) |
+|---|---|
+| ![SpatialVLA — open top drawer (success)](showcase/spatialvla/simpler-google-open-top-drawer-success.gif) | ![SpatialVLA — open top drawer (failure)](showcase/spatialvla/simpler-google-open-top-drawer-failure.gif) |
+| MP4: [`spatialvla/simpler-google-open-top-drawer-success.mp4`](showcase/spatialvla/simpler-google-open-top-drawer-success.mp4) | MP4: [`spatialvla/simpler-google-open-top-drawer-failure.mp4`](showcase/spatialvla/simpler-google-open-top-drawer-failure.mp4) |
+| | _The arm reaches the cabinet but the top drawer stays shut for the whole episode._ |
+
+| Success — `close top drawer` (SR 0.44, 4/9) | Failure — `close top drawer` (5/9 of this task) |
+|---|---|
+| ![SpatialVLA — close top drawer (success)](showcase/spatialvla/simpler-google-close-top-drawer-success.gif) | ![SpatialVLA — close top drawer (failure)](showcase/spatialvla/simpler-google-close-top-drawer-failure.gif) |
+| MP4: [`spatialvla/simpler-google-close-top-drawer-success.mp4`](showcase/spatialvla/simpler-google-close-top-drawer-success.mp4) | MP4: [`spatialvla/simpler-google-close-top-drawer-failure.mp4`](showcase/spatialvla/simpler-google-close-top-drawer-failure.mp4) |
+| | _The arm drops below the open drawer and never pushes it shut._ |
+
+### `magma` — Magma-8B open the top drawer and put the apple in (SimplerEnv)
+
+`--task-set actions` run, ap-northeast-2, `g6.2xlarge`, 2026-11-02, run `2026-11-02-1622`: Magma's `put_drawer_visual_matching.sh` (`PlaceIntoClosedTopDrawerCustomInScene-v0`) with the first URDF variant, 3 robot positions × 9 apple spots. `google_robot_put_apple_in_top_drawer` **0.11 (3/27)**; Magma publishes no per-task number for it, only the 52.3% Google Robot average ([results](results.md#simplerenv-with-the-authors-own-eval-spatialvla-magma)). Every episode runs the 200-step cap (40 s at 5 fps), so the GIFs are 5× speed.
+
+| Success — `put apple in top drawer` (SR 0.11, 3/27; episode 17) | Failure — `put apple in top drawer` (24/27 of this task; episode 16) |
+|---|---|
+| ![Magma-8B — open the top drawer and put the apple in (success)](showcase/magma/simpler-google-apple-in-top-drawer-success.gif) | ![Magma-8B — open the top drawer and put the apple in (failure)](showcase/magma/simpler-google-apple-in-top-drawer-failure.gif) |
+| MP4: [`magma/simpler-google-apple-in-top-drawer-success.mp4`](showcase/magma/simpler-google-apple-in-top-drawer-success.mp4) | MP4: [`magma/simpler-google-apple-in-top-drawer-failure.mp4`](showcase/magma/simpler-google-apple-in-top-drawer-failure.mp4) |
+| _The arm pulls the top drawer open, picks the apple from the cabinet top and drops it into the drawer._ | _Same robot position: the drawer is pulled open, but the arm then hovers around the apple on the cabinet top and never grasps it._ |
+
 ### `gr00t-gr1` — `PnPCanToDrawerClose` (not supported by N1.6)
 
 Same GR00T-GR1 run as in [pick and place](#gr00t-gr1--gr00t-n16-on-robocasa-gr1-humanoid-22-dof): the drawer-close task is outside what the pre-trained N1.6 checkpoint supports and consistently fails.
@@ -266,6 +318,22 @@ Contrast with the `gr00t` SCENE3 clip above: the same `turn on the stove and put
 | MP4: [`multitask-dit/libero10-scene3-stove-moka-failure.mp4`](showcase/multitask-dit/libero10-scene3-stove-moka-failure.mp4) |
 | _Episode 0: the arm moves toward the scene objects but never satisfies the goal before the episode ends._ |
 
+### `univla` · `ge-act` — LIBERO-Goal open the middle drawer, turn on the stove (authors' loops)
+
+`--task-set actions` runs, ap-northeast-2, 2026-11-02, 10 episodes per task from LIBERO's fixed init states 0-9: `univla` run `2026-11-02-1519` (`g6e.xlarge`, L40S) and `ge-act` run `2026-11-02-1430` (`g6.2xlarge`, L4). Open the middle drawer: `univla` **0.8 (8/10)**, `ge-act` **1.0 (10/10)**. Turn on the stove: both **1.0 (10/10)**. The same tasks run by GR00T N1.7 are [above](#gr00t--gr00t-n17-on-libero-10-franka-panda) (4/5 and 5/5). Labels come from the video names (`<task>--episode_<k>-<success|failure>.mp4`).
+
+| `univla` — Success, `open the middle drawer of the cabinet` (episode 0) | `univla` — Failure, `open the middle drawer of the cabinet` (2/10; episode 1) |
+|---|---|
+| ![UniVLA — open middle drawer (success)](showcase/univla/libero-goal-open-middle-drawer-success.gif) | ![UniVLA — open middle drawer (failure)](showcase/univla/libero-goal-open-middle-drawer-failure.gif) |
+| MP4: [`univla/libero-goal-open-middle-drawer-success.mp4`](showcase/univla/libero-goal-open-middle-drawer-success.mp4) | MP4: [`univla/libero-goal-open-middle-drawer-failure.mp4`](showcase/univla/libero-goal-open-middle-drawer-failure.mp4) (GIF is 2× speed) |
+| | _The arm goes to the bowl and plate first and is still at the cabinet when the 300-step cap ends the episode._ |
+
+| `ge-act` — Success, `open the middle drawer of the cabinet` (SR 1.0, 10/10) | `univla` — Success, `turn on the stove` (SR 1.0, 10/10) | `ge-act` — Success, `turn on the stove` (SR 1.0, 10/10) |
+|---|---|---|
+| ![GE-Act — open middle drawer (success)](showcase/ge-act/libero-goal-open-middle-drawer-success.gif) | ![UniVLA — turn on stove (success)](showcase/univla/libero-goal-turn-on-stove-success.gif) | ![GE-Act — turn on stove (success)](showcase/ge-act/libero-goal-turn-on-stove-success.gif) |
+| MP4: [`ge-act/libero-goal-open-middle-drawer-success.mp4`](showcase/ge-act/libero-goal-open-middle-drawer-success.mp4) | MP4: [`univla/libero-goal-turn-on-stove-success.mp4`](showcase/univla/libero-goal-turn-on-stove-success.mp4) | MP4: [`ge-act/libero-goal-turn-on-stove-success.mp4`](showcase/ge-act/libero-goal-turn-on-stove-success.mp4) |
+| | _Both models turn the knob in about 4 s (80-90 env-steps)._ | |
+
 ## Press: buttons and bells
 
 Press a button or bell: a short, precise contact motion with no grasp.
@@ -288,6 +356,16 @@ Same `--task-set actions` run as in [articulated](#gr00t--gr00t-n17-on-libero-10
 |---|
 | ![GR00T N1.7 — push plate (success)](showcase/gr00t/libero-goal-push-plate-success.gif) |
 | MP4: [`gr00t/libero-goal-push-plate-success.mp4`](showcase/gr00t/libero-goal-push-plate-success.mp4) |
+
+### `univla` · `ge-act` — `push the plate to the front of the stove` (LIBERO-Goal)
+
+Same `--task-set actions` runs as in [articulated](#univla--ge-act--libero-goal-open-the-middle-drawer-turn-on-the-stove-authors-loops): `univla` **0.9 (9/10)**, `ge-act` **1.0 (10/10)**.
+
+| `univla` — Success (episode 0) | `univla` — Failure (1/10; episode 1) | `ge-act` — Success (SR 1.0, 10/10) |
+|---|---|---|
+| ![UniVLA — push plate (success)](showcase/univla/libero-goal-push-plate-success.gif) | ![UniVLA — push plate (failure)](showcase/univla/libero-goal-push-plate-failure.gif) | ![GE-Act — push plate (success)](showcase/ge-act/libero-goal-push-plate-success.gif) |
+| MP4: [`univla/libero-goal-push-plate-success.mp4`](showcase/univla/libero-goal-push-plate-success.mp4) (GIF is 2× speed) | MP4: [`univla/libero-goal-push-plate-failure.mp4`](showcase/univla/libero-goal-push-plate-failure.mp4) (GIF is 2× speed) | MP4: [`ge-act/libero-goal-push-plate-success.mp4`](showcase/ge-act/libero-goal-push-plate-success.mp4) |
+| | _The plate moves, but not to the front of the stove before the 300-step cap._ | |
 
 ### `lerobot-gym` — Diffusion Policy on Push-T
 

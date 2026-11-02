@@ -715,34 +715,58 @@ The two ACT hub repos ship byte-identical `eval_info.json` files (83.0%, 500 epi
 
 ### SimplerEnv with the authors' own eval (`spatialvla`, `magma`)
 
-Not run on AWS yet. The reference numbers below are what the authors publish for the pinned checkpoints, so a first run can be put next to them; a default run uses one URDF variant per task and 20 of the 60 move-near episodes ([targets note 19](targets.md#note-19-simplerenv-with-the-authors-own-eval-spatialvla-magma)), so expect differences of the size of the 95% interval at n = 20-25 (about ±0.2).
+First AWS runs, ap-northeast-2, 2026-11-02 (`spatialvla` on `g6.xlarge`, `magma` on `g6.2xlarge`, one NVIDIA L4 each). Success is `success_rate` / `n_success` from each task's `summary.txt`, which counts SimplerEnv's own `success_` / `failure_` episode videos. A default run uses one URDF variant per task and 20 of the 60 move-near episodes ([targets note 19](targets.md#note-19-simplerenv-with-the-authors-own-eval-spatialvla-magma)), so it is a spot check against the published full protocol; at n = 20-25 the 95% interval is about ±0.2, at n = 9 about ±0.27.
 
-| `--vla` | Task (`env_name` in `summary.txt`) | Published (zero-shot) | Source |
-|---|---|---|---|
-| `spatialvla` | `google_robot_pick_coke_can` | 81.0% visual matching, 89.5% variant aggregation | SpatialVLA README @18fd74b2, Google Robot table, "SpatialVLA (zero-shot)" |
-| `spatialvla` | `google_robot_move_near` | 69.6% VM, 71.7% VA | same |
-| `spatialvla` | `google_robot_open_top_drawer` / `_close_top_drawer` (`--task-set actions`) | 59.3% VM, 36.2% VA (open / close drawer, all drawers) | same |
-| `spatialvla` | `widowx_spoon_on_towel` | 20.8% success (25.0% grasp) | SpatialVLA README, WidowX table |
-| `spatialvla` | `widowx_carrot_on_plate` | 20.8% (41.7% grasp) | same |
-| `spatialvla` | `widowx_stack_green_on_yellow_block` | 25.0% (58.3% grasp) | same |
-| `spatialvla` | `widowx_put_eggplant_in_basket` | 70.8% (79.2% grasp) | same; overall WidowX 34.4% |
-| `magma` | WidowX Bridge, 4 tasks | 35.4% average | `microsoft/Magma-8B` card ("SE-Bridge"); paper arXiv:2502.13130 Table 3, "Magma-8B (Full) with SoM+ToM" |
-| `magma` | Google Robot | 52.3% average | same ("SE-Google Robot") |
+| `--vla` | Task (`env_name` in `summary.txt`) | `action_type` | Success, 95% CI | Published (zero-shot) | Run id |
+|---|---|---|---|---|---|
+| `spatialvla` | `google_robot_pick_coke_can` | pick-place | 0.80 (20/25), 61-91% | 81.0% visual matching, 89.5% variant aggregation | `2026-11-02-1355` |
+| `spatialvla` | `google_robot_move_near` | pick-place | 0.80 (16/20), 58-92% | 69.6% VM, 71.7% VA | `2026-11-02-1355` |
+| `spatialvla` | `widowx_carrot_on_plate` | pick-place | 0.29 (7/24), 15-49% | 20.8% (41.7% grasp) | `2026-11-02-1355` |
+| `spatialvla` | `widowx_put_eggplant_in_basket` | pick-place | 0.58 (14/24), 39-76% | 70.8% (79.2% grasp) | `2026-11-02-1355` |
+| `spatialvla` | `google_robot_open_top_drawer` (`--task-set actions`) | articulated | 0.56 (5/9), 27-81% | 59.3% VM, 36.2% VA (open / close drawer, all drawers) | `2026-11-02-1556` |
+| `spatialvla` | `google_robot_close_top_drawer` (`--task-set actions`) | articulated | 0.44 (4/9), 19-73% | same row (open and close are one published number) | `2026-11-02-1556` |
+| `magma` | `widowx_carrot_on_plate` | pick-place | 0.33 (8/24), 18-53% | 35.4% average over the 4 Bridge tasks | `2026-11-02-1425` |
+| `magma` | `widowx_put_eggplant_in_basket` | pick-place | 0.79 (19/24), 60-91% | same | `2026-11-02-1425` |
+| `magma` | `google_robot_move_near` | pick-place | 0.55 (11/20), 34-74% | 52.3% average over the Google Robot tasks | `2026-11-02-1425` |
+| `magma` | `google_robot_put_apple_in_top_drawer` (`--task-set actions`, 27 ep) | articulated | 0.11 (3/27), 4-28% | 52.3% Google Robot average (no per-task number) | `2026-11-02-1622` |
 
-Magma publishes per-task SimplerEnv rates only as a bar chart (paper Fig. 8), not as numbers, so its rows are suite averages. `success_rate` counts SimplerEnv's final success; the WidowX "grasp" columns are not recorded by the template.
+Sources: SpatialVLA README @18fd74b2, Google Robot and WidowX tables, "SpatialVLA (zero-shot)" rows (WidowX overall 34.4%; spoon on towel 20.8% and stack green on yellow 25.0% are not in the default run, `--task-set bridge` runs them). Magma: `microsoft/Magma-8B` card ("SE-Google Robot", "SE-Bridge") and paper arXiv:2502.13130 Table 3, "Magma-8B (Full) with SoM+ToM". Magma publishes per-task SimplerEnv rates only as a bar chart (paper Fig. 8), not as numbers, so its published column holds suite averages.
+
+How the runs compare with the published numbers:
+
+- **SpatialVLA, Google Robot.** Coke can (0.80 vs 81.0%) matches. Move near is higher than published (0.80 vs 69.6%) but its interval reaches 58%, and this run evaluates episodes 0-19 of 60 only. The drawer rows (0.56 open, 0.44 close; 9/18 = 0.50 together) are close to the published 59.3% visual-matching figure, which averages open and close over all three drawers; this run uses the top drawer and the first URDF variant only.
+- **SpatialVLA, WidowX.** Carrot on plate is the low task (0.29), as it is upstream (20.8%); the published grasp rate is 41.7%, so half of the published carrot grasps do not end on the plate. Eggplant is lower than published (0.58 vs 70.8%), within the interval (39-76%). The template does not record the WidowX "grasp" column.
+- **Magma.** The two Bridge tasks average 27/48 = 0.56 against a 35.4% four-task average; the default run leaves out the two hardest Bridge tasks (spoon on towel, stack blocks), so the average is not comparable. Move near (0.55) is near the 52.3% Google Robot average. Open the drawer and put the apple in is much lower (0.11, 3/27; interval 4-28%): the task needs the drawer opened before the apple is picked, and in the [showcase](showcase.md#magma--magma-8b-open-the-top-drawer-and-put-the-apple-in-simplerenv) failure clip the drawer is opened but the apple stays on the cabinet top until the 200-step cap. Magma does not publish a per-task number for it (paper Fig. 8 is a bar chart), so we cannot say how far this is from the authors' run; the run uses the first URDF variant and the A0 / B0 / C0 positions of `put_drawer_visual_matching.sh` only. Magma samples its action tokens (temperature 0.7, no seed), so a re-run can move each task by a few episodes.
+
+Time from run start to the last result (stack create / delete not included): `spatialvla` default about 108 minutes for 93 episodes and `actions` about 39 minutes for 18 episodes; `magma` default about 83 minutes for 68 episodes and `actions` about 79 minutes for 27 episodes (200 steps each, ray tracing on). Earlier run ids in both buckets are setup attempts on the same day that did not finish the task list.
 
 ### LIBERO with the authors' own loop (`univla`, `ge-act`)
 
-Not run on AWS yet. Both authors publish suite averages only (no per-task numbers), so a first run of the three LIBERO-Goal tasks × 10 episodes can be put next to the LIBERO-Goal figure; at n = 10 per task the 95% interval is about ±0.3 ([targets note 20](targets.md#note-20-libero-with-the-authors-own-loop-univla-ge-act)).
+First AWS runs, ap-northeast-2, 2026-11-02 (`univla` on `g6e.xlarge`, one NVIDIA L40S; `ge-act` on `g6.2xlarge`, one NVIDIA L4), LIBERO fixed init states 0-9 per task. Success is `success_rate` / `n_success` from each task's `summary.txt`, which the runner builds from the authors' own `Success:` log lines and checks against the per-episode video names. Both authors publish suite averages only (no per-task numbers), so the published column is the LIBERO-Goal figure; at n = 10 per task the 95% interval is about ±0.3 ([targets note 20](targets.md#note-20-libero-with-the-authors-own-loop-univla-ge-act)).
 
-| `--vla` | Suite | Published | Source |
-|---|---|---|---|
-| `univla` | LIBERO-Goal | 92.6% | UniVLA README @a91ee5f2, LIBERO table, "img sft" row (the pinned `UNIVLA_LIBERO_IMG_BS192_8K`) |
-| `univla` | Spatial / Object / 10 / average | 97.0% / 99.0% / 90.8% / 94.8% | same |
-| `ge-act` | LIBERO-Goal | 95.8% | Genie-Envisioner experiments/RUN.md @d41358f7, LIBERO table |
-| `ge-act` | Object / 10 / Spatial / average | 97.6% / 94.4% / 98.2% / 96.5% | same |
+| `--vla` | Task (LIBERO-Goal) | `action_type` | Success, 95% CI | Published (LIBERO-Goal) | Run id |
+|---|---|---|---|---|---|
+| `univla` | 1 `put_the_bowl_on_the_stove` | pick-place | 1.0 (10/10), 72-100% | 92.6% | `2026-11-02-1426` |
+| `univla` | 6 `put_the_cream_cheese_in_the_bowl` | pick-place | 1.0 (10/10), 72-100% | same | `2026-11-02-1426` |
+| `univla` | 8 `put_the_bowl_on_the_plate` | pick-place | 1.0 (10/10), 72-100% | same | `2026-11-02-1426` |
+| `univla` | 0 `open_the_middle_drawer_of_the_cabinet` (`--task-set actions`) | articulated | 0.8 (8/10), 49-94% | same | `2026-11-02-1519` |
+| `univla` | 5 `push_the_plate_to_the_front_of_the_stove` (`--task-set actions`) | push | 0.9 (9/10), 60-98% | same | `2026-11-02-1519` |
+| `univla` | 7 `turn_on_the_stove` (`--task-set actions`) | articulated | 1.0 (10/10), 72-100% | same | `2026-11-02-1519` |
+| `ge-act` | 1 `put_the_bowl_on_the_stove` | pick-place | 1.0 (10/10), 72-100% | 95.8% | `2026-11-02-1355` |
+| `ge-act` | 6 `put_the_cream_cheese_in_the_bowl` | pick-place | 0.8 (8/10), 49-94% | same | `2026-11-02-1355` |
+| `ge-act` | 8 `put_the_bowl_on_the_plate` | pick-place | 1.0 (10/10), 72-100% | same | `2026-11-02-1355` |
+| `ge-act` | 0 `open_the_middle_drawer_of_the_cabinet` (`--task-set actions`) | articulated | 1.0 (10/10), 72-100% | same | `2026-11-02-1430` |
+| `ge-act` | 5 `push_the_plate_to_the_front_of_the_stove` (`--task-set actions`) | push | 1.0 (10/10), 72-100% | same | `2026-11-02-1430` |
+| `ge-act` | 7 `turn_on_the_stove` (`--task-set actions`) | articulated | 1.0 (10/10), 72-100% | same | `2026-11-02-1430` |
 
-The authors' numbers use 50 episodes for every task of a suite (`num_trials_per_task=50` / `--num_trails_per_task 50`); the default runs here use init states 0-9 of three tasks.
+Per run: `univla` default 30/30 (CI 89-100%), `actions` 27/30 (74-97%); `ge-act` default 28/30 (79-98%), `actions` 30/30 (89-100%). All four runs are at or above the published LIBERO-Goal averages (92.6% and 95.8%), which cover all ten Goal tasks × 50 episodes; three tasks × 10 episodes cannot separate two policies that are both above 90%. UniVLA's misses are on the two non-pick tasks (drawer 2, push 1), GE-Act's on cream cheese (2).
+
+| Source | |
+|---|---|
+| `univla` | UniVLA README @a91ee5f2, LIBERO table, "img sft" row (the pinned `UNIVLA_LIBERO_IMG_BS192_8K`): Goal 92.6%, Spatial / Object / 10 / average 97.0% / 99.0% / 90.8% / 94.8% |
+| `ge-act` | Genie-Envisioner experiments/RUN.md @d41358f7, LIBERO table: Goal 95.8%, Object / 10 / Spatial / average 97.6% / 94.4% / 98.2% / 96.5% |
+
+The authors' numbers use 50 episodes for every task of a suite (`num_trials_per_task=50` / `--num_trails_per_task 50`); the runs here use init states 0-9 of three tasks. The first `univla` run (`2026-11-02-1355`, `g6.2xlarge`, 24 GB L4) scored 0/30 because every episode ended in a CUDA out-of-memory error; the target now runs on `g6e.xlarge` (48 GB L40S) and a LIBERO run whose episodes raised fails instead of reporting zeros. Time from run start to the last result: `univla` about 12 minutes (default) and 14 minutes (`actions`), `ge-act` about 22 and 19 minutes, 30 episodes each.
 
 ### RoboLab (`robolab-cosmos3`, `robolab-pi05`)
 

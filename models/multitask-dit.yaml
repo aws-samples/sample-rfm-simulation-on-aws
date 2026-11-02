@@ -1,0 +1,49 @@
+# LBM-style Multi-task DiT (LeRobot `multi_task_dit` port) on LIBERO-10. NOT TRI's Large Behavior Model weights.
+# Shared template: lerobot-libero-userdata.sh.j2 (upstream LeRobot lerobot-eval, in-process).
+#
+# What this is: LeRobot's multi_task_dit policy (src/lerobot/policies/multi_task_dit, added in #2545) — a
+# diffusion-transformer multitask policy with CLIP vision + text conditioning whose docs say it is "based on the
+# work described in TRI's LBM paper" (arXiv 2507.05331). TRI has published no LBM weights for any simulator.
+#
+# Checkpoint: the only public multi_task_dit checkpoint for a simulator LeRobot can evaluate (checked on the HF Hub
+# 2026-11-02) is a community upload, LuigiDu/multitask-dit-libero10-all-seed1000 (Apache-2.0 card, LeRobot 0.6.1
+# format with processor files). Its train_config.json: HuggingFaceVLA/libero episodes 0-378 (= the 10 LIBERO-10
+# tasks), 15000 steps at batch size 2, no published evaluation. LeRobot's own LIBERO result for this policy
+# (docs/source/multi_task_dit.mdx: 83.2% on LIBERO-10, 100k steps at batch size 320) has no public checkpoint.
+# Treat this target as a pipeline proof of the policy class; expect a low success rate.
+model:
+  id: multitask-dit
+  display_name: "Multi-task DiT (LBM-style, LeRobot port)"
+  policy_desc: "LBM-style Multi-task DiT (LeRobot multi_task_dit, community LIBERO-10 checkpoint; not TRI weights)"
+  license: "Apache-2.0 (LeRobot code; checkpoint card)"
+  hf_repo: "LuigiDu/multitask-dit-libero10-all-seed1000"
+  hf_model_revision: "0f6ca5d858c27a61adb2737341a6022a7e11f583"
+  lerobot_repo: "https://github.com/huggingface/lerobot.git"
+  lerobot_commit: "ae2b57f12223c8c5184fcd814eb63cd9ce7de203"   # main 2026-10-13 (checkpoint was written by 0.6.1)
+  python_version: "3.12"
+  uv_extras: [multi_task_dit, libero]
+  policy_module: multi_task_dit
+  policy_args: []
+  env_args:
+    # The training images (HuggingFaceVLA/libero) are 256x256 and the policy center-crops 224 at eval; the LIBERO
+    # env default is 360x360, which would crop a narrower field of view than the policy was trained on.
+    - "--env.observation_height=256"
+    - "--env.observation_width=256"
+
+instance:
+  # CLIP ViT-B/16 vision + text encoders + a 6-layer DiT (~0.2B parameters): any 24 GB GPU.
+  preferred: [g6.xlarge, g5.xlarge, g6.2xlarge, g5.2xlarge]
+  ebs_gb: 120
+  creationpolicy_timeout: PT150M
+  min_gpu_mib: 15000
+  min_host_mib: 15000
+
+tasks:
+  - suite: libero_10
+    task_ids: [2, 3]                # KITCHEN_SCENE3 turn on the stove + moka pot, KITCHEN_SCENE4 bowl in drawer + close it
+    n_episodes: 5
+    description: "LIBERO-10 pipe-proof (Multi-task DiT, 2 tasks x 5 ep)"
+    seed: 1000
+
+bridge:
+  enabled: false

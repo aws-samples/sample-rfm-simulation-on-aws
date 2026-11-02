@@ -40,18 +40,20 @@ SIMULATORS: dict[str, dict] = {
     "robocasa": dict(label="RoboCasa (MuJoCo)", repeatable="unmeasured", evidence=""),
     "robotwin": dict(label="RoboTwin 2.0 (SAPIEN)", repeatable="unmeasured", evidence=""),
     "mujoco": dict(label="MuJoCo (other scenes)", repeatable="unmeasured", evidence=""),
+    "lerobot-gym": dict(label="LeRobot gym (gym-aloha MuJoCo, gym-pusht pymunk)", repeatable="unmeasured", evidence=""),
 }
 
 TARGET_SIMULATOR: dict[str, str] = {
     **{t: "libero" for t in ("aspire", "cosmos-policy", "fastwam", "gr00t", "lap", "lingbot-va", "molmoact2",
-                             "openvla-oft", "pi", "rldx", "rlinf-oft-libero", "smolvla", "vla-adapter",
-                             "xvla")},
+                             "multitask-dit", "openvla-oft", "pi", "rldx", "rlinf-oft-libero", "smolvla",
+                             "vla-adapter", "xvla")},
     **{t: "robolab" for t in ("robolab-cosmos3", "robolab-pi05")},
     **{t: "isaaclab" for t in ("openarm-isaac", "openarm-lift-act")},
     **{t: "simpler" for t in ("gr00t-bridge", "rldx-bridge", "rldx-simpler")},
     **{t: "robocasa" for t in ("gr00t-gr1", "rldx-gr1", "rldx-kitchen")},
     **{t: "robotwin" for t in ("smolvla-robotwin", "lingbot-vla2")},
     **{t: "mujoco" for t in ("gr00t-g1", "real2sim")},
+    "lerobot-gym": "lerobot-gym",
 }
 
 _ORDER = {"no": 0, "unmeasured": 1, "yes": 2}

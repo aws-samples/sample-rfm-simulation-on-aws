@@ -1,0 +1,78 @@
+# LeRobot gym classics — ACT on ALOHA sim (bimanual insertion, bimanual cube transfer) and Diffusion Policy on
+# Push-T (planar pushing). Template: lerobot-gym-userdata.sh.j2 (upstream LeRobot lerobot-eval, in-process).
+#
+# One target, one checkpoint per task: these are the single-task reference policies that LeRobot publishes for
+# its gym simulators (gym-aloha = MuJoCo + dm_control, gym-pusht = pymunk 2D). Each task entry names its own
+# checkpoint, env type and gym task id; `--task-set aloha` / `--task-set pusht` run one family only.
+#
+# Checkpoint format: the three hub checkpoints predate LeRobot's processor pipeline (no policy_preprocessor.json;
+# the normalisation stats live in model.safetensors). lerobot-eval at the pinned commit refuses them
+# (processor/pipeline.py ProcessorMigrationError) — the template converts each one on the instance with the
+# in-tree src/lerobot/processor/migrate_policy_normalization.py (same commit) and evaluates the converted copy.
+# License: Apache-2.0 (LeRobot code and the three checkpoints, HF model cards).
+model:
+  id: lerobot-gym
+  display_name: "LeRobot gym (ACT ALOHA + Diffusion Push-T)"
+  policy_desc: "LeRobot reference policies: ACT (ALOHA sim, bimanual) and Diffusion Policy (Push-T)"
+  license: "Apache-2.0 (code and weights)"
+  lerobot_repo: "https://github.com/huggingface/lerobot.git"
+  lerobot_commit: "ae2b57f12223c8c5184fcd814eb63cd9ce7de203"   # main 2026-10-13 (lerobot 0.6.2), as smolvla
+  python_version: "3.12"
+  # Resolved by that commit's uv.lock: gym-aloha 0.1.5, gym-pusht 0.1.8, mujoco 3.8.1, dm-control 1.0.41,
+  # pymunk 6.11.1, gymnasium 1.3.0, torch 2.11.0. `diffusion` = diffusers for the Push-T policy (ACT needs no extra).
+  uv_extras: [aloha, pusht, diffusion]
+
+instance:
+  # ACT (~52M params) and the Push-T UNet are tiny; the GPU only speeds up rollouts. 4 vCPU / 16 GB is enough.
+  preferred: [g6.xlarge, g5.xlarge, g6.2xlarge, g5.2xlarge]
+  ebs_gb: 100
+  creationpolicy_timeout: PT120M   # uv sync ~15-30 + 3 checkpoints < 1 GB + eval (~25 ep) ~10-25 + buffer
+  min_gpu_mib: 15000
+  min_host_mib: 15000
+
+# Per task: task = gym id (gym_<env_type>/<task>), hf_repo + 40-hex hf_model_revision, policy_type (import check
+# lerobot.policies.<policy_type>), n_episodes, seed. Upstream eval_info.json in each repo = 50 episodes from seed
+# 1000; the run below is a smaller sample on the same seeds.
+tasks:
+  - &aloha_insertion
+    task: AlohaInsertion-v0
+    env_type: aloha
+    hf_repo: "lerobot/act_aloha_sim_insertion_human"
+    hf_model_revision: "33259aa86eb45fdf85350280044a33d9d50e40c3"
+    policy_type: act
+    action_type: bimanual          # left arm grasps the socket, right arm the peg, insertion in mid-air
+    n_episodes: 10
+    seed: 1000
+    description: "ALOHA sim bimanual peg insertion (ACT, human demos)"
+  - &aloha_transfer_cube
+    task: AlohaTransferCube-v0
+    env_type: aloha
+    hf_repo: "lerobot/act_aloha_sim_transfer_cube_human"
+    hf_model_revision: "ba73b2766f1371cdc133ca4efb97eb090d744625"
+    policy_type: act
+    action_type: bimanual          # right arm picks the cube and hands it to the left arm
+    n_episodes: 10
+    seed: 1000
+    description: "ALOHA sim bimanual cube transfer (ACT, human demos)"
+  - &pusht
+    task: PushT-v0
+    env_type: pusht
+    hf_repo: "lerobot/diffusion_pusht"
+    hf_model_revision: "84a7c23178445c6bbf7e1a884ff497017910f653"
+    policy_type: diffusion
+    action_type: push              # push the T block onto the target pose with a round end effector
+    n_episodes: 10
+    seed: 1000
+    description: "Push-T planar pushing (Diffusion Policy)"
+
+# Same entries as above (YAML aliases), one family per set.
+task_sets:
+  aloha:
+    description: "ACT on ALOHA sim only (insertion + cube transfer)"
+    tasks: [*aloha_insertion, *aloha_transfer_cube]
+  pusht:
+    description: "Diffusion Policy on Push-T only"
+    tasks: [*pusht]
+
+bridge:
+  enabled: false

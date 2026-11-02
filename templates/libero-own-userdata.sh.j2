@@ -373,7 +373,10 @@ trap '_trap_handler' ERR
 log "  run {{ r.run }} exit=${RUN_RC}"
 # The authors' loop catches per-episode exceptions (e.g. CUDA OOM) and scores them as failures; a run where any
 # episode raised is not a measurement, so fail it instead of reporting 0% success.
-N_EXC=$(grep -c 'Traceback (most recent call last)' "/tmp/{{ vla }}_run{{ r.run }}.log" || true)
+# Teardown noise ("Exception ignored in: <function MjRenderContext.__del__>", EGL free at exit) is not an episode error.
+N_TB=$(grep -c 'Traceback (most recent call last)' "/tmp/{{ vla }}_run{{ r.run }}.log" || true)
+N_IGN=$(grep -c '^Exception ignored in' "/tmp/{{ vla }}_run{{ r.run }}.log" || true)
+N_EXC=$(( ${N_TB:-0} - ${N_IGN:-0} ))
 if [ "${N_EXC:-0}" -gt 0 ]; then
     log "  ERROR: ${N_EXC} exception(s) inside the authors' loop: $(grep -m1 -E '^[A-Za-z_.]+(Error|Exception):' "/tmp/{{ vla }}_run{{ r.run }}.log" | cut -c1-200)"
     RUN_RC=97

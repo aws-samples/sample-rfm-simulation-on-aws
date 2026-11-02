@@ -769,3 +769,4 @@ def test_run_with_episode_exceptions_fails(tmp_path):
         text = (tmp_path / f"{vla}.sh").read_text()
         assert "grep -c 'Traceback (most recent call last)'" in text
         assert "RUN_RC=97" in text
+        assert "grep -c '^Exception ignored in'" in text   # exit-time __del__ tracebacks are not episode errors

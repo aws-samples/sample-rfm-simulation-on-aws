@@ -236,7 +236,9 @@ export MKL_NUM_THREADS=1
 
 # Verify the venv BEFORE downloading: lerobot-eval entrypoint, every policy module, every gym package, CUDA.
 log "[4/7] Verifying venv (lerobot-eval entrypoint, policy + gym imports, torch CUDA)..."
-uv run --active python -c "
+# Quoted heredoc, not python -c "...": the JSON lists below carry double quotes that bash would strip.
+uv run --active python - <<'PYCHECK' 2>&1 | tee /tmp/{{ vla }}_import_check.log \
+    || die "venv import/CUDA check failed (see /tmp/{{ vla }}_import_check.log)"
 import importlib, torch
 print('torch:', torch.__version__, 'cuda available:', torch.cuda.is_available())
 assert torch.cuda.is_available(), 'CUDA not visible to torch'
@@ -244,8 +246,7 @@ for m in {{ policy_modules_json }}:
     importlib.import_module('lerobot.policies.' + m); print('policy module OK: lerobot.policies.' + m)
 for m in {{ gym_packages_json }}:
     importlib.import_module(m); print('gym package OK:', m)
-" 2>&1 | tee /tmp/{{ vla }}_import_check.log \
-    || die "venv import/CUDA check failed (see /tmp/{{ vla }}_import_check.log)"
+PYCHECK
 uv run --active which lerobot-eval 2>&1 | tee -a /tmp/{{ vla }}_import_check.log \
     || die "lerobot-eval entrypoint not found in venv"
 

@@ -215,3 +215,22 @@ def test_multitask_dit_renders_on_the_libero_template(tmp_path):
     assert "'--env.observation_height=256'" in text and "'--env.observation_width=256'" in text
     assert "--extra multi_task_dit --extra libero" in text
     assert "not TRI weights" in m["policy_desc"]
+
+
+@pytest.mark.skipif(BASH is None, reason="bash not on PATH")
+def test_import_check_reaches_python_with_quoted_module_names(tmp_path):
+    # Regression: the check used to be python -c "..." with JSON lists inside; bash stripped the double quotes
+    # and the instance failed with NameError: name 'act' is not defined.
+    _render("lerobot-gym", tmp_path / "r")
+    text = (tmp_path / "r" / "lerobot-gym.sh").read_text()
+    start = text.index("uv run --active python - <<'PYCHECK'")
+    end = text.index("\nPYCHECK\n", start) + len("\nPYCHECK\n")
+    captured = tmp_path / "check.py"
+    script = f'set -euo pipefail\nuv() {{ cat > "{captured}"; }}\ntee() {{ cat >/dev/null; }}\ndie() {{ exit 9; }}\n'
+    proc = subprocess.run([BASH, "-c", script + text[start:end]], capture_output=True, text=True, timeout=30)
+    assert proc.returncode == 0, proc.stderr
+    import ast
+    loops = [n for n in ast.walk(ast.parse(captured.read_text())) if isinstance(n, ast.For)]
+    names = [[e.value for e in loop.iter.elts] for loop in loops]
+    policies = sorted({t["policy_type"] for t in _model()["tasks"]})
+    assert names[0] == policies and all(isinstance(v, str) for v in names[0] + names[1]) and names[1]

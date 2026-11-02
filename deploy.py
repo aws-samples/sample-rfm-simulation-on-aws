@@ -53,6 +53,7 @@ import libero_r2s
 import repeatability
 import robotwin_plan
 import seeds
+import task_sets
 from generate import (
     OFT_DEFAULT_SUITE,
     OFT_LIBERO_SUITES,
@@ -454,6 +455,11 @@ def main():
                              "completion e-mail). Default: on (deployment.gallery in simulator-config.yaml).")
     parser.add_argument("--update-gallery", action="store_true",
                         help="Re-deploy the shared RFM-Gallery stack even if it already exists (after an upgrade).")
+    parser.add_argument("--task-set", default="", metavar="NAME",
+                        help="Run task_sets.NAME of models/<vla>.yaml instead of its tasks: list, on the same stack "
+                             "and results bucket. `actions` = tasks the pinned checkpoint was trained on that are "
+                             "not pick-and-place (doors, drawers, knobs, buttons, bimanual, tool use); see "
+                             "docs/targets.md#task-sets-and-action-types")
     parser.add_argument("--collect", action="store_true",
                         help="gr00t-g1 only: trajectory COLLECTION mode (success-only obs/action HDF5 + "
                              "LeRobotDataset for N1.7 G1 adapter FT) instead of rollout/video.")
@@ -515,6 +521,17 @@ def main():
         sys.exit(1)
 
     config = _load_config(args.vla)
+    if args.task_set:
+        if args.judge or args.collect or args.bridge or plus or r2s or args.robotwin_protocol != "subset":
+            print("[error] --task-set replaces the tasks: list of the default run and cannot be combined with "
+                  "--judge, --collect, --bridge, --libero-variant plus, --libero-objects real2sim or "
+                  "--robotwin-protocol.", file=sys.stderr)
+            sys.exit(1)
+        try:
+            config = task_sets.apply(config, args.task_set, args.vla)
+        except ValueError as e:
+            print(f"[error] {e}", file=sys.stderr)
+            sys.exit(1)
     deployment = config.get("deployment", {})
     bridge_cfg = config.get("bridge", {})
     plus_plan = None
@@ -733,6 +750,8 @@ def main():
         shard = f" shard {args.robotwin_shard}" if args.robotwin_shard else ""
         print(f"[deploy] RoboTwin: {args.robotwin_protocol}{shard}, {len(robotwin_units)} task run(s), "
               f"{robotwin_plan.episodes(robotwin_units)} episodes")
+    if args.task_set:
+        print(f"[deploy] Tasks:  {task_sets.describe(config)}")
     if vpc_id:
         print(f"[deploy] VPC:    {vpc_id}")
     runs_line = repeatability.plan_line(args.vla, n_repeats, rplan.get("episodes"))
@@ -746,6 +765,8 @@ def main():
     if args.vla == "openvla-oft":
         oft_suite_args = ["--libero-suite", shlex.quote(libero_suite)]
     collect_args: list[str] = ["--collect"] if args.collect else []
+    if args.task_set:
+        collect_args += ["--task-set", args.task_set]
     plus_args: list[str] = []
     plus_cdk_ctx: list[str] = []
     if plus:

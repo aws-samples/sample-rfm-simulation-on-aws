@@ -45,6 +45,7 @@ import libero_r2s
 import repeatability
 import robotwin_plan
 import seeds
+import task_sets
 from targets import JUDGE_TARGETS, VLA_TARGETS
 
 BASE_DIR = Path(__file__).parent
@@ -945,7 +946,8 @@ def generate_lerobot_robotwin(config: dict, dry_run: bool, vla: str, protocol: s
     except ValueError as e:
         print(f"[error] models/{vla}.yaml: {e}", file=sys.stderr)
         sys.exit(1)
-    tasks = [dict(u, task_config=robotwin_plan.SETTINGS[u["setting"]]) for u in units]
+    tasks = [dict(u, task_config=robotwin_plan.SETTINGS[u["setting"]], action_type=task_sets.classify(u["task"]))
+             for u in units]
     plan_tasks = sorted({u["task"] for u in units})
     zips = ["embodiments.zip", "objects.zip"]
     if any(u["setting"] == "randomized" for u in units):
@@ -1453,6 +1455,8 @@ def generate_flora_judge(config: dict, dry_run: bool, judge: str = "flora-judge"
 
 # RLinf evaluate -> RL -> re-evaluate targets (templates/rlinf-userdata.sh.j2). Profiles: models/<vla>.yaml profiles.
 RLINF_TARGETS = ("rlinf-oft-libero",)
+# Targets whose template writes each task's action_type (task_sets.py) into summary.txt.
+ACTION_TAG_TARGETS = ("gr00t", "gr00t-bridge", "rldx", "rldx-simpler", "rldx-bridge", "rldx-gr1", "rldx-kitchen")
 RL_PROFILES = ("smoke", "full")
 _HYDRA_OVERRIDE_RE = re.compile(r"^\+?[A-Za-z_][A-Za-z0-9_.]*=[A-Za-z0-9_.,:/\[\]\-]+$")
 
@@ -1690,6 +1694,9 @@ def main():
                         help="rlinf-oft-libero: GRPO steps (default: the profile's steps)")
     parser.add_argument("--rl-eval-run", default="", metavar="RUN_ID",
                         help="rlinf-oft-libero: skip training and evaluate the RL checkpoint saved by run RUN_ID")
+    parser.add_argument("--task-set", default="", metavar="NAME",
+                        help="Run models/<vla>.yaml task_sets.NAME instead of its tasks: list (same stack; e.g. "
+                             "`actions` = the non-pick-and-place tasks of the pinned checkpoint, see task_sets.py)")
     parser.add_argument("--collect", action="store_true",
                         help="gr00t-g1: trajectory COLLECTION mode (success-only obs/action HDF5 for "
                              "N1.7 G1 adapter FT) instead of the default rollout/video mode.")
@@ -1708,6 +1715,22 @@ def main():
 
     name = args.judge_target or args.vla
     config = _load_merged_config(config_path, name)
+    if args.task_set:
+        if args.judge_target or args.collect or args.libero_variant != "libero" or args.libero_objects != "libero" \
+                or args.robotwin_protocol != "subset":
+            parser.error("--task-set replaces the yaml tasks: list and cannot be combined with --judge-target, "
+                         "--collect, --libero-variant plus, --libero-objects real2sim or --robotwin-protocol")
+    try:
+        config = task_sets.apply(config, args.task_set, name)
+    except ValueError as e:
+        parser.error(str(e))
+    if name in ACTION_TAG_TARGETS:
+        try:
+            config["tasks"] = task_sets.annotate(config.get("tasks"))
+        except ValueError as e:
+            parser.error(f"models/{name}.yaml: {e}")
+    if config["task_set"]:
+        print(f"Tasks:  {task_sets.describe(config)}")
     try:
         seed_plan = seeds.resolve(args.seed, drawn_utc=args.seed_drawn_utc)
     except ValueError as e:

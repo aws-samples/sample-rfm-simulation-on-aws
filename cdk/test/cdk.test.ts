@@ -83,6 +83,24 @@ test('lerobot-gym launches the smallest GPU tier with its yaml timeout and EBS s
   template.hasResourceProperties('AWS::S3::Bucket', { BucketName: 'vla-sim-results-lerobot-gym-demo-ap-northeast-2-123456789012' });
 });
 
+// SimplerEnv targets (authors' own eval): SpatialVLA-4B fits an L4 xlarge; Magma-8B needs the 32 GB host of a .2xlarge.
+test.each([
+  ['spatialvla', 'SpatialVLA-Demo', 'g6.xlarge,g5.xlarge,g6.2xlarge,g5.2xlarge', '120', 150],
+  ['magma', 'Magma-Demo', 'g6.2xlarge,g5.2xlarge,g6e.xlarge,g6.4xlarge', '150', 180],
+])('%s launches its yaml instance list, EBS size and timeout', (vla, stackName, types, ebs, minutes) => {
+  const app = new cdk.App({ context: { region: 'ap-northeast-2', vla, notify_email: 'test@example.com' } });
+  const stack = new VlaSimulatorStack(app, stackName, {
+    vla,
+    env: { account: '123456789012', region: 'ap-northeast-2' },
+  });
+  const template = Template.fromStack(stack);
+  template.hasResourceProperties('AWS::CloudFormation::CustomResource', { InstanceTypes: types, EbsGb: ebs });
+  template.hasResourceProperties('AWS::CloudFormation::WaitCondition', { Timeout: String(minutes * 60) });
+  template.hasResourceProperties('AWS::S3::Bucket', {
+    BucketName: `vla-sim-results-${stackName.toLowerCase()}-ap-northeast-2-123456789012`,
+  });
+});
+
 // robolab-*: model.variant selects variants.<name>.instance (instance list, EBS, timeout) over instance.
 test('robolab-cosmos3 launches the instance list of its default variant', () => {
   const app = new cdk.App({ context: { region: 'us-east-1', vla: 'robolab-cosmos3', notify_email: 'test@example.com' } });

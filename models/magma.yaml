@@ -35,6 +35,7 @@ model:
   plugin_repo: "https://github.com/microsoft/Magma.git"
   plugin_commit: "e373780359f99d09344a8399afe8a818d81ac4e0"   # main 2025-10-03
   plugin_src: "tools/simplerenv-magma/simpler_env"
+  plugin_visualize_shim: "policies/magma/magma_model.py:MagmaInference"   # harness calls visualize_epoch()
   entry: "simpler_env/main_inference_magma.py"
   policy_model: magma
   policy_args: []

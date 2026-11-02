@@ -347,3 +347,12 @@ def test_results_reads_task_name_and_action_type():
     r1 = results.task_row(s3, "us-east-1", BUCKET, "R", "R/task-1/")
     assert (r0["task_name"], r0["action_type"], r0["k"], r0["n"]) == ("google_robot_open_top_drawer", "articulated", 5, 9)
     assert (r1["task_name"], r1["action_type"], r1["suite"]) == ("widowx_carrot_on_plate", "pick-place", "simpler_bridge")
+
+
+def test_visualize_epoch_shim_only_where_configured(tmp_path):
+    # The harness evaluator calls model.visualize_epoch() after every episode; MagmaInference has none.
+    _render("magma", tmp_path)
+    _render("spatialvla", tmp_path)
+    shim = "MagmaInference.visualize_epoch = lambda self, *args, **kwargs: None"
+    assert shim in (tmp_path / "magma.sh").read_text()
+    assert "visualize_epoch = lambda" not in (tmp_path / "spatialvla.sh").read_text()

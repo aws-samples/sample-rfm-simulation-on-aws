@@ -271,6 +271,14 @@ PLUGIN_HEAD=$(git -C "${PLUGIN_DIR}" rev-parse HEAD)
 [ -d "${PLUGIN_DIR}/{{ plugin.plugin_src }}" ] || die "plugin: {{ plugin.plugin_src }} not found at {{ plugin.plugin_commit[:8] }}"
 cp -r "${PLUGIN_DIR}/{{ plugin.plugin_src }}/." "${HARNESS_DIR}/simpler_env/" || die "plugin copy failed"
 log "  plugin copied: $(cd "${PLUGIN_DIR}/{{ plugin.plugin_src }}" && find . -type f | sort | tr '\n' ' ')"
+{%- if plugin.shim_file %}
+# The harness evaluator calls model.visualize_epoch(...) after every episode; {{ plugin.shim_class }} has none
+# (AttributeError after episode 1, measured) -> no-op method appended. Episode videos are written by the evaluator.
+SHIM_PY="${HARNESS_DIR}/simpler_env/{{ plugin.shim_file }}"
+[ -f "${SHIM_PY}" ] || die "plugin shim target {{ plugin.shim_file }} not found"
+grep -q 'def visualize_epoch' "${SHIM_PY}" || printf '\n\n# added by the deploy: the harness evaluator calls this after every episode\n{{ plugin.shim_class }}.visualize_epoch = lambda self, *args, **kwargs: None\n' >> "${SHIM_PY}"
+log "  plugin shim: {{ plugin.shim_class }}.visualize_epoch (no-op)"
+{%- endif %}
 {%- endif %}
 [ -f "${HARNESS_DIR}/{{ entry }}" ] || die "entry {{ entry }} not found in the harness"
 

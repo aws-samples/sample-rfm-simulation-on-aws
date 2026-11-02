@@ -1184,6 +1184,13 @@ def generate_simpler(config: dict, dry_run: bool, vla: str) -> str:
         if not _COMMIT_RE.match(str(model.get("plugin_commit", ""))) or not model.get("plugin_src"):
             fail("model.plugin_repo needs plugin_commit (40-hex) and plugin_src")
         plugin = {k: _shell_safe(model[k], k) for k in ("plugin_repo", "plugin_commit", "plugin_src")}
+        # "<file under simpler_env/>:<class>": the harness evaluator calls model.visualize_epoch() after every
+        # episode; a plugin policy without it crashes after episode 1 -> add a no-op (video saving is separate).
+        shim = model.get("plugin_visualize_shim")
+        if shim:
+            if not re.fullmatch(r"[A-Za-z0-9_/]+\.py:[A-Za-z_][A-Za-z0-9_]*", str(shim)):
+                fail("model.plugin_visualize_shim must look like 'policies/x/y.py:ClassName'")
+            plugin["shim_file"], plugin["shim_class"] = str(shim).split(":")
     prefetch = []
     for p in model.get("prefetch") or []:
         if not _HF_REPO_RE.match(str(p.get("repo", ""))) or not _COMMIT_RE.match(str(p.get("revision", ""))):

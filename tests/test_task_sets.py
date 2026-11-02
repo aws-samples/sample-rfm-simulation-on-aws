@@ -247,8 +247,9 @@ def test_deploy_forwards_task_set_to_generate():
 
 # --- results.py ------------------------------------------------------------------------------------------
 
-import results  # noqa: E402
 from test_results import BUCKET, FakeS3  # noqa: E402
+
+import results  # noqa: E402
 
 
 def test_task_row_reads_the_tag_and_derives_it_for_old_runs():

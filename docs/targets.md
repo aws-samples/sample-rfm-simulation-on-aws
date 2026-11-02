@@ -248,6 +248,46 @@ This target is a workflow, not only an evaluation: **evaluate -> improve with RL
 - **Hardware is the open question.** RLinf documents the OpenVLA-OFT recipe on 8 × H100 80 GB; there is no published single-GPU config and no published time per step. LIBERO rollouts are CPU-bound (about one core per env) and need EGL from the NVIDIA driver (the container gets `NVIDIA_DRIVER_CAPABILITIES=all` so the NVIDIA container toolkit mounts the driver's EGL libraries, and the verify fails on a black frame). 48 GB and 40 GB GPUs are not in the `full` list (below the tested memory; the smoke runs confirmed the eval OOM on 44 GB); first runs measure time per step and memory, see [cost.md](cost.md#rl-post-training-rlinf-oft-libero).
 - **Not done here.** π0.5 PPO on LIBERO (RLinf reports 84.6% -> 98.8% on Goal from a few-shot SFT) needs openpi weights and another venv of the same image; GR00T and LingBot-VLA RL recipes and ManiSkill / RoboTwin RL are not wired. [SimpleVLA-RL](https://github.com/PRIME-RL/SimpleVLA-RL) (MIT) trains the same SFT checkpoints and was not chosen because it has no tagged release or image.
 
+## Task sets and action types
+
+Most benchmarks default to pick-and-place, but several pinned checkpoints were trained (and are evaluated upstream) on other motions too. `--task-set NAME` runs `task_sets.NAME` of `models/<target>.yaml` instead of its `tasks:` list, on the same stack, results bucket, template and checkpoint revision; `actions` is the set of those non-pick-and-place tasks:
+
+```bash
+python vlasim.py deploy --vla rldx-kitchen --task-set actions       # doors, drawers, stove knob, faucet, coffee button
+python vlasim.py deploy --vla rldx-simpler --task-set actions       # Google robot: open / close drawer
+python vlasim.py deploy --vla gr00t --task-set actions              # LIBERO-Goal: open drawer, turn on stove, push plate
+python vlasim.py deploy --vla lingbot-vla2 --task-set actions       # RoboTwin: handover, lift, bell, switch, alarm, hammer, stamp
+python vlasim.py deploy --vla smolvla-robotwin --task-set actions   # same 7 RoboTwin tasks
+```
+
+`--task-set` cannot be combined with `--libero-variant plus`, `--libero-objects real2sim`, `--robotwin-protocol` (each of those replaces the task list itself), `--collect`, `--bridge` or `--judge`. A set may override model keys for its run (`gr00t`'s set switches `hf_subfolder` to `libero_goal`, the same mechanism `--libero-variant plus` uses). Module: [`task_sets.py`](../task_sets.py); tests: `tests/test_task_sets.py`.
+
+**Action type.** Every task carries one tag. The yaml can set `action_type` per task; otherwise it comes from the task name (`task_sets.classify`, an exact-name table for the known RoboTwin / RoboCasa tasks plus verb rules). A task that chains a pick-and-place with opening, closing or turning a fixture is tagged by the fixture motion. The `gr00t`, `rldx*` and RoboTwin templates write `action_type:` into `summary.txt`; `vlasim results` carries it into its per-task JSON rows and the CSV / JSON table (`action_types`), derives it from the task name for older runs, and takes `--action-type TAG` and `--per-task`. GR00T rollout videos are named `<task>--<uuid>_s<0|1>.mp4` (they were `<uuid>_s<0|1>.mp4`); the other templates already put the task in the file name.
+
+| Tag | Meaning |
+|---|---|
+| `pick-place` | grasp an object and put it somewhere |
+| `articulated` | open / close / turn a jointed fixture: door, drawer, knob, faucet |
+| `press` | press or tap a button, bell or switch |
+| `push` | move an object by pushing it, without grasping |
+| `bimanual` | two arms on one object (handover, two-handed lift) |
+| `tool-use` | grasp a tool and act on another object with it (hammer, stamp) |
+| `locomotion` | the robot walks or drives as part of the task |
+
+| Target | `actions` task | Tag | Why it is in the checkpoint's training / eval set |
+|---|---|---|---|
+| `rldx-kitchen` | `OpenSingleDoor`, `OpenDrawer`, `CloseDrawer` | articulated | RLWRLD `run_scripts/eval/robocasa_kitchen/eval_robocasa.sh` lists all 24 tasks for `RLDX-1-FT-ROBOCASA` (24-task average 70.6%, no per-task rate published) |
+| | `TurnOnStove`, `TurnOnSinkFaucet` | articulated | same list |
+| | `CoffeePressButton` | press | same list |
+| `rldx-simpler` | `google_robot_open_drawer`, `google_robot_close_drawer` | articulated | RLWRLD `eval_simpler.sh google_vm` runs them with `RLDX-1-FT-SIMPLER-GOOGLE` (Google-VM average 81.5% over the 4 tasks); registered by `register_simpler_envs()` |
+| `gr00t` | `open_the_middle_drawer_of_the_cabinet`, `turn_on_the_stove` | articulated | `libero_goal` checkpoint of `nvidia/GR00T-N1.7-LIBERO` (same revision); Isaac-GR00T `examples/LIBERO` reports Goal 97.5% |
+| | `push_the_plate_to_the_front_of_the_stove` | push | same |
+| `smolvla-robotwin`, `lingbot-vla2` | `handover_block`, `lift_pot` | bimanual | RoboTwin 2.0 tasks; the default subset already runs them (measured 2026-10-30, [results](results.md#expected-results)) |
+| | `click_bell`, `turn_switch`, `click_alarmclock` | press | `click_bell` in the default subset; `turn_switch` / `click_alarmclock` are in the 50-task suite both checkpoints were trained on |
+| | `beat_block_hammer`, `stamp_seal` | tool-use | default subset |
+
+The default `gr00t` LIBERO-10 tasks (stove + moka pot, bowl into drawer + close) and the `rldx` / `rldx-gr1` microwave and drawer tasks are tagged `articulated` too: the [showcase](showcase.md) groups its clips by these tags.
+
 ## Post-run judge (Flora-Rewarder)
 
 `flora-judge` is **not a `--vla` target**: it scores the rollout videos of a run that already
@@ -425,6 +465,9 @@ python vlasim.py deploy --vla rldx-gr1 --email you@example.com
 # RLDX-1 (RLWRLD) — RoboCasa Kitchen 24-task (PandaOmron mobile manipulator, MuJoCo, ~25-35 min)
 # NON-COMMERCIAL weights (RLWRLD Model License v1.0) — research / simulation benchmarking only.
 python vlasim.py deploy --vla rldx-kitchen --email you@example.com
+# Same stack, non-pick-and-place tasks of the same checkpoints (see "Task sets and action types" above):
+#   --task-set actions works for rldx-kitchen, rldx-simpler, gr00t, smolvla-robotwin and lingbot-vla2
+python vlasim.py deploy --vla rldx-kitchen --task-set actions --email you@example.com
 
 # OpenArm Lift-Cube — scripted ACT demo collection in Isaac Lab (HDF5 only; needs a 4-GPU instance)
 python vlasim.py deploy --vla openarm-lift-act --email you@example.com

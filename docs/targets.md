@@ -489,7 +489,7 @@ does not have to exist any more (its bucket is retained); the gallery score badg
 | `multitask-dit` | `g6.xlarge` → `g5.xlarge` → `g6.2xlarge` → `g5.2xlarge` | 120 |
 | `spatialvla` | `g6.xlarge` → `g5.xlarge` → `g6.2xlarge` → `g5.2xlarge` | 120 |
 | `magma` | `g6.2xlarge` → `g5.2xlarge` → `g6e.xlarge` → `g6.4xlarge` | 150 |
-| `univla` | `g6.2xlarge` → `g5.2xlarge` → `g6e.xlarge` → `g6.4xlarge` | 150 |
+| `univla` | `g6e.xlarge` → `g6e.2xlarge` (24 GB L4 ran out of memory, measured) | 150 |
 | `ge-act` | `g6.2xlarge` → `g5.2xlarge` → `g6e.xlarge` → `g6.4xlarge` | 150 |
 | `rlinf-oft-libero` | `smoke` (default, 1 GPU): `g6e.8xlarge` → `g6e.4xlarge` → `g6e.16xlarge` → `p5.4xlarge`; `full` (8 GPU): `p5.48xlarge` → `p4de.24xlarge` → `p5en.48xlarge` | 500 / 1500 |
 | `flora-judge` ([post-run judge](#post-run-judge-flora-rewarder)) | `g7e.2xlarge` → `g7e.4xlarge` → `g6e.12xlarge` → `p5.4xlarge` | 250 |

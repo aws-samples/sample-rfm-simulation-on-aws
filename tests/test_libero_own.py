@@ -760,3 +760,12 @@ def test_results_reads_task_name_and_action_type():
     r0 = results.task_row(s3, "us-east-1", BUCKET, "R", "R/task-0/")
     assert (r0["task_name"], r0["action_type"], r0["suite"], r0["k"], r0["n"]) == \
         ("push_the_plate_to_the_front_of_the_stove", "push", "libero_goal", 5, 10)
+
+
+def test_run_with_episode_exceptions_fails(tmp_path):
+    # The authors' loop scores an episode that raised (e.g. CUDA OOM) as a failure; the run must fail instead.
+    for vla in ("univla", "ge-act"):
+        _render(vla, tmp_path)
+        text = (tmp_path / f"{vla}.sh").read_text()
+        assert "grep -c 'Traceback (most recent call last)'" in text
+        assert "RUN_RC=97" in text

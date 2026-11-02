@@ -52,12 +52,12 @@ model:
                 "--vision-hub", "{assets}/Emu3-VisionTokenizer"]
 
 instance:
-  # 17 GB bf16 weights + 1 GB vision tokenizer (flash-attention 2): fits one 24 GB L4 / A10G; .2xlarge because the
-  # weights alone exceed the 16 GB host RAM of an xlarge. L40S (g6e) as capacity fallback (and ~3x faster decoding).
-  preferred: [g6.2xlarge, g5.2xlarge, g6e.xlarge, g6.4xlarge]
+  # 17 GB bf16 weights + 1 GB vision tokenizer: measured CUDA OOM on a 24 GB L4 (22.0 GiB in use at the first
+  # vision-tokenizer encode, every episode). L40S 48 GB (g6e) first; g6e.2xlarge / g6.12xlarge are not used (one GPU).
+  preferred: [g6e.xlarge, g6e.2xlarge]
   ebs_gb: 150            # DLAMI + venv (~10 GB) + 18 GB weights + LIBERO + videos
   creationpolicy_timeout: PT180M   # setup ~30-40 min + 30 episodes of token-by-token decoding (estimate; not measured)
-  min_gpu_mib: 22000
+  min_gpu_mib: 40000
   min_host_mib: 30000
 
 # Tasks: LIBERO task ids of a suite (env_name = the task name at that id in LIBERO @8f1084e3, checked at render time

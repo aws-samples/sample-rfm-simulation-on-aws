@@ -371,6 +371,13 @@ RUN_RC=$?
 set -e
 trap '_trap_handler' ERR
 log "  run {{ r.run }} exit=${RUN_RC}"
+# The authors' loop catches per-episode exceptions (e.g. CUDA OOM) and scores them as failures; a run where any
+# episode raised is not a measurement, so fail it instead of reporting 0% success.
+N_EXC=$(grep -c 'Traceback (most recent call last)' "/tmp/{{ vla }}_run{{ r.run }}.log" || true)
+if [ "${N_EXC:-0}" -gt 0 ]; then
+    log "  ERROR: ${N_EXC} exception(s) inside the authors' loop: $(grep -m1 -E '^[A-Za-z_.]+(Error|Exception):' "/tmp/{{ vla }}_run{{ r.run }}.log" | cut -c1-200)"
+    RUN_RC=97
+fi
 if [ "${RUN_RC}" -ne 0 ] || [ ! -f "${RUN_DIR}/results.json" ]; then
     aws s3 cp "/tmp/{{ vla }}_run{{ r.run }}.log" "s3://${S3_BUCKET}/${RUN_ID}/run-{{ r.run }}.log" --region "$REGION" || true
     die "run {{ r.run }} ({{ r.suite }}) failed (exit=${RUN_RC}) — see s3://${S3_BUCKET}/${RUN_ID}/run-{{ r.run }}.log"

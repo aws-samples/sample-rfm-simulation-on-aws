@@ -152,7 +152,7 @@ Instance = first choice in `models/<target>.yaml`; the deploy falls back to othe
 | `multitask-dit` | LBM-style Multi-task DiT (LeRobot port, community checkpoint; not TRI weights) | LIBERO-10 | `g6.xlarge` |
 | `spatialvla` | SpatialVLA-4B zero-shot (MIT), the authors' SimplerEnv eval | SimplerEnv Google Robot + WidowX (visual matching) | `g6.xlarge` |
 | `magma` | Magma-8B zero-shot (MIT), the authors' SimplerEnv eval | SimplerEnv WidowX + Google Robot | `g6.2xlarge` |
-| `univla` | UniVLA (BAAI Emu3-8.5B world model, Apache-2.0 weights), the authors' LIBERO loop | LIBERO-Goal | `g6.2xlarge` |
+| `univla` | UniVLA (BAAI Emu3-8.5B world model, Apache-2.0 weights), the authors' LIBERO loop | LIBERO-Goal | `g6e.xlarge` |
 | `ge-act` | GE-Act (AgiBot Genie Envisioner, non-commercial), the authors' LIBERO loop | LIBERO-Goal | `g6.2xlarge` |
 
 Stack names, robots, per-target notes, deploy and cleanup commands: [docs/targets.md](docs/targets.md). Measured success rates: [docs/results.md](docs/results.md).

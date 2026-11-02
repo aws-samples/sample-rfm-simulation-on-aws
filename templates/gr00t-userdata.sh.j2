@@ -677,6 +677,7 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
     VIDEO_FPS=$(echo "$TASK" | jq -r '.video_fps')
     VIDEO_CRF=$(echo "$TASK" | jq -r '.video_crf')
     STEPS_PER_RENDER=$(echo "$TASK" | jq -r '.steps_per_render')
+    ACTION_TYPE=$(echo "$TASK" | jq -r '.action_type // "other"')   # task_sets.py tag, carried into summary.txt
     # Stack knobs (absent = upstream default): `replan` = actions executed per predicted chunk
     # (rollout_policy.py --n-action-steps), `condition` = label carried into summary.txt.
     K_COND=$(echo "$TASK" | jq -r '.condition // "S0"')
@@ -829,9 +830,12 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
 {%- endif %}
 {%- if not libero_plus %}
 
-    # Collect videos (CLI saves to /tmp/sim_eval_videos_<env>/<uuid>/video.mp4)
-    find /tmp -name "*.mp4" -newer /tmp/gr00t_task${TASK_IDX}_start.marker \
-        -exec mv {} "${VIDEO_DIR}/" \; 2>/dev/null || true
+    # Collect videos (CLI saves to /tmp/sim_eval_videos_<env>_ac<N>_<uuid>/<uuid>_s<0|1>.mp4). The task name goes
+    # in front (<task>--<uuid>_s1.mp4) so a clip can be picked by task (and action type) from the bucket listing.
+    TASK_SLUG=$(echo "${ENV_NAME##*/}" | tr -c 'A-Za-z0-9_.\n-' '_')
+    while IFS= read -r -d '' _mp4; do
+        mv "${_mp4}" "${VIDEO_DIR}/${TASK_SLUG}--$(basename "${_mp4}")" 2>/dev/null || true
+    done < <(find /tmp -name "*.mp4" -newer /tmp/gr00t_task${TASK_IDX}_start.marker -not -path "${VIDEO_DIR}/*" -print0 2>/dev/null)
 {%- endif %}
     VIDEO_COUNT=$(find "${VIDEO_DIR}" -name "*.mp4" 2>/dev/null | wc -l)
     log "  Videos collected: ${VIDEO_COUNT}"
@@ -864,6 +868,7 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
         echo "condition: ${K_COND}"
         echo "replan: ${K_REPLAN:-default}"
         echo "max_episode_steps: ${MAX_STEPS}"
+        echo "action_type: ${ACTION_TYPE}"
         echo "stack_isaac_groot_commit: $(git -C "${ISAAC_GROOT_DIR}" rev-parse HEAD 2>/dev/null || echo unknown)"
 {%- if libero_plus %}
         echo "suite: ${SUITE}"

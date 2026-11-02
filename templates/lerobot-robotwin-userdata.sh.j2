@@ -671,6 +671,7 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
     SEED=$(echo "$TASK" | jq -r '.seed')
     DESCRIPTION=$(echo "$TASK" | jq -r '.description // ""')
     TASK_CONFIG=$(echo "$TASK" | jq -r '.task_config')
+    ACTION_TYPE=$(echo "$TASK" | jq -r '.action_type // "other"')   # task_sets.py tag, carried into summary.txt
     SUITE="RoboTwin2/${SETTING}"
     {%- if episode_length %}
     EPISODE_LENGTH={{ episode_length }}
@@ -754,6 +755,7 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
         echo "setting: ${SETTING}"
         echo "task_config: ${TASK_CONFIG}"
         echo "robotwin_task: ${RT_TASK}"
+        echo "action_type: ${ACTION_TYPE}"
         echo "n_episodes_per_task: ${N_EPISODES}"
         echo "success_rate: ${SR}"
         echo "n_success: $(jq -r '.overall.n_success // empty' "${INFO_JSON}" 2>/dev/null)"

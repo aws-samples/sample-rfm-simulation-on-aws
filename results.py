@@ -41,6 +41,8 @@ import re
 import sys
 from pathlib import Path
 
+import task_sets
+
 BUCKET_RE = re.compile(r"^vla-sim-results-(?P<stack>.+)-(?P<region>[a-z]{2}-[a-z]+-\d)-(?P<acct>\d{12})$")
 KV_RE = re.compile(r"^([A-Za-z_][\w]*): ?(.*)$", re.M)
 RUN_RE = re.compile(r"^\d{4}-\d{2}-\d{2}-\d{4}$")
@@ -130,6 +132,10 @@ def task_row(s3, region, bucket, run, task_prefix, episodes=False):
                condition=(kv.get("condition") or "-").split()[0], k=k, n=n, rate=rate, stack=stack_fp)
     if kv.get("benchmark"):
         row.update(benchmark=kv["benchmark"], perturbation=kv.get("perturbation", "-"))
+    row["task_name"] = kv.get("robotwin_task") or kv.get("env_name") or row["suite"]
+    # summary.txt carries action_type since the task-set change; older runs get it from the task name.
+    tag = (kv.get("action_type") or "").strip()
+    row["action_type"] = tag if tag in task_sets.ACTION_TYPES else task_sets.classify(row["task_name"])
     card = read_protocol_card(s3, region, bucket, task_prefix)
     if card:  # an exact re-run needs the same seed and the same GPU type (docs/results.md "Protocol card")
         row.update({x: str(card[x]) for x in ("seed", "gpu") if card.get(x) not in (None, "", "unknown")})
@@ -226,6 +232,8 @@ def aggregate(rows):
         key = (r["bucket_stack"], r["region"], r["run"], r.get("suite", "-"), r.get("condition", "-"))
         g = agg.setdefault(key, dict(k=0, n=0, rates=[], tasks=0, not_done=0, stack={}))
         g["tasks"] += 1
+        if r.get("action_type"):
+            g.setdefault("action_types", set()).add(r["action_type"])
         if r["status"] != "done":
             g["not_done"] += 1
             continue
@@ -239,6 +247,20 @@ def aggregate(rows):
         else:
             g["rates"].append(r["rate"])
     return agg
+
+
+PER_TASK_COLS = ["stack", "run", "task", "task_name", "action_type", "k_n", "rate", "status"]
+
+
+def per_task_table(rows):
+    """One row per task (sorted by action type, then stack and run) for picking showcase clips by action."""
+    out = []
+    for r in sorted(rows, key=lambda x: (x.get("action_type", ""), x["bucket_stack"], x["run"], x["task"])):
+        kn = f"{r['k']}/{r['n']}" if r.get("n") else "-"
+        out.append(dict(stack=r["bucket_stack"], run=r["run"], task=r["task"], task_name=r.get("task_name", "-"),
+                        action_type=r.get("action_type", "-"), k_n=kn,
+                        rate="" if r.get("rate") is None else f"{r['rate']:.2f}", status=r["status"]))
+    return out
 
 
 def _pool(rows):
@@ -368,6 +390,10 @@ def main(argv=None):
     p.add_argument("--all-runs", action="store_true", help="every run, not just the latest per bucket")
     p.add_argument("--csv", help="write the aggregated table as CSV")
     p.add_argument("--json", help="write per-task rows and the aggregate as JSON")
+    p.add_argument("--action-type", choices=list(task_sets.ACTION_TYPES), metavar="TAG",
+                   help="only tasks with this action type (" + ", ".join(task_sets.ACTION_TYPES) + "; task_sets.py)")
+    p.add_argument("--per-task", action="store_true",
+                   help="also print one row per task (task name, action type, k/n) below the table")
     p.add_argument("--robustness", action="store_true",
                    help="LIBERO-Plus view: success per perturbation dimension of the latest sweep vs the latest "
                         "LIBERO baseline of the same stack (reads every run; --since still applies)")
@@ -408,6 +434,11 @@ def main(argv=None):
         import leaderboard
         return leaderboard.run(a, boto3)
     rows = collect(a, boto3)
+    if rows and a.action_type:
+        rows = [r for r in rows if r.get("action_type") == a.action_type]
+        if not rows:
+            print(f"No task with action type {a.action_type} in the selected runs.")
+            return 0
     if not rows:
         print("No results found (no vla-sim-results-* bucket with a RUN_ID/task-N/ prefix).")
         return 0
@@ -446,9 +477,13 @@ def main(argv=None):
                           tasks=g["tasks"], not_done=g["not_done"],
                           seed=", ".join(sorted(g.get("seed") or ())) or "-",
                           gpu=", ".join(sorted(g.get("gpu") or ())) or "-",
+                          action_types=", ".join(sorted(g.get("action_types") or ())) or "-",
                           fingerprint=" ".join(f"{k}={v}" for k, v in sorted(g["stack"].items()))))
     cols = ["stack", "region", "run", "suite", "condition", "k_n", "rate", "ci95", "tasks", "not_done", "seed", "gpu"]
     _print_table(table, cols)
+    if a.per_task:
+        print()
+        _print_table(per_task_table(rows), PER_TASK_COLS)
     fps = collections.OrderedDict()
     for t in table:
         if t["fingerprint"]:
@@ -467,7 +502,7 @@ def main(argv=None):
             print(f"  {k}: {judge_line(j)}")
     if a.csv:
         with open(a.csv, "w", newline="") as f:
-            w = csv.DictWriter(f, fieldnames=cols + ["fingerprint"])
+            w = csv.DictWriter(f, fieldnames=cols + ["action_types", "fingerprint"])
             w.writeheader()
             w.writerows(table)
     if a.json:

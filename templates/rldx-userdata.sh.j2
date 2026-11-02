@@ -1001,6 +1001,7 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
     ENV_NAME=$(echo "$TASK" | jq -r '.env_name')
     NUM_EPISODES=$(echo "$TASK" | jq -r '.num_episodes')
     DESCRIPTION=$(echo "$TASK" | jq -r '.description // ""')
+    ACTION_TYPE=$(echo "$TASK" | jq -r '.action_type // "other"')   # task_sets.py tag, carried into summary.txt
 {%- if libero_plus %}
     # LIBERO-Plus: this entry's perturbation dimension → the variants picked in [5/8]; one rollout_policy.py
     # call per variant (each variant is its own libero_plus_sim/<name> gym id), against the same server.
@@ -1136,6 +1137,7 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
         echo "num_episodes: ${NUM_EPISODES}"
         echo "success_rate: ${SR}"
         echo "description: ${DESCRIPTION}"
+        echo "action_type: ${ACTION_TYPE}"
 {%- if libero_plus %}
         # k/n summed over the variants that recorded episodes (a crashed variant is not counted).
         echo "n_episodes: ${LP_DONE}"

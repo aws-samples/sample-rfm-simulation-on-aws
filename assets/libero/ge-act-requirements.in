@@ -1,0 +1,36 @@
+# GE-Act (AgibotTech/Genie-Envisioner) x LIBERO venv, Python 3.10, x86_64.
+# Compile (no install needed): uv pip compile assets/libero/ge-act-requirements.in \
+#   --python-version 3.10 --python-platform x86_64-manylinux_2_28 -o assets/libero/ge-act-requirements.txt
+# The template installs the lock, then LIBERO with --no-deps (editable, compat mode).
+# Model stack: Genie-Envisioner requirements.txt @d41358f7 (inference subset: torch 2.7.1, torchvision 0.22.1,
+# diffusers 0.32.0, transformers 4.51.3, accelerate 1.0.0, safetensors 0.6.2, sentencepiece 0.2.0, einops 0.8.1).
+# Training-only packages (deepspeed, bitsandbytes, xformers, came_pytorch, prodigyopt, torchao, polars) are left out:
+# experiments/eval_libero.py and the modules it imports reach them only inside optimizer / attention fallbacks.
+torch==2.7.1
+torchvision==0.22.1
+diffusers==0.32.0
+transformers==4.51.3
+accelerate==1.0.0
+safetensors==0.6.2
+sentencepiece==0.2.0
+einops==0.8.1
+PyYAML==6.0.2
+tqdm==4.67.1
+scipy==1.15.3
+Pillow==11.3.0
+imageio[ffmpeg]
+tensorboard
+huggingface_hub
+protobuf
+# LIBERO simulation (the GE-Act eval imports libero + robosuite.utils.transform_utils). numpy<2 for robosuite 1.4 /
+# numba (Genie-Envisioner pins numpy 2.2.6 for training; the eval code uses no numpy-2-only API).
+robosuite==1.4.0
+bddl==1.0.1
+easydict==1.9
+cloudpickle==2.1.0
+gym==0.25.2
+# robosuite 1.4.0 imports termcolor (utils/log_utils.py) without declaring it (found by importing the eval locally).
+termcolor
+opencv-python-headless==4.11.0.86
+numpy==1.26.4
+mujoco==3.3.1

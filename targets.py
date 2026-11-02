@@ -17,7 +17,7 @@ VLA_TARGETS = (
     "lap", "rldx", "rldx-simpler", "rldx-bridge", "rldx-gr1", "rldx-kitchen", "openarm-isaac", "openarm-lift-act",
     "molmoact2", "xvla", "smolvla", "lingbot-va", "vla-adapter", "fastwam", "cosmos-policy", "aspire",
     "real2sim", "robolab-cosmos3", "robolab-pi05", "smolvla-robotwin", "lingbot-vla2",
-    "rlinf-oft-libero", "lerobot-gym", "multitask-dit", "spatialvla", "magma",
+    "rlinf-oft-libero", "lerobot-gym", "multitask-dit", "spatialvla", "magma", "univla", "ge-act",
 )
 
 JUDGE_TARGETS = ("flora-judge",)

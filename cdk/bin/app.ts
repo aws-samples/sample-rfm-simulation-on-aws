@@ -30,6 +30,8 @@
  *   npx cdk deploy MultiTask-DiT-Demo          -c region=us-east-1 -c vla=multitask-dit
  *   npx cdk deploy SpatialVLA-Demo             -c region=us-east-1 -c vla=spatialvla
  *   npx cdk deploy Magma-Demo                  -c region=us-east-1 -c vla=magma
+ *   npx cdk deploy UniVLA-Demo                 -c region=us-east-1 -c vla=univla
+ *   npx cdk deploy GE-Act-Demo                 -c region=us-east-1 -c vla=ge-act
  */
 
 import * as cdk from 'aws-cdk-lib';
@@ -42,9 +44,9 @@ const app = new cdk.App();
 const region = app.node.tryGetContext('region') ?? 'ap-northeast-2';
 const vla: string = app.node.tryGetContext('vla');
 
-if (!vla || !['gr00t', 'gr00t-bridge', 'gr00t-gr1', 'gr00t-g1', 'pi', 'openvla-oft', 'lap', 'rldx', 'rldx-simpler', 'rldx-bridge', 'rldx-gr1', 'rldx-kitchen', 'openarm-isaac', 'openarm-lift-act', 'molmoact2', 'xvla', 'smolvla', 'lingbot-va', 'vla-adapter', 'fastwam', 'cosmos-policy', 'aspire', 'real2sim', 'robolab-cosmos3', 'robolab-pi05', 'smolvla-robotwin', 'lingbot-vla2', 'rlinf-oft-libero', 'lerobot-gym', 'multitask-dit', 'spatialvla', 'magma'].includes(vla)) {
+if (!vla || !['gr00t', 'gr00t-bridge', 'gr00t-gr1', 'gr00t-g1', 'pi', 'openvla-oft', 'lap', 'rldx', 'rldx-simpler', 'rldx-bridge', 'rldx-gr1', 'rldx-kitchen', 'openarm-isaac', 'openarm-lift-act', 'molmoact2', 'xvla', 'smolvla', 'lingbot-va', 'vla-adapter', 'fastwam', 'cosmos-policy', 'aspire', 'real2sim', 'robolab-cosmos3', 'robolab-pi05', 'smolvla-robotwin', 'lingbot-vla2', 'rlinf-oft-libero', 'lerobot-gym', 'multitask-dit', 'spatialvla', 'magma', 'univla', 'ge-act'].includes(vla)) {
   throw new Error(
-    'CDK context "vla" is required. Pass -c vla=gr00t, -c vla=gr00t-bridge, -c vla=gr00t-gr1, -c vla=gr00t-g1, -c vla=pi, -c vla=openvla-oft, -c vla=lap, -c vla=rldx, -c vla=rldx-simpler, -c vla=rldx-bridge, -c vla=rldx-gr1, -c vla=rldx-kitchen, -c vla=openarm-isaac, -c vla=openarm-lift-act, -c vla=molmoact2, -c vla=xvla, -c vla=smolvla, -c vla=lingbot-va, -c vla=vla-adapter, -c vla=fastwam, -c vla=cosmos-policy, -c vla=aspire, -c vla=real2sim, -c vla=robolab-cosmos3, -c vla=robolab-pi05, -c vla=smolvla-robotwin, -c vla=lingbot-vla2, -c vla=rlinf-oft-libero, -c vla=lerobot-gym, -c vla=multitask-dit, -c vla=spatialvla, or -c vla=magma.\n' +
+    'CDK context "vla" is required. Pass -c vla=gr00t, -c vla=gr00t-bridge, -c vla=gr00t-gr1, -c vla=gr00t-g1, -c vla=pi, -c vla=openvla-oft, -c vla=lap, -c vla=rldx, -c vla=rldx-simpler, -c vla=rldx-bridge, -c vla=rldx-gr1, -c vla=rldx-kitchen, -c vla=openarm-isaac, -c vla=openarm-lift-act, -c vla=molmoact2, -c vla=xvla, -c vla=smolvla, -c vla=lingbot-va, -c vla=vla-adapter, -c vla=fastwam, -c vla=cosmos-policy, -c vla=aspire, -c vla=real2sim, -c vla=robolab-cosmos3, -c vla=robolab-pi05, -c vla=smolvla-robotwin, -c vla=lingbot-vla2, -c vla=rlinf-oft-libero, -c vla=lerobot-gym, -c vla=multitask-dit, -c vla=spatialvla, -c vla=magma, -c vla=univla, or -c vla=ge-act.\n' +
     'Use deploy.py which sets this automatically.',
   );
 }
@@ -113,6 +115,8 @@ const stackNameMap: Record<string, string> = {
   'multitask-dit': 'MultiTask-DiT-Demo',
   'spatialvla':  'SpatialVLA-Demo',
   'magma':       'Magma-Demo',
+  'univla':      'UniVLA-Demo',
+  'ge-act':      'GE-Act-Demo',
 };
 const stackName = stackNameMap[vla];
 
@@ -154,6 +158,8 @@ const descriptionMap: Record<string, string> = {
   'multitask-dit': 'LBM-style Multi-task DiT (LeRobot port, community LIBERO-10 checkpoint, not TRI weights) + LIBERO (Franka Panda, upstream LeRobot lerobot-eval, in-process)',
   'spatialvla':  'SpatialVLA-4B zero-shot + SimplerEnv (Google Robot / WidowX visual matching, the authors SimplerEnv-OpenVLA fork, in-process)',
   'magma':       'Magma-8B zero-shot + SimplerEnv (WidowX Bridge / Google Robot, upstream SimplerEnv + the Magma plugin, in-process)',
+  'univla':      'UniVLA (Emu3-8.5B world model + FAST action tokens) + LIBERO (Franka Panda, the authors evaluate_libero_emu loop, in-process)',
+  'ge-act':      'GE-Act (Genie Envisioner, LTX-Video 2B world model + action expert, non-commercial) + LIBERO (Franka Panda, the authors eval_libero loop, in-process)',
 };
 
 const stack = new VlaSimulatorStack(app, stackName, {

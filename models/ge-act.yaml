@@ -1,0 +1,105 @@
+# GE-Act (AgiBot, "Genie Envisioner: A Unified World Foundation Platform for Robotic Manipulation", arXiv:2508.05635)
+# x LIBERO — the authors' own LIBERO loop. GE-Act = the GE-Base video world model (LTX-Video 2B, multi-view) with a
+# flow-matching action expert; one checkpoint per LIBERO suite.
+# Repo:  https://github.com/AgibotTech/Genie-Envisioner (experiments/RUN.md "Evaluating on LIBERO":
+#        experiments/eval_libero.py with configs/ltx_model/libero/action_model_libero.yaml)
+# Template: templates/libero-own-userdata.sh.j2 (shared with `univla`) + assets/libero/own_eval_runner.py
+#        --adapter ge-act: InferenceLibero.infer() unchanged, on a task subset with one video per episode.
+#
+# CLI:   python deploy.py --vla ge-act [--task-set actions]
+#
+# Checkpoints: ModelScope agibot_world/Genie-Envisioner (the LIBERO weights are not on the Hugging Face Hub),
+#   ge_act_libero_{goal,object,spatial,10}.safetensors, 4.2 GB bf16 each (2.11B parameters; the tensor names and
+#   shapes match the config's action expert: 15 action+state channels, 16 x 32 heads). Pinned by commit and sha256.
+#   RUN.md table: Goal 0.958, Object 0.976, 10 0.944, Spatial 0.982, avg 0.965.
+# Text encoder / tokenizer / VAE: Lightricks/LTX-Video (README: "download the weights for the text_encoder,
+#   tokenizer and VAE, as well as the model_index.json"); T5-XXL text encoder loaded in bf16.
+# Eval settings: experiments/eval_libero.sh (exec_step 8, threshold 20 for goal / 10, 30 for object / spatial,
+#   10 denoising steps, noise_seed 42 inside the pipeline). That script names a config file that is not in the
+#   repository (configs/ltx_model_libero/action_model_libero_goal_pdstate.yaml); RUN.md points at
+#   configs/ltx_model/libero/action_model_libero.yaml, which is the one used here.
+# License: CC BY-NC-SA 4.0 (NON-COMMERCIAL) for the Genie-Envisioner code and weights; the GE-Base weights derive
+#   from ltx-video-2b-v0.9 (LTX-Video Open Weights License); see docs/licenses.md.
+
+model:
+  id: ge-act
+  display_name: "GE-Act"
+  policy_desc: "GE-Act (AgiBot Genie Envisioner, LTX-Video 2B world model + action expert), LIBERO per-suite checkpoint"
+  license: "CC BY-NC-SA 4.0 (non-commercial; Genie-Envisioner code and weights); LTX-Video Open Weights License (base)"
+  checkpoint: "agibot_world/Genie-Envisioner"              # ModelScope model id
+  revision: "3d74307787ced68f4b8f3147687ac42a90aef07c"   # ModelScope commit of the four ge_act_libero_* files (2025-12-18)
+  code_repo: "https://github.com/AgibotTech/Genie-Envisioner.git"
+  code_commit: "d41358f7548f2cd9fc4b79fcdf7d86d15a8d7b1e"   # master 2026-09-10 (LIBERO eval files last changed 2025-12-19)
+  libero_commit: "8f1084e3132a39270c3a13ebe37270a43ece2a01"   # LIBERO master 2025-03-15
+  adapter: ge-act
+  eval_label: "Genie-Envisioner experiments/eval_libero.py InferenceLibero.infer()"
+  python_version: "3.10"
+  requirements: "assets/libero/ge-act-requirements.txt"
+  # LIBERO's get_task_init_states() calls torch.load(path) on its own pickled init-state files; torch 2.7 defaults to
+  # weights_only=True, which refuses them. This restores the pre-2.6 default for that call (trusted files of the
+  # pinned LIBERO checkout).
+  env:
+    TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD: "1"
+  import_check: ["diffusers", "models.ltx_models.transformer_ltx_multiview", "models.ltx_models.autoencoder_kl_ltx",
+                 "models.pipeline.custom_pipeline", "utils.libero_sim_utils", "sentencepiece", "safetensors"]
+  downloads:
+    - repo: "Lightricks/LTX-Video"
+      revision: "8984fa25007f376c1a299016d0957a37a2f797bb"   # main; tokenizer / text_encoder / vae unchanged since 2024-12
+      dir: LTX-Video
+      allow_patterns: ["model_index.json", "tokenizer/*", "text_encoder/*", "vae/*"]   # 19 GB T5-XXL fp32 + 1.7 GB VAE
+    - suite: libero_goal
+      url: "https://modelscope.cn/api/v1/models/agibot_world/Genie-Envisioner/repo?Revision=3d74307787ced68f4b8f3147687ac42a90aef07c&FilePath=ge_act_libero_goal.safetensors"
+      sha256: "4cb7b80f991867dbe3a5fb71b35fd5c744b49f2feccedb15ad7ceb699593b305"
+      file: ge-act/ge_act_libero_goal.safetensors
+    - suite: libero_object
+      url: "https://modelscope.cn/api/v1/models/agibot_world/Genie-Envisioner/repo?Revision=3d74307787ced68f4b8f3147687ac42a90aef07c&FilePath=ge_act_libero_object.safetensors"
+      sha256: "e43f257d63e0573efd7f6376c86dcf49f9a2388288a4fefde9f6e7ac4d08b533"
+      file: ge-act/ge_act_libero_object.safetensors
+    - suite: libero_spatial
+      url: "https://modelscope.cn/api/v1/models/agibot_world/Genie-Envisioner/repo?Revision=3d74307787ced68f4b8f3147687ac42a90aef07c&FilePath=ge_act_libero_spatial.safetensors"
+      sha256: "0f5a0349caff7ff9cf7f926aa3d852b8a92f0581b1c06558d29da923042027b9"
+      file: ge-act/ge_act_libero_spatial.safetensors
+    - suite: libero_10
+      url: "https://modelscope.cn/api/v1/models/agibot_world/Genie-Envisioner/repo?Revision=3d74307787ced68f4b8f3147687ac42a90aef07c&FilePath=ge_act_libero_10.safetensors"
+      sha256: "333e600549f797b3978e0861d8afdb58fdd2f288fda56f05ae8158179d5428b8"
+      file: ge-act/ge_act_libero_10.safetensors
+  runner_args: ["--ltx-dir", "{assets}/LTX-Video", "--ckpt", "{assets}/ge-act/ge_act_{suite}.safetensors"]
+  # experiments/eval_libero.sh @d41358f7 (exec_step 8 for every suite: the later calls pass an unset $exec_step,
+  # i.e. the argparse default 8).
+  suite_args:
+    libero_goal: ["--exec-step", "8", "--threshold", "20"]
+    libero_10: ["--exec-step", "8", "--threshold", "20"]
+    libero_object: ["--exec-step", "8", "--threshold", "30"]
+    libero_spatial: ["--exec-step", "8", "--threshold", "30"]
+
+instance:
+  # 2.1B bf16 transformer (4.2 GB) + T5-XXL text encoder in bf16 (~9.5 GB) + VAE: ~15 GB before activations; one 24 GB
+  # L4 / A10G. .2xlarge: the text encoder is read from 19 GB of fp32 shards. L40S (g6e) as capacity fallback.
+  preferred: [g6.2xlarge, g5.2xlarge, g6e.xlarge, g6.4xlarge]
+  ebs_gb: 150            # DLAMI + venv (~10 GB) + 21 GB LTX-Video parts + 4.2 GB per suite checkpoint + videos
+  creationpolicy_timeout: PT180M   # setup ~30-40 min + 30 episodes x ~38 denoising calls (estimate; not measured)
+  min_gpu_mib: 22000
+  min_host_mib: 30000
+
+# Same tasks as `univla` (one suite = one checkpoint download).
+tasks:
+  - {suite: libero_goal, task_id: 1, env_name: put_the_bowl_on_the_stove,
+       n_episodes: 10, description: "LIBERO-Goal: put the bowl on the stove"}
+  - {suite: libero_goal, task_id: 6, env_name: put_the_cream_cheese_in_the_bowl,
+       n_episodes: 10, description: "LIBERO-Goal: put the cream cheese in the bowl"}
+  - {suite: libero_goal, task_id: 8, env_name: put_the_bowl_on_the_plate,
+       n_episodes: 10, description: "LIBERO-Goal: put the bowl on the plate"}
+
+task_sets:
+  actions:
+    description: "LIBERO-Goal: open the middle drawer, push the plate, turn on the stove (3 x 10 episodes)"
+    tasks:
+      - {suite: libero_goal, task_id: 0, env_name: open_the_middle_drawer_of_the_cabinet,
+       n_episodes: 10, description: "LIBERO-Goal: open the middle drawer of the cabinet"}
+      - {suite: libero_goal, task_id: 5, env_name: push_the_plate_to_the_front_of_the_stove,
+       n_episodes: 10, description: "LIBERO-Goal: push the plate to the front of the stove"}
+      - {suite: libero_goal, task_id: 7, env_name: turn_on_the_stove,
+       n_episodes: 10, description: "LIBERO-Goal: turn on the stove"}
+
+bridge:
+  enabled: false

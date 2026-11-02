@@ -85,7 +85,8 @@ LEROBOT_LIBERO_TARGETS = tuple(LEROBOT_LIBERO_STACKS)
 OTHER_LOCAL_STACKS = {"vla-adapter": "VLA-Adapter-Demo", "cosmos-policy": "Cosmos-Policy-Demo", "aspire": "ASPIRE-Demo",
                       "real2sim": "Real2Sim-Demo", "robolab-cosmos3": "RoboLab-Cosmos3-Demo",
                       "robolab-pi05": "RoboLab-Pi05-Demo", "rlinf-oft-libero": "RLinf-OFT-LIBERO-Demo",
-                      "lerobot-gym": "LeRobot-Gym-Demo", "spatialvla": "SpatialVLA-Demo", "magma": "Magma-Demo"}
+                      "lerobot-gym": "LeRobot-Gym-Demo", "spatialvla": "SpatialVLA-Demo", "magma": "Magma-Demo",
+                      "univla": "UniVLA-Demo", "ge-act": "GE-Act-Demo"}
 # RLinf RL post-training targets (evaluate -> GRPO -> re-evaluate); --rl-profile picks models/<vla>.yaml profiles.
 RLINF_TARGETS = ("rlinf-oft-libero",)
 RL_PROFILES = ("smoke", "full")
@@ -922,6 +923,12 @@ def main():
         elif args.vla == "magma":
             print("  Estimated time: ~75-120 min (venv from the lock ~10-20 min + 17.8 GB checkpoint + 4.8 GB open_clip "
                   "tower + 3 SimplerEnv tasks, 68 episodes of token-by-token decoding; estimate, not measured yet)")
+        elif args.vla == "univla":
+            print("  Estimated time: ~75-110 min (venv from the lock ~10-20 min + 18 GB of weights + 3 LIBERO-Goal tasks, "
+                  "30 episodes of token-by-token decoding; estimate, not measured yet)")
+        elif args.vla == "ge-act":
+            print("  Estimated time: ~60-100 min (venv from the lock ~10-20 min + 21 GB LTX-Video parts + 4.2 GB GE-Act "
+                  "checkpoint + 3 LIBERO-Goal tasks, 30 episodes; estimate, not measured yet)")
         elif args.vla in LEROBOT_LIBERO_TARGETS:
             print("  Estimated time: ~40-80 min for the pipe-proof cap (uv sync LeRobot source ~15-30min + ckpt DL + LIBERO eval; scale via models/<vla>.yaml tasks)")
         else:

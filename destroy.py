@@ -73,6 +73,8 @@ STACK_NAMES = {
     "multitask-dit": "MultiTask-DiT-Demo",
     "spatialvla": "SpatialVLA-Demo",
     "magma": "Magma-Demo",
+    "univla": "UniVLA-Demo",
+    "ge-act": "GE-Act-Demo",
 }
 
 

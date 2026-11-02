@@ -88,7 +88,7 @@ test.each([
   ['spatialvla', 'SpatialVLA-Demo', 'g6.xlarge,g5.xlarge,g6.2xlarge,g5.2xlarge', '120', 150],
   ['magma', 'Magma-Demo', 'g6.2xlarge,g5.2xlarge,g6e.xlarge,g6.4xlarge', '150', 180],
   // LIBERO targets (authors' own LIBERO loop): UniVLA 17 GB / GE-Act 2B + T5-XXL, both on the 32 GB host of a .2xlarge.
-  ['univla', 'UniVLA-Demo', 'g6.2xlarge,g5.2xlarge,g6e.xlarge,g6.4xlarge', '150', 180],
+  ['univla', 'UniVLA-Demo', 'g6e.xlarge,g6e.2xlarge', '150', 180],
   ['ge-act', 'GE-Act-Demo', 'g6.2xlarge,g5.2xlarge,g6e.xlarge,g6.4xlarge', '150', 180],
 ])('%s launches its yaml instance list, EBS size and timeout', (vla, stackName, types, ebs, minutes) => {
   const app = new cdk.App({ context: { region: 'ap-northeast-2', vla, notify_email: 'test@example.com' } });

@@ -215,6 +215,47 @@ tasks:
     num_episodes: 5
     description: "RoboCasa Kitchen — open a kitchen drawer (PandaOmron mobile manipulator; articulated drawer; distinct from the GR-1 PnP-into-receptacle clips and all single-arm LIBERO/SimplerEnv tasks)"
 
+# Task sets (deploy.py --task-set NAME; see task_sets.py). `actions` = six of the 24 RoboCasa Kitchen tasks the
+# RLDX-1-FT-ROBOCASA checkpoint is evaluated on upstream (run_scripts/eval/robocasa_kitchen/eval_robocasa.sh
+# TASK_NAMES, same env namespace and the same rollout args as the default run), chosen to cover fixture motions
+# other than pick-and-place: doors, drawers, a knob, a faucet lever and a button. The env classes are in the
+# vendored robocasa fork (robocasa/environments/kitchen/single_stage/kitchen_{doors,drawer,stove,sink,coffee}.py).
+# The upstream paper reports one 24-task average (70.6%), no per-task rate: the run measures them.
+task_sets:
+  actions:
+    description: "RoboCasa Kitchen fixture motions: door, drawer open/close, stove knob, faucet, coffee button (6 tasks x 5 ep)"
+    tasks:
+      - suite: robocasa_kitchen
+        env_name: "robocasa_panda_omron/OpenSingleDoor_PandaOmron_Env"
+        num_episodes: 5
+        action_type: articulated
+        description: "RoboCasa Kitchen — open a single cabinet door (articulated door)"
+      - suite: robocasa_kitchen
+        env_name: "robocasa_panda_omron/OpenDrawer_PandaOmron_Env"
+        num_episodes: 5
+        action_type: articulated
+        description: "RoboCasa Kitchen — open a drawer (articulated drawer)"
+      - suite: robocasa_kitchen
+        env_name: "robocasa_panda_omron/CloseDrawer_PandaOmron_Env"
+        num_episodes: 5
+        action_type: articulated
+        description: "RoboCasa Kitchen — close an open drawer (articulated drawer, push to close)"
+      - suite: robocasa_kitchen
+        env_name: "robocasa_panda_omron/TurnOnStove_PandaOmron_Env"
+        num_episodes: 5
+        action_type: articulated
+        description: "RoboCasa Kitchen — turn a stove burner knob on (rotary knob)"
+      - suite: robocasa_kitchen
+        env_name: "robocasa_panda_omron/TurnOnSinkFaucet_PandaOmron_Env"
+        num_episodes: 5
+        action_type: articulated
+        description: "RoboCasa Kitchen — turn the sink faucet on (faucet lever)"
+      - suite: robocasa_kitchen
+        env_name: "robocasa_panda_omron/CoffeePressButton_PandaOmron_Env"
+        num_episodes: 5
+        action_type: press
+        description: "RoboCasa Kitchen — press the coffee machine start button"
+
 # Bridge mode NOT supported — same rationale as the rldx LIBERO/SIMPLER/GR-1
 # targets (fused-kernel/ZeroMQ serving does not fit the bridge-mode gRPC adapters).
 bridge:

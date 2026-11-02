@@ -241,6 +241,8 @@ timeout 3600 uv pip install --python "${PY}" -r "${REQ_FILE}" 2>&1 | tee /tmp/{{
     || die "lock install failed (see /tmp/{{ vla }}_pip.log)"
 
 export WANDB_MODE=disabled
+# A native crash (exit 139) then prints the Python stack of every thread into the task log.
+export PYTHONFAULTHANDLER=1
 export SDL_VIDEODRIVER=dummy
 export MUJOCO_GL=egl
 export PYOPENGL_PLATFORM=egl

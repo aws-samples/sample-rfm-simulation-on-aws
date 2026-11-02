@@ -31,3 +31,5 @@ imageio[ffmpeg]
 trimesh
 rtree
 ruckig
+# sapien 2.2.2 imports pkg_resources, removed from setuptools >= 81
+setuptools<81

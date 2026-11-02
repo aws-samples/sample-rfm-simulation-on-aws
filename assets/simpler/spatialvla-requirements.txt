@@ -257,8 +257,9 @@ sapien==2.2.2
     # via -r assets/simpler/spatialvla-requirements.in
 scipy==1.14.1
     # via -r assets/simpler/spatialvla-requirements.in
-setuptools==84.2.1
+setuptools==80.10.2
     # via
+    #   -r assets/simpler/spatialvla-requirements.in
     #   tensorboard
     #   tensorflow
 six==1.17.0

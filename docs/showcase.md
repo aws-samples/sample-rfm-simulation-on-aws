@@ -8,6 +8,10 @@ Clips are grouped by **action type**, the tag every task carries (`action_type` 
 
 - [Pick and place](#pick-and-place)
 - [Articulated: doors, drawers, knobs](#articulated-doors-drawers-knobs)
+- [Press: buttons and bells](#press-buttons-and-bells)
+- [Push](#push)
+- [Bimanual](#bimanual)
+- [Tool use](#tool-use)
 - [Locomotion: whole-body loco-manipulation](#locomotion-whole-body-loco-manipulation)
 
 ## Pick and place
@@ -200,6 +204,30 @@ Same RLDX-1 family again, but on the **RoboCasa Kitchen** 24-task benchmark with
 | MP4: [`rldx-kitchen/kitchen-open-single-door-failure.mp4`](showcase/rldx-kitchen/kitchen-open-single-door-failure.mp4) (clip is 2× speed) |
 | _The one miss on the door task: the run hits the 45-step cap (a *timeout*, not a hard error) without latching the handle. SR 0.80 here means "usually solved" — pair the number with the per-episode step counts in `simulation_results.csv`._ |
 
+**`--task-set actions` run** (ap-northeast-2, `g6.2xlarge`, 2026-11-02, run `2026-11-02-0850`, 6 tasks × 5 episodes): `OpenSingleDoor` 1.0 (5/5), `OpenDrawer` 0.6 (3/5), `CloseDrawer` 1.0 (5/5), `TurnOnStove` 0.4 (2/5), `TurnOnSinkFaucet` 1.0 (5/5) and `CoffeePressButton` 1.0 (5/5, under [press](#press-buttons-and-bells)). Success labels come from the per-episode file names (`…-episode_N-success.mp4`).
+
+| Success — `CloseDrawer` (SR 1.0, 5/5) | Success — `TurnOnSinkFaucet` (SR 1.0, 5/5) |
+|---|---|
+| ![RLDX-1 Kitchen — close drawer (success)](showcase/rldx-kitchen/kitchen-close-drawer-success.gif) | ![RLDX-1 Kitchen — turn on sink faucet (success)](showcase/rldx-kitchen/kitchen-turn-on-sink-faucet-success.gif) |
+| MP4: [`rldx-kitchen/kitchen-close-drawer-success.mp4`](showcase/rldx-kitchen/kitchen-close-drawer-success.mp4) | MP4: [`rldx-kitchen/kitchen-turn-on-sink-faucet-success.mp4`](showcase/rldx-kitchen/kitchen-turn-on-sink-faucet-success.mp4) |
+| _Pushes the open drawer shut in 12 env-steps (episodes 12–30 steps)._ | _Lifts the faucet lever in 10 env-steps (episodes 10–21 steps)._ |
+
+| Success — `TurnOnStove` (SR 0.4, 2/5) | Failure — `TurnOnStove` (3/5 of this task, step-cap timeout) |
+|---|---|
+| ![RLDX-1 Kitchen — turn on stove (success)](showcase/rldx-kitchen/kitchen-turn-on-stove-success.gif) | ![RLDX-1 Kitchen — turn on stove (failure, timeout)](showcase/rldx-kitchen/kitchen-turn-on-stove-failure.gif) |
+| MP4: [`rldx-kitchen/kitchen-turn-on-stove-success.mp4`](showcase/rldx-kitchen/kitchen-turn-on-stove-success.mp4) | MP4: [`rldx-kitchen/kitchen-turn-on-stove-failure.mp4`](showcase/rldx-kitchen/kitchen-turn-on-stove-failure.mp4) (GIF is 3× speed) |
+| _The two successes take 7 and 14 env-steps._ | _The three misses all run the full 45-step cap without turning the knob far enough. The rotary knob is the hardest of the five articulated fixtures here._ |
+
+### `rldx-simpler` — Google Robot open / close drawer (SimplerEnv Fractal)
+
+Same RLDX-1 SimplerEnv target as in [pick and place](#rldx-simpler--rldx-1-rlwrld-on-simplerenv-google-fractal-real-robot-embodiment), `--task-set actions` run (ap-northeast-2, `g6.2xlarge`, 2026-11-02, run `2026-11-02-0850`, 2 tasks × 5 episodes): `google_robot_open_drawer` 0.4 (2/5) and `google_robot_close_drawer` 0.8 (4/5). Every miss runs the 150-step cap. Clips are slowed (rate overlaid top-left) because the episodes are short.
+
+| Success — `google_robot_open_drawer` (SR 0.4, 2/5), shown at 0.5× | Success — `google_robot_close_drawer` (SR 0.8, 4/5), shown at 0.25× |
+|---|---|
+| ![RLDX-1 — open drawer (SimplerEnv Fractal, success)](showcase/rldx-simpler/simpler-google-open-drawer-success.gif) | ![RLDX-1 — close drawer (SimplerEnv Fractal, success)](showcase/rldx-simpler/simpler-google-close-drawer-success.gif) |
+| MP4: [`rldx-simpler/simpler-google-open-drawer-success.mp4`](showcase/rldx-simpler/simpler-google-open-drawer-success.mp4) | MP4: [`rldx-simpler/simpler-google-close-drawer-success.mp4`](showcase/rldx-simpler/simpler-google-close-drawer-success.mp4) |
+| _54 env-steps; the other success took 100. Opening is the harder direction here._ | _12 env-steps; successes take 12–38 steps._ |
+
 ### `gr00t-gr1` — `PnPCanToDrawerClose` (not supported by N1.6)
 
 Same GR00T-GR1 run as in [pick and place](#gr00t-gr1--gr00t-n16-on-robocasa-gr1-humanoid-22-dof): the drawer-close task is outside what the pre-trained N1.6 checkpoint supports and consistently fails.
@@ -211,9 +239,71 @@ Same GR00T-GR1 run as in [pick and place](#gr00t-gr1--gr00t-n16-on-robocasa-gr1-
 
 ### `gr00t` — GR00T N1.7 on LIBERO-10 (Franka Panda)
 
-*Video capture pending — KITCHEN_SCENE3/4 success rate is `1.0` on the validated runs (see [Expected Results](results.md#expected-results)), but those rollout videos were not retained locally. Will backfill on the next `--vla gr00t` deploy.*
+Default LIBERO-10 tasks, both two-stage with a fixture motion (us-west-2, `g6.4xlarge`, run `2026-09-08-1949`): `KITCHEN_SCENE3` stove + moka pot 1.0 (5/5) and `KITCHEN_SCENE4` bowl into drawer + close 1.0 (3/3).
+
+| Success — `KITCHEN_SCENE3: turn on the stove and put the moka pot on it` (SR 1.0, 5/5) | Success — `KITCHEN_SCENE4: put the black bowl in the bottom drawer of the cabinet and close it` (SR 1.0, 3/3) |
+|---|---|
+| ![GR00T N1.7 — stove + moka pot (success)](showcase/gr00t/libero10-scene3-stove-moka-success.gif) | ![GR00T N1.7 — bowl into drawer + close (success)](showcase/gr00t/libero10-scene4-bowl-drawer-close-success.gif) |
+| MP4: [`gr00t/libero10-scene3-stove-moka-success.mp4`](showcase/gr00t/libero10-scene3-stove-moka-success.mp4) | MP4: [`gr00t/libero10-scene4-bowl-drawer-close-success.mp4`](showcase/gr00t/libero10-scene4-bowl-drawer-close-success.mp4) |
+
+**`--task-set actions` run** — single-motion LIBERO-Goal tasks on the `libero_goal` checkpoint of the same repo (ap-northeast-2, `g6.12xlarge`, 2026-11-02, run `2026-11-02-0851`, 3 tasks × 5 episodes): `open_the_middle_drawer_of_the_cabinet` 0.8 (4/5), `turn_on_the_stove` 1.0 (5/5) and `push_the_plate_to_the_front_of_the_stove` 1.0 (5/5, under [push](#push)). Video names end in `_s1` (success) or `_s0` (failure).
+
+| Success — `open the middle drawer of the cabinet` (SR 0.8, 4/5) | Success — `turn on the stove` (SR 1.0, 5/5) |
+|---|---|
+| ![GR00T N1.7 — open middle drawer (success)](showcase/gr00t/libero-goal-open-middle-drawer-success.gif) | ![GR00T N1.7 — turn on stove (success)](showcase/gr00t/libero-goal-turn-on-stove-success.gif) |
+| MP4: [`gr00t/libero-goal-open-middle-drawer-success.mp4`](showcase/gr00t/libero-goal-open-middle-drawer-success.mp4) | MP4: [`gr00t/libero-goal-turn-on-stove-success.mp4`](showcase/gr00t/libero-goal-turn-on-stove-success.mp4) |
+| _The one miss on this task runs the full 720-step cap._ | |
 
 Carries a `mujoco==3.3.1` pin (FIX 14, `sim_protect_pins`): mujoco 3.10.0 shipped 2026-06-22 — after this target validated 2026-04-27 — and its `mj_fullM` signature change breaks robosuite's call site, so `setup_libero.sh`'s own closing env check fails on a clean deploy without the pin (see [#4](https://github.com/aws-samples/sample-rfm-simulation-on-aws/issues/4)).
+
+## Press: buttons and bells
+
+Press a button or bell: a short, precise contact motion with no grasp.
+
+| `rldx-kitchen` — `CoffeePressButton` (SR 1.0, 5/5) · RoboCasa Kitchen, `g6.2xlarge`, run `2026-11-02-0850` | `lingbot-vla2` — RoboTwin `click_bell` (SR 1.0, 5/5) · `g6e.2xlarge`, run `2026-10-30-1728` |
+|---|---|
+| ![RLDX-1 Kitchen — coffee machine button (success)](showcase/rldx-kitchen/kitchen-coffee-press-button-success.gif) | ![LingBot-VLA 2 — click bell (success)](showcase/lingbot-vla2/robotwin-click-bell-success.gif) |
+| MP4: [`rldx-kitchen/kitchen-coffee-press-button-success.mp4`](showcase/rldx-kitchen/kitchen-coffee-press-button-success.mp4) | MP4: [`lingbot-vla2/robotwin-click-bell-success.mp4`](showcase/lingbot-vla2/robotwin-click-bell-success.mp4) |
+| _Every episode presses the start button in 8–9 env-steps._ | _`smolvla-robotwin` also scores 5/5 on this task in the same run._ |
+
+## Push
+
+Move an object by pushing it, without grasping it.
+
+### `gr00t` — `push the plate to the front of the stove` (LIBERO-Goal)
+
+Same `--task-set actions` run as in [articulated](#gr00t--gr00t-n17-on-libero-10-franka-panda) (ap-northeast-2, `g6.12xlarge`, run `2026-11-02-0851`): 1.0 (5/5).
+
+| Success — `push the plate to the front of the stove` (SR 1.0, 5/5) |
+|---|
+| ![GR00T N1.7 — push plate (success)](showcase/gr00t/libero-goal-push-plate-success.gif) |
+| MP4: [`gr00t/libero-goal-push-plate-success.mp4`](showcase/gr00t/libero-goal-push-plate-success.mp4) |
+
+## Bimanual
+
+Both arms act on the scene: one hands an object to the other, or both lift it together. RoboTwin 2.0 (`aloha-agilex` dual arm, clean setting), run `2026-10-30-1728` in ap-northeast-2. RoboTwin video names carry the episode index only; success labels below come from `eval_info.json` (`per_task[].metrics.successes`).
+
+| `lingbot-vla2` — `handover_block` (SR 1.0, 5/5) · `g6e.2xlarge` | `lingbot-vla2` — `lift_pot` (SR 0.6, 3/5) · `g6e.2xlarge` |
+|---|---|
+| ![LingBot-VLA 2 — handover block (success)](showcase/lingbot-vla2/robotwin-handover-block-success.gif) | ![LingBot-VLA 2 — lift pot (success)](showcase/lingbot-vla2/robotwin-lift-pot-success.gif) |
+| MP4: [`lingbot-vla2/robotwin-handover-block-success.mp4`](showcase/lingbot-vla2/robotwin-handover-block-success.mp4) (GIF is 1.5× speed) | MP4: [`lingbot-vla2/robotwin-lift-pot-success.mp4`](showcase/lingbot-vla2/robotwin-lift-pot-success.mp4) |
+| _One arm picks the block and passes it to the other, which places it on the target._ | _Both arms grip the pot handles and lift it together (episode 0, a success)._ |
+
+| Failure — `smolvla-robotwin` — `handover_block` (SR 0.0, 0/5) · `g6.2xlarge` |
+|---|
+| ![SmolVLA RoboTwin — handover block (failure)](showcase/smolvla-robotwin/robotwin-handover-block-failure.gif) |
+| MP4: [`smolvla-robotwin/robotwin-handover-block-failure.mp4`](showcase/smolvla-robotwin/robotwin-handover-block-failure.mp4) (GIF is 4× speed) |
+| _Same task and seeds, smaller policy: all five episodes miss. The handover is where the two RoboTwin policies differ most (5/5 vs 0/5)._ |
+
+## Tool use
+
+Grasp a tool and use it on another object. Same RoboTwin run as [bimanual](#bimanual).
+
+| `lingbot-vla2` — `beat_block_hammer` (SR 0.6, 3/5) · `g6e.2xlarge` | `lingbot-vla2` — `stamp_seal` (SR 0.8, 4/5) · `g6e.2xlarge` |
+|---|---|
+| ![LingBot-VLA 2 — beat block with hammer (success)](showcase/lingbot-vla2/robotwin-beat-block-hammer-success.gif) | ![LingBot-VLA 2 — stamp seal (success)](showcase/lingbot-vla2/robotwin-stamp-seal-success.gif) |
+| MP4: [`lingbot-vla2/robotwin-beat-block-hammer-success.mp4`](showcase/lingbot-vla2/robotwin-beat-block-hammer-success.mp4) | MP4: [`lingbot-vla2/robotwin-stamp-seal-success.mp4`](showcase/lingbot-vla2/robotwin-stamp-seal-success.mp4) |
+| _Episode 2 (a success): grasps the hammer and strikes the block. `smolvla-robotwin` scores 4/5 on this task._ | _Episode 0 (a success): grasps the seal and presses it onto the target. `smolvla-robotwin` scores 1/5._ |
 
 ## Locomotion: whole-body loco-manipulation
 

@@ -32,6 +32,8 @@
  *   npx cdk deploy Magma-Demo                  -c region=us-east-1 -c vla=magma
  *   npx cdk deploy UniVLA-Demo                 -c region=us-east-1 -c vla=univla
  *   npx cdk deploy GE-Act-Demo                 -c region=us-east-1 -c vla=ge-act
+ *   npx cdk deploy DINO-WM-Demo                -c region=us-east-1 -c vla=dino-wm
+ *   npx cdk deploy JEPA-WMs-Demo               -c region=us-east-1 -c vla=jepa-wms
  */
 
 import * as cdk from 'aws-cdk-lib';
@@ -44,9 +46,9 @@ const app = new cdk.App();
 const region = app.node.tryGetContext('region') ?? 'ap-northeast-2';
 const vla: string = app.node.tryGetContext('vla');
 
-if (!vla || !['gr00t', 'gr00t-bridge', 'gr00t-gr1', 'gr00t-g1', 'pi', 'openvla-oft', 'lap', 'rldx', 'rldx-simpler', 'rldx-bridge', 'rldx-gr1', 'rldx-kitchen', 'openarm-isaac', 'openarm-lift-act', 'molmoact2', 'xvla', 'smolvla', 'lingbot-va', 'vla-adapter', 'fastwam', 'cosmos-policy', 'aspire', 'real2sim', 'robolab-cosmos3', 'robolab-pi05', 'smolvla-robotwin', 'lingbot-vla2', 'rlinf-oft-libero', 'lerobot-gym', 'multitask-dit', 'spatialvla', 'magma', 'univla', 'ge-act'].includes(vla)) {
+if (!vla || !['gr00t', 'gr00t-bridge', 'gr00t-gr1', 'gr00t-g1', 'pi', 'openvla-oft', 'lap', 'rldx', 'rldx-simpler', 'rldx-bridge', 'rldx-gr1', 'rldx-kitchen', 'openarm-isaac', 'openarm-lift-act', 'molmoact2', 'xvla', 'smolvla', 'lingbot-va', 'vla-adapter', 'fastwam', 'cosmos-policy', 'aspire', 'real2sim', 'robolab-cosmos3', 'robolab-pi05', 'smolvla-robotwin', 'lingbot-vla2', 'rlinf-oft-libero', 'lerobot-gym', 'multitask-dit', 'spatialvla', 'magma', 'univla', 'ge-act', 'dino-wm', 'jepa-wms'].includes(vla)) {
   throw new Error(
-    'CDK context "vla" is required. Pass -c vla=gr00t, -c vla=gr00t-bridge, -c vla=gr00t-gr1, -c vla=gr00t-g1, -c vla=pi, -c vla=openvla-oft, -c vla=lap, -c vla=rldx, -c vla=rldx-simpler, -c vla=rldx-bridge, -c vla=rldx-gr1, -c vla=rldx-kitchen, -c vla=openarm-isaac, -c vla=openarm-lift-act, -c vla=molmoact2, -c vla=xvla, -c vla=smolvla, -c vla=lingbot-va, -c vla=vla-adapter, -c vla=fastwam, -c vla=cosmos-policy, -c vla=aspire, -c vla=real2sim, -c vla=robolab-cosmos3, -c vla=robolab-pi05, -c vla=smolvla-robotwin, -c vla=lingbot-vla2, -c vla=rlinf-oft-libero, -c vla=lerobot-gym, -c vla=multitask-dit, -c vla=spatialvla, -c vla=magma, -c vla=univla, or -c vla=ge-act.\n' +
+    'CDK context "vla" is required. Pass -c vla=gr00t, -c vla=gr00t-bridge, -c vla=gr00t-gr1, -c vla=gr00t-g1, -c vla=pi, -c vla=openvla-oft, -c vla=lap, -c vla=rldx, -c vla=rldx-simpler, -c vla=rldx-bridge, -c vla=rldx-gr1, -c vla=rldx-kitchen, -c vla=openarm-isaac, -c vla=openarm-lift-act, -c vla=molmoact2, -c vla=xvla, -c vla=smolvla, -c vla=lingbot-va, -c vla=vla-adapter, -c vla=fastwam, -c vla=cosmos-policy, -c vla=aspire, -c vla=real2sim, -c vla=robolab-cosmos3, -c vla=robolab-pi05, -c vla=smolvla-robotwin, -c vla=lingbot-vla2, -c vla=rlinf-oft-libero, -c vla=lerobot-gym, -c vla=multitask-dit, -c vla=spatialvla, -c vla=magma, -c vla=univla, -c vla=ge-act, -c vla=dino-wm, or -c vla=jepa-wms.\n' +
     'Use deploy.py which sets this automatically.',
   );
 }
@@ -117,6 +119,8 @@ const stackNameMap: Record<string, string> = {
   'magma':       'Magma-Demo',
   'univla':      'UniVLA-Demo',
   'ge-act':      'GE-Act-Demo',
+  'dino-wm':     'DINO-WM-Demo',
+  'jepa-wms':    'JEPA-WMs-Demo',
 };
 const stackName = stackNameMap[vla];
 
@@ -160,6 +164,8 @@ const descriptionMap: Record<string, string> = {
   'magma':       'Magma-8B zero-shot + SimplerEnv (WidowX Bridge / Google Robot, upstream SimplerEnv + the Magma plugin, in-process)',
   'univla':      'UniVLA (Emu3-8.5B world model + FAST action tokens) + LIBERO (Franka Panda, the authors evaluate_libero_emu loop, in-process)',
   'ge-act':      'GE-Act (Genie Envisioner, LTX-Video 2B world model + action expert, non-commercial) + LIBERO (Franka Panda, the authors eval_libero loop, in-process)',
+  'dino-wm':     'DINO-WM latent world-model planner (goal image, not language; DINOv2 features + MPC/CEM) + Push-T / Wall, the authors plan.py eval, in-process',
+  'jepa-wms':    'JEPA-WM latent world-model planner (goal image, not language; Meta FAIR, non-commercial) + Push-T / Wall, the authors evals.main planning eval, in-process',
 };
 
 const stack = new VlaSimulatorStack(app, stackName, {

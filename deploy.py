@@ -86,7 +86,8 @@ OTHER_LOCAL_STACKS = {"vla-adapter": "VLA-Adapter-Demo", "cosmos-policy": "Cosmo
                       "real2sim": "Real2Sim-Demo", "robolab-cosmos3": "RoboLab-Cosmos3-Demo",
                       "robolab-pi05": "RoboLab-Pi05-Demo", "rlinf-oft-libero": "RLinf-OFT-LIBERO-Demo",
                       "lerobot-gym": "LeRobot-Gym-Demo", "spatialvla": "SpatialVLA-Demo", "magma": "Magma-Demo",
-                      "univla": "UniVLA-Demo", "ge-act": "GE-Act-Demo"}
+                      "univla": "UniVLA-Demo", "ge-act": "GE-Act-Demo", "dino-wm": "DINO-WM-Demo",
+                      "jepa-wms": "JEPA-WMs-Demo"}
 # RLinf RL post-training targets (evaluate -> GRPO -> re-evaluate); --rl-profile picks models/<vla>.yaml profiles.
 RLINF_TARGETS = ("rlinf-oft-libero",)
 RL_PROFILES = ("smoke", "full")
@@ -926,6 +927,14 @@ def main():
         elif args.vla == "univla":
             print("  Estimated time: ~75-110 min (venv from the lock ~10-20 min + 18 GB of weights + 3 LIBERO-Goal tasks, "
                   "30 episodes of token-by-token decoding; estimate, not measured yet)")
+        elif args.vla == "dino-wm":
+            print("  Estimated time: ~2-5 h (venv ~5-10 min + 5.4 GB of downloads + 59 GB Wall unzip + MPC/CEM planning, "
+                  "20 episodes per environment, capped at 150 min per task; estimate, not measured yet — "
+                  "--task-set probe measures 2 episodes per environment)")
+        elif args.vla == "jepa-wms":
+            print("  Estimated time: ~1-3 h (venv ~5-10 min + 5 GB of downloads + 59 GB Wall unzip + CEM planning, "
+                  "20 episodes per task, capped at 120 min per task; estimate, not measured yet — "
+                  "--task-set probe measures 2 episodes per environment)")
         elif args.vla == "ge-act":
             print("  Estimated time: ~60-100 min (venv from the lock ~10-20 min + 21 GB LTX-Video parts + 4.2 GB GE-Act "
                   "checkpoint + 3 LIBERO-Goal tasks, 30 episodes; estimate, not measured yet)")

@@ -27,6 +27,7 @@ Usage:
     python generate.py --vla smolvla-robotwin [--robotwin-protocol subset|clean|randomized|full] [--robotwin-shard K/N]
     python generate.py --vla spatialvla  [--task-set bridge|actions]   # also: magma (SimplerEnv, authors' eval)
     python generate.py --vla univla      [--task-set actions]   # also: ge-act (LIBERO, authors' eval loop)
+    python generate.py --vla dino-wm     [--task-set pusht|wall]   # also: jepa-wms (latent world-model planners)
     python generate.py --vla rlinf-oft-libero [--rl-profile smoke|full] [--rl-steps N] [--rl-eval-run RUN_ID]
     python generate.py --judge-target flora-judge [--dry-run]   # post-run judge (deploy.py --judge)
 """
@@ -1457,6 +1458,208 @@ def generate_libero_own(config: dict, dry_run: bool, vla: str) -> str:
     return env.get_template("libero-own-userdata.sh.j2").render(**_with_protocol(ctx, config, card))
 
 
+# ── Latent world-model planners (shared templates/latent-wm-userdata.sh.j2) ─────────────────────────────────────
+# Not VLAs: an action-conditioned world model plus a CEM / MPC planner that searches actions toward a goal image
+# (no language). The authors' repository is cloned at a pinned commit, one venv comes from a lock file in
+# assets/latent-wm/, checkpoints and the authors' datasets (normalisation statistics, start / goal states) come from
+# pinned URLs (sha256-checked), and assets/latent-wm/wm_plan_runner.py runs the authors' planning eval per task entry
+# (models/dino-wm.yaml, models/jepa-wms.yaml).
+LATENT_WM_TARGETS = ("dino-wm", "jepa-wms")
+LATENT_WM_RUNNER = BASE_DIR / "assets" / "latent-wm" / "wm_plan_runner.py"
+# adapter -> environments it can run here -> what `model` names. PointMaze is left out: it needs mujoco-py + d4rl
+# (MuJoCo 2.1 binaries, Cython build) that neither lock installs.
+LATENT_WM_ENVS = {"dino-wm": ("pusht", "wall"), "jepa-wms": ("pusht", "wall")}
+LATENT_WM_JEPA_MODELS = ("jepa-wm", "dino-wm")
+_WM_SET_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_.]*=[A-Za-z0-9_.+-]*$")
+_WM_URL_RE = re.compile(r"^https://[A-Za-z0-9_.:/?&=%-]+$")
+_WM_GLOB_RE = re.compile(r"^[A-Za-z0-9_.*/-]+$")
+
+
+def _size_label(n: int) -> str:
+    return f"{n / 1e9:.2f} GB" if n >= 1e9 else f"{n / 1e6:.0f} MB" if n else "size n/a"
+
+
+def latent_wm_downloads(model: dict, vla: str) -> list:
+    """Validated `model.downloads` (url + sha256 + relative file, optional unzip_to / unzip_exclude / env / name).
+    Raises ValueError."""
+    out, names = [], set()
+    for i, d in enumerate(model.get("downloads") or []):
+        where = f"models/{vla}.yaml model.downloads[{i}]"
+        if not isinstance(d, dict):
+            raise ValueError(f"{where}: not a mapping")
+        if not _WM_URL_RE.match(str(d.get("url", ""))):
+            raise ValueError(f"{where}: url must be https:// with no quotes or spaces")
+        if not _SHA256_RE.match(str(d.get("sha256", ""))):
+            raise ValueError(f"{where}: sha256 must be 64 hex characters")
+        if not _REL_PATH_RE.match(str(d.get("file", ""))):
+            raise ValueError(f"{where}: file must be a relative path of [A-Za-z0-9_.-/]")
+        unzip_to = d.get("unzip_to") or ""
+        if unzip_to and not _REL_PATH_RE.match(str(unzip_to)):
+            raise ValueError(f"{where}: unzip_to must be a relative path")
+        excl = [str(p) for p in d.get("unzip_exclude") or []]
+        if any(not _WM_GLOB_RE.match(p) for p in excl) or (excl and not unzip_to):
+            raise ValueError(f"{where}: unzip_exclude needs unzip_to and plain glob patterns: {excl}")
+        env = d.get("env") or ""
+        if env and env not in {e for v in LATENT_WM_ENVS.values() for e in v}:
+            raise ValueError(f"{where}: env {env!r} is not a supported environment")
+        name = str(d.get("name") or "")
+        if name:
+            if name in names:
+                raise ValueError(f"{where}: name {name!r} is used twice")
+            names.add(name)
+        out.append(dict(name=name, url=str(d["url"]), sha256=str(d["sha256"]), file=str(d["file"]),
+                        size=int(d.get("size") or 0), unzip_to=str(unzip_to), unzip_exclude=excl, env=str(env),
+                        host=str(d["url"]).split("/")[2], size_label=_size_label(int(d.get("size") or 0))))
+    return out
+
+
+def latent_wm_tasks(config: dict, vla: str, downloads: list) -> list:
+    """Validated `tasks:` of a latent world-model yaml: env, model, env_name, n_episodes, seed, `set` overrides,
+    timeout_min, action_type; plus label / checkpoint / path_args for the template. Raises ValueError."""
+    model = config.get("model") or {}
+    adapter = model.get("adapter")
+    if adapter not in LATENT_WM_ENVS:
+        raise ValueError(f"models/{vla}.yaml: model.adapter must be one of {', '.join(LATENT_WM_ENVS)}")
+    tasks = config.get("tasks") or []
+    if not isinstance(tasks, list) or not tasks:
+        raise ValueError(f"models/{vla}.yaml has no tasks entry")
+    by_name = {d["name"]: d for d in downloads if d["name"]}
+    out, labels = [], set()
+    for i, t in enumerate(tasks):
+        where = f"models/{vla}.yaml tasks[{i}]"
+        if not isinstance(t, dict):
+            raise ValueError(f"{where}: not a mapping")
+        env = t.get("env")
+        if env not in LATENT_WM_ENVS[adapter]:
+            raise ValueError(f"{where}: env must be one of {', '.join(LATENT_WM_ENVS[adapter])} for {adapter}, "
+                             f"got {env!r}")
+        wm = str(t.get("model") or "")
+        if not _GYM_TOKEN_RE.match(wm):
+            raise ValueError(f"{where}: model is required ([A-Za-z0-9_.-])")
+        n = t.get("n_episodes")
+        if not isinstance(n, int) or isinstance(n, bool) or not 1 <= n <= 100:
+            raise ValueError(f"{where}: n_episodes must be an integer 1-100, got {n!r}")
+        seed = t.get("seed")
+        if not isinstance(seed, int) or isinstance(seed, bool) or seed < 0:
+            raise ValueError(f"{where}: seed must be a non-negative integer")
+        tmin = t.get("timeout_min", 120)
+        if not isinstance(tmin, int) or isinstance(tmin, bool) or not 5 <= tmin <= 600:
+            raise ValueError(f"{where}: timeout_min must be an integer 5-600")
+        sets = [str(s) for s in t.get("set") or []]
+        if any(not _WM_SET_RE.match(s) for s in sets):
+            raise ValueError(f"{where}: set entries must be key.path=value with plain tokens: {sets}")
+        if adapter == "jepa-wms":
+            if wm not in LATENT_WM_JEPA_MODELS:
+                raise ValueError(f"{where}: model must be one of {', '.join(LATENT_WM_JEPA_MODELS)} for jepa-wms")
+            ck = by_name.get(str(t.get("ckpt") or ""))
+            if not ck:
+                raise ValueError(f"{where}: ckpt must name a model.downloads entry")
+            path_args = ["--ckpt", f"@ASSETS@/{ck['file']}"]
+            checkpoint = f"{model.get('checkpoint_repo')}@{str(model.get('checkpoint_revision', ''))[:8]}/" \
+                         f"{ck['file'].split('/')[-1]}"
+        else:
+            if t.get("ckpt"):
+                raise ValueError(f"{where}: ckpt is a jepa-wms key; dino-wm reads model.ckpt_root")
+            path_args = ["--ckpt-root", f"@ASSETS@/{model.get('ckpt_root')}"]
+            checkpoint = f"{model.get('checkpoint_repo')}:{str(model.get('checkpoint_revision', ''))[:12]}/{wm}"
+        env_name = str(t.get("env_name") or env)
+        label = f"{env_name}--{wm}" if adapter == "jepa-wms" else env_name
+        if not _GYM_TOKEN_RE.match(label):
+            raise ValueError(f"{where}: env_name {env_name!r} has characters outside [A-Za-z0-9_.-]")
+        if label in labels:
+            raise ValueError(f"{where}: {label} is listed twice")
+        labels.add(label)
+        out.append(dict(env=env, model=wm, env_name=env_name, label=label, n_episodes=n, seed=seed, set=sets,
+                        timeout_min=tmin, path_args=path_args, checkpoint=checkpoint, ckpt=str(t.get("ckpt") or ""),
+                        description=str(t.get("description") or f"{env} ({wm})"),
+                        published=str(t.get("published") or ""),
+                        action_type=task_sets.action_type(dict(t, env_name=env_name))))
+    return out
+
+
+def generate_latent_wm(config: dict, dry_run: bool, vla: str) -> str:
+    """A latent world-model planner's own goal-image planning eval, in-process on one GPU
+    (assets/latent-wm/wm_plan_runner.py adapters)."""
+    model = config.get("model", {})
+    instance = config.get("instance", {})
+
+    def fail(msg):
+        print(f"[error] models/{vla}.yaml: {msg}", file=sys.stderr)
+        sys.exit(1)
+
+    for key in ("adapter", "code_repo", "code_commit", "dinov2_commit", "dinov2_weights", "python_version",
+                "requirements", "downloads", "checkpoint_repo", "checkpoint_revision", "model_kind"):
+        if not model.get(key):
+            fail(f"model.{key} is required")
+    for key in ("code_commit", "dinov2_commit"):
+        if not _COMMIT_RE.match(str(model[key])):
+            fail(f"model.{key} must be a 40-hex commit")
+    if model["adapter"] == "dino-wm" and not _REL_PATH_RE.match(str(model.get("ckpt_root") or "")):
+        fail("model.ckpt_root (relative folder holding outputs/<model>/) is required for dino-wm")
+    req = BASE_DIR / str(model["requirements"])
+    if not req.is_file():
+        fail(f"model.requirements {model['requirements']} not found")
+    try:
+        all_downloads = latent_wm_downloads(model, vla)
+        tasks = latent_wm_tasks(config, vla, all_downloads)
+    except ValueError as e:
+        print(f"[error] {e}", file=sys.stderr)
+        sys.exit(1)
+    envs = {t["env"] for t in tasks}
+    ckpts = {t["ckpt"] for t in tasks if t["ckpt"]}
+    ckpt_names = {d["name"] for d in all_downloads if d["name"].startswith("ckpt-")}
+    # skipped: env-scoped downloads of an environment no task runs, and named checkpoints (`ckpt-<x>`) no task uses
+    downloads = [d for d in all_downloads
+                 if (not d["env"] or d["env"] in envs) and (d["name"] not in ckpt_names or d["name"] in ckpts)]
+    weights = [d for d in downloads if d["name"] == str(model["dinov2_weights"])]
+    if not weights:
+        fail(f"model.dinov2_weights {model['dinov2_weights']!r} must name a model.downloads entry")
+    env_vars = {}
+    for k, v in (model.get("env") or {}).items():
+        if not _ENV_KEY_RE.match(str(k)) or not _SIMPLER_TOKEN_RE.match(str(v)):
+            fail(f"model.env {k}={v!r}: names [A-Z0-9_], values plain tokens")
+        env_vars[str(k)] = str(v)
+    imports = [str(x) for x in model.get("import_check") or []]
+    if any(not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_.]*", m) for m in imports):
+        fail(f"model.import_check entries must be module names: {imports}")
+    card_checkpoints = [dict(repo=str(model["checkpoint_repo"]), revision=str(model["checkpoint_revision"]))]
+    ctx = {
+        "vla": vla,
+        "task_set": config.get("task_set") or "",
+        "tasks_json": _tasks_json_for_bash(tasks),
+        "tasks": tasks,
+        "n_episodes_total": sum(t["n_episodes"] for t in tasks),
+        "display_name": _shell_safe(model.get("display_name", vla), "display_name"),
+        "policy_desc": _shell_safe(model.get("policy_desc", vla), "policy_desc"),
+        "license": _shell_safe(model.get("license", "see model card"), "license"),
+        "model_kind": _shell_safe(model["model_kind"], "model_kind"),
+        "code_repo": _shell_safe(model["code_repo"], "code_repo"),
+        "code_commit": model["code_commit"],
+        "dinov2_commit": model["dinov2_commit"],
+        "dinov2_weights_file": weights[0]["file"],
+        "dinov2_weights_name": weights[0]["file"].split("/")[-1],
+        "adapter": model["adapter"],
+        "downloads": downloads,
+        "card_checkpoints": card_checkpoints,
+        "env_vars": env_vars,
+        "python_version": _shell_safe(model["python_version"], "python_version"),
+        "requirements_name": req.name,
+        "requirements_b64": base64.encodebytes(req.read_bytes()).decode(),
+        "runner_b64": base64.encodebytes(LATENT_WM_RUNNER.read_bytes()).decode(),
+        "import_check_json": json.dumps(imports),
+        "eval_label": _shell_safe(model.get("eval_label", "authors planning eval"), "eval_label"),
+        "simulator_label": _shell_safe(model.get("simulator_label", "authors simulators"), "simulator_label"),
+        "video_label": _shell_safe(model.get("video_label", "simulator rollout"), "video_label"),
+        "min_gpu_mib": int(instance.get("min_gpu_mib", 15000)),
+        "min_host_mib": int(instance.get("min_host_mib", 15000)),
+    }
+    card = {"start_states": "the authors' planning episodes: start / goal pairs drawn with the task seed "
+                            "(Push-T: validation-set segments; Wall: random states)",
+            "checkpoints": card_checkpoints}
+    env = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)), keep_trailing_newline=True)  # nosec B701 - shell script template
+    return env.get_template("latent-wm-userdata.sh.j2").render(**_with_protocol(ctx, config, card))
+
+
 # Targets that run an upstream-LeRobot policy through `lerobot-eval --env.type=robotwin` (RoboTwin 2.0,
 # SAPIEN + CuRobo) with the shared lerobot-robotwin template. Adding one = models/<id>.yaml + the name maps.
 LEROBOT_ROBOTWIN_TARGETS = ("smolvla-robotwin", "lingbot-vla2")
@@ -2350,6 +2553,8 @@ def main():
         rendered = generate_simpler(config, args.dry_run, vla=args.vla)
     elif args.vla in LIBERO_OWN_TARGETS:
         rendered = generate_libero_own(config, args.dry_run, vla=args.vla)
+    elif args.vla in LATENT_WM_TARGETS:
+        rendered = generate_latent_wm(config, args.dry_run, vla=args.vla)
     elif args.vla in LEROBOT_ROBOTWIN_TARGETS:
         rendered = generate_lerobot_robotwin(config, args.dry_run, vla=args.vla,
                                              protocol=args.robotwin_protocol, shard=args.robotwin_shard)

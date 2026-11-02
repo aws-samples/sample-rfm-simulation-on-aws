@@ -1,0 +1,140 @@
+# DINO-WM (Zhou, Pan, LeCun, Pinto, "DINO-WM: World Models on Pre-trained Visual Features enable Zero-shot Planning",
+# arXiv:2411.04983) — the authors' planning eval on Push-T and Wall.
+#
+# NOT a VLA: a world-model planner, goal-image conditioned, not language. The world model predicts frozen DINOv2
+# ViT-S/14 patch features of the next frame from the current ones and an action (ViT predictor, 3-frame history for
+# Push-T, 1 for Wall); MPC + CEM samples action sequences and keeps those whose predicted final features are closest
+# to the goal image's. Success = the authors' state test (Push-T: agent + block position within 20 px and block
+# angle within pi/9 of the goal state; Wall: agent within 4.5 of the goal position).
+#
+# Repo:     https://github.com/gaoyuezhou/dino_wm (README "Plan with a DINO-WM": python plan.py --config-name
+#           plan_<env>.yaml model_name=<env>). Template: templates/latent-wm-userdata.sh.j2 (shared with jepa-wms)
+#           + assets/latent-wm/wm_plan_runner.py --adapter dino-wm (planning_main() unchanged; it only records the
+#           per-episode outcome of the final evaluation and renames the videos).
+# CLI:      python deploy.py --vla dino-wm [--task-set pusht|wall]
+#
+# Checkpoints: the README links them on OSF (project bmw48, folder checkpoints/outputs.zip, 953 MB): outputs/pusht,
+#   outputs/wall_single, outputs/point_maze, each hydra.yaml + checkpoints/model_latest.pth (pickled predictor,
+#   VQ-VAE decoder, action / proprio encoders; the DINOv2 encoder is not in it and is loaded through torch.hub).
+#   The zip's sha256 is the one OSF's file API reports; checked after download.
+# Datasets: also needed for planning — plan.py takes the action / state normalisation and (Push-T) the start / goal
+#   states from the validation split. OSF datasets/pusht_noise.zip (2.8 GB; only val/ and the train/*.pth statistics
+#   are extracted, the 7.3 GB of train videos and train/tokens.pth are never read) and datasets/wall_single.zip
+#   (1.7 GB, 59 GB unpacked: the val split is a seeded random subset of all episodes, so every episode is extracted).
+# Published (paper Table 1, MPC with CEM, 50 start / goal pairs per environment): PointMaze 0.98, Push-T 0.90,
+#   Wall 0.96. Table 8 (Push-T): open-loop CEM 0.86, GD 0.28, MPC 0.90.
+# Deviations from the authors' runs: n_evals 20 instead of 50 (cost); MPC is capped at planner.max_iter=5 replans —
+#   the released configs set max_iter: null, which replans until every episode has succeeded and so never ends while
+#   one episode keeps failing (planning/mpc.py). One MPC step executes goal_H=5 planned actions x frameskip 5 = 25
+#   simulator steps, so 5 replans = 125 steps (Push-T goals are 25 steps away in the dataset). Cost: every MPC step
+#   runs CEM (30 iterations x 300 samples x 5-step rollouts of a 588-token ViT for Push-T) for all 20 episodes, about
+#   60 TFLOP per episode-iteration in fp32 — the GPU sets the pace (estimate; measure with --task-set probe first).
+# PointMaze is not run: env/pointmaze needs d4rl + mujoco-py (MuJoCo 2.1 binaries); the runner stubs those two module
+#   names only so that `import env` registers Push-T and Wall.
+# License: MIT (dino_wm code; the checkpoints are released with it). DINOv2 code and weights: Apache-2.0.
+
+model:
+  id: dino-wm
+  display_name: "DINO-WM"
+  policy_desc: "DINO-WM world model (frozen DINOv2 ViT-S/14 patch features + ViT predictor) with MPC + CEM planning to a goal image"
+  model_kind: "world-model planner, goal-image conditioned, not language"
+  license: "MIT (dino_wm code and checkpoints); DINOv2 Apache-2.0"
+  adapter: dino-wm
+  code_repo: "https://github.com/gaoyuezhou/dino_wm.git"
+  code_commit: "0a9492fa12044b852ae9e001cc74604b79c8bb0c"     # main 2025-03-24 ("add checkpoints")
+  # The authors' code calls torch.hub.load("facebookresearch/dinov2", "dinov2_vits14") (models/dino.py), i.e. the
+  # moving main branch. Pinned to the last dinov2 commit before the checkpoints were trained (2024-09 .. 2025-01).
+  dinov2_commit: "e1277af2ba9496fbadf7aec6eba56e8d882d1e35"   # 2024-02-22
+  dinov2_weights: dinov2-vits14
+  python_version: "3.9"                                       # environment.yaml: python 3.9.19
+  requirements: "assets/latent-wm/dino-wm-requirements.txt"
+  checkpoint_repo: "osf.io/bmw48/checkpoints/outputs.zip"     # protocol card: where the weights come from
+  checkpoint_revision: "425b0d8c2a4194d3ec996b553575f69409aa5714176b063d8401789db9179482"   # its sha256
+  ckpt_root: dino_wm_ckpt                                     # unzip target; holds outputs/<model>/
+  eval_label: "dino_wm plan.py planning_main (conf/plan_<env>.yaml, MPC + CEM)"
+  simulator_label: "Push-T (pymunk 2D) / Wall (2D point agent), the authors env package, headless"
+  video_label: "top row simulator rollout, bottom row the world model decoded prediction, goal image in the right column"
+  # (not `plan` / `env`: env/__init__.py imports PointMaze's d4rl + mujoco-py, which the runner stubs at run time)
+  import_check: ["planning.mpc", "planning.cem", "planning.evaluator", "datasets.pusht_dset", "datasets.wall_dset",
+                 "models.visual_world_model", "decord", "accelerate", "hydra_plugins.hydra_submitit_launcher"]
+  downloads:
+    - name: dino-wm-checkpoints        # always fetched (one zip, every environment)
+      url: "https://osf.io/download/xvzs4/?view_only=a56a296ce3b24cceaf408383a175ce28"
+      sha256: "425b0d8c2a4194d3ec996b553575f69409aa5714176b063d8401789db9179482"
+      size: 953204628
+      file: dino_wm_ckpt.zip
+      unzip_to: dino_wm_ckpt
+    - env: pusht
+      url: "https://osf.io/download/k2d8w/?view_only=a56a296ce3b24cceaf408383a175ce28"
+      sha256: "442f5dee246edf670964ed7bdecd248683cd6d00580fa0e4d458abb53f92da08"
+      size: 2785304515
+      file: pusht_noise.zip
+      unzip_to: data
+      unzip_exclude: ["pusht_noise/train/obses/*", "pusht_noise/train/tokens.pth"]
+    - env: wall
+      url: "https://osf.io/download/49rnx/?view_only=a56a296ce3b24cceaf408383a175ce28"
+      sha256: "2b4ae4ed0ad03b337efac637f17752e7e7e27f864fec39dc25b51fef490c980d"
+      size: 1668205895
+      file: wall_single.zip
+      unzip_to: data
+    - name: dinov2-vits14
+      url: "https://dl.fbaipublicfiles.com/dinov2/dinov2_vits14/dinov2_vits14_pretrain.pth"
+      sha256: "b938bf1bc15cd2ec0feacfe3a1bb553fe8ea9ca46a7e1d8d00217f29aef60cd9"
+      size: 88283115
+      file: torch/dinov2_vits14_pretrain.pth
+  env:
+    OMP_NUM_THREADS: "4"
+    MPLCONFIGDIR: "/tmp/mplconfig"
+
+instance:
+  # ViT-S/14 encoder + a 6-layer ViT predictor: a few GB of GPU memory, but fp32 compute-bound (see Deviations), so
+  # the L40S of a g6e (about 3x the fp32 throughput of an L4) first. Push-T runs one simulator subprocess per episode
+  # (20 forked processes), so a 32 GB host. EBS: Wall unpacks to 59 GB.
+  preferred: [g6e.xlarge, g6.2xlarge, g5.2xlarge, g6e.2xlarge]
+  ebs_gb: 200
+  creationpolicy_timeout: PT360M   # setup ~25-35 min (venv, 5.4 GB of downloads, 59 GB unzip) + two tasks capped at 150 min each
+  min_gpu_mib: 15000
+  min_host_mib: 30000
+
+# Per task: env (pusht | wall), model = folder under outputs/ of the checkpoint zip, n_episodes (= the authors'
+# n_evals, start / goal pairs planned in parallel), seed (conf/plan_<env>.yaml default 99; episode i uses
+# seed * i + 1), set = Hydra overrides of conf/plan_<env>.yaml, timeout_min = wall-clock cap of the runner call.
+tasks:
+  - &pusht
+    env: pusht
+    model: pusht
+    env_name: pusht
+    action_type: push               # a round pusher moves the T block to the goal pose
+    n_episodes: 20
+    seed: 99
+    set: ["planner.max_iter=5"]
+    timeout_min: 150
+    description: "Push-T to a goal image (goal = a dataset state 25 steps ahead), MPC + CEM"
+    published: "0.90 (DINO-WM paper Table 1, MPC CEM, 50 pairs)"
+  - &wall
+    env: wall
+    model: wall_single
+    env_name: wall
+    action_type: navigation         # a point agent goes through the door of a wall to the goal position
+    n_episodes: 20
+    seed: 99
+    set: ["planner.max_iter=5"]
+    timeout_min: 150
+    description: "Wall: reach a goal image on the other side of a wall through its door, MPC + CEM"
+    published: "0.96 (DINO-WM paper Table 1, MPC CEM, 50 pairs)"
+
+task_sets:
+  pusht:
+    description: "Push-T only"
+    tasks: [*pusht]
+  wall:
+    description: "Wall only"
+    tasks: [*wall]
+  probe:
+    description: "2 episodes per environment, to measure time per episode before a full run"
+    tasks:
+      - {<<: *pusht, n_episodes: 2, timeout_min: 60}
+      - {<<: *wall, n_episodes: 2, timeout_min: 60}
+
+bridge:
+  enabled: false

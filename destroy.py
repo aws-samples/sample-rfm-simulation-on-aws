@@ -75,6 +75,8 @@ STACK_NAMES = {
     "magma": "Magma-Demo",
     "univla": "UniVLA-Demo",
     "ge-act": "GE-Act-Demo",
+    "dino-wm": "DINO-WM-Demo",
+    "jepa-wms": "JEPA-WMs-Demo",
 }
 
 

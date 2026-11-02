@@ -119,6 +119,21 @@ def stub_pointmaze_deps(notes: list) -> None:
         sys.modules["d4rl"].offline_env = off
 
 
+def init_cuda_first(notes: list) -> None:
+    """Create the CUDA context before decord / the env libraries load. On the g6e instance (L40S, torch 2.3.0+cu121)
+    dino_wm crashed with SIGSEGV inside torch.cuda._lazy_init when plan.py's torch.load first touched the GPU,
+    after decord had been imported (faulthandler stack, run 2026-11-02-2058); a fresh process that only imports
+    torch initialises CUDA fine. No-op on a CPU host."""
+    try:
+        import torch
+    except Exception:
+        return
+    if torch.cuda.is_available():
+        torch.cuda.init()
+        torch.zeros(1, device="cuda")
+        notes.append(f"CUDA initialised before decord/env imports ({torch.cuda.get_device_name(0)})")
+
+
 def shim_decord(notes: list) -> None:
     """decord has no wheel for some platforms (e.g. aarch64 CPU hosts used for a local smoke). The dino_wm Push-T
     dataset only calls VideoReader(path).get_batch(frames) -> THWC uint8 tensor; provide that through imageio.
@@ -364,6 +379,7 @@ def main(argv=None) -> int:
             raise SystemExit(f"--model must be one of {JEPA_WMS_MODELS} for jepa-wms")
     notes: list = []
     out = Path(a.out).resolve()
+    init_cuda_first(notes)
     res = run_dino_wm(a, sets, notes) if a.adapter == "dino-wm" else run_jepa_wms(a, sets, notes)
     out.mkdir(parents=True, exist_ok=True)
     (out / "results.json").write_text(json.dumps(res, indent=1))

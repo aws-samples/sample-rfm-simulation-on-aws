@@ -731,6 +731,19 @@ Not run on AWS yet. The reference numbers below are what the authors publish for
 
 Magma publishes per-task SimplerEnv rates only as a bar chart (paper Fig. 8), not as numbers, so its rows are suite averages. `success_rate` counts SimplerEnv's final success; the WidowX "grasp" columns are not recorded by the template.
 
+### LIBERO with the authors' own loop (`univla`, `ge-act`)
+
+Not run on AWS yet. Both authors publish suite averages only (no per-task numbers), so a first run of the three LIBERO-Goal tasks × 10 episodes can be put next to the LIBERO-Goal figure; at n = 10 per task the 95% interval is about ±0.3 ([targets note 20](targets.md#note-20-libero-with-the-authors-own-loop-univla-ge-act)).
+
+| `--vla` | Suite | Published | Source |
+|---|---|---|---|
+| `univla` | LIBERO-Goal | 92.6% | UniVLA README @a91ee5f2, LIBERO table, "img sft" row (the pinned `UNIVLA_LIBERO_IMG_BS192_8K`) |
+| `univla` | Spatial / Object / 10 / average | 97.0% / 99.0% / 90.8% / 94.8% | same |
+| `ge-act` | LIBERO-Goal | 95.8% | Genie-Envisioner experiments/RUN.md @d41358f7, LIBERO table |
+| `ge-act` | Object / 10 / Spatial / average | 97.6% / 94.4% / 98.2% / 96.5% | same |
+
+The authors' numbers use 50 episodes for every task of a suite (`num_trials_per_task=50` / `--num_trails_per_task 50`); the default runs here use init states 0-9 of three tasks.
+
 ### RoboLab (`robolab-cosmos3`, `robolab-pi05`)
 
 Reference numbers are from the public [RoboLab leaderboard](https://research.nvidia.com/labs/srl/projects/robolab/leaderboard.html) (`static/data/leaderboard.json` v76, generated 2026-10-23): RoboLab-120, 10 episodes per task, default instructions, success rate with a 95% Clopper-Pearson interval, Isaac Lab 2.2.0 / Isaac Sim 5.0.0. The measured column is filled by the first AWS run (STEP B). The default 12-task subset is **not** comparable to these rows; only the `edge-full` / `full` variants run the same protocol.

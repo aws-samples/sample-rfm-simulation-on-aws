@@ -55,6 +55,8 @@ Instance = the first entry of `instance.preferred` (the AZ selector may fall bac
 | `multitask-dit` (2 tasks × 5 ep) | `g6.xlarge` | ~14 min from run start to the last result, stack create / delete not included (measured 2026-11-02, ap-northeast-2) | ~0.20-0.40 |
 | `spatialvla` (4 SimplerEnv tasks, 93 ep) | `g6.xlarge` | ~60-90 min (estimate, not yet run) | ~0.80-1.21; ~1.00-1.48 in `ap-northeast-2` (US$0.9896 per hour there) |
 | `magma` (3 SimplerEnv tasks, 68 ep) | `g6.2xlarge` | ~75-120 min (estimate, not yet run) | ~1.22-1.96; ~1.50-2.40 in `ap-northeast-2` (US$1.20208 per hour there, Price List API 2026-11-02) |
+| `univla` (3 LIBERO-Goal tasks × 10 ep) | `g6.2xlarge` | ~75-110 min (estimate, not yet run) | ~1.22-1.79; ~1.50-2.20 in `ap-northeast-2` (US$1.20208 per hour there) |
+| `ge-act` (3 LIBERO-Goal tasks × 10 ep) | `g6.2xlarge` | ~60-100 min (estimate, not yet run) | ~0.98-1.63; ~1.20-2.00 in `ap-northeast-2` (US$1.20208 per hour there) |
 | `lingbot-va` | `g6e.2xlarge` | ~2.5 h (6 episodes) | ~5.61 |
 | `vla-adapter` | `g6.xlarge` | not recorded | 0.8048 per hour |
 | `fastwam` | `g6e.2xlarge` | ~30-40 min | ~1.12-1.49 |

@@ -19,7 +19,7 @@ More clips, failure cases and full-quality MP4s: [docs/showcase.md](docs/showcas
 
 ## What's inside
 
-- **20 `--vla` targets** (23 stacks counting the four OpenVLA-OFT suites): VLAs, world action models, an LLM-agent policy and two Isaac Lab OpenArm targets ([full list](docs/targets.md)), plus **1 post-run judge target**, `flora-judge` (NVIDIA Flora-Rewarder, **NC**), which scores the videos of a finished run ([judge](docs/targets.md#post-run-judge-flora-rewarder)).
+- **20 `--vla` targets** (23 stacks counting the four OpenVLA-OFT suites): VLAs, world action models, two goal-image world-model planners (`dino-wm`, `jepa-wms`; not language-conditioned), an LLM-agent policy and two Isaac Lab OpenArm targets ([full list](docs/targets.md)), plus **1 post-run judge target**, `flora-judge` (NVIDIA Flora-Rewarder, **NC**), which scores the videos of a finished run ([judge](docs/targets.md#post-run-judge-flora-rewarder)).
 - **One CLI** (`vlasim.py`): `doctor` preflight, `init`, `deploy`, `destroy`, `results`, `gallery` and `judge`. It runs on the Python standard library, so `doctor` works before anything is installed.
 - **More than pick-and-place**: `--task-set actions` runs the doors, drawers, knobs, buttons, bimanual handover and tool-use tasks the pinned checkpoints of `rldx-kitchen`, `rldx-simpler`, `gr00t`, the two RoboTwin targets, `spatialvla` / `magma` (SimplerEnv drawers) and `univla` / `ge-act` (LIBERO-Goal drawer, stove, push plate) were trained or evaluated on, and `--vla lerobot-gym` runs LeRobot's ACT (ALOHA bimanual insertion and cube transfer) and Diffusion Policy (Push-T) checkpoints; every task carries an `action_type` tag in `summary.txt` and `vlasim results` ([task sets](docs/targets.md#task-sets-and-action-types), [showcase by action type](docs/showcase.md)).
 - **Reproducible stacks**: model checkpoints, upstream repos and simulator dependencies are pinned per target; each `summary.txt` records a stack fingerprint.
@@ -154,6 +154,8 @@ Instance = first choice in `models/<target>.yaml`; the deploy falls back to othe
 | `magma` | Magma-8B zero-shot (MIT), the authors' SimplerEnv eval | SimplerEnv WidowX + Google Robot | `g6.2xlarge` |
 | `univla` | UniVLA (BAAI Emu3-8.5B world model, Apache-2.0 weights), the authors' LIBERO loop | LIBERO-Goal | `g6e.xlarge` |
 | `ge-act` | GE-Act (AgiBot Genie Envisioner, non-commercial), the authors' LIBERO loop | LIBERO-Goal | `g6.2xlarge` |
+| `dino-wm` | DINO-WM latent world model + MPC / CEM — a **world-model planner, goal-image conditioned, not language** (MIT), the authors' planning eval | Push-T, Wall (2D) | `g6e.xlarge` |
+| `jepa-wms` | JEPA-WM latent world model + CEM (Meta FAIR, non-commercial) — **goal-image planner, not language**; `--task-set compare` adds the authors' DINO-WM baseline | Push-T, Wall (2D) | `g6.xlarge` |
 
 Stack names, robots, per-target notes, deploy and cleanup commands: [docs/targets.md](docs/targets.md). Measured success rates: [docs/results.md](docs/results.md).
 

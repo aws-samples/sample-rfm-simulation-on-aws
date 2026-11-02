@@ -57,6 +57,8 @@ Instance = the first entry of `instance.preferred` (the AZ selector may fall bac
 | `magma` (3 SimplerEnv tasks, 68 ep) | `g6.2xlarge` | ~83 min from run start to the last result (`--task-set actions`, 27 ep: ~79 min), stack create / delete not included (measured 2026-11-02, ap-northeast-2) | ~1.66 in `ap-northeast-2` (US$1.20208 per hour there, Price List API 2026-11-02; `actions` ~1.58) |
 | `univla` (3 LIBERO-Goal tasks × 10 ep) | `g6e.xlarge` (24 GB L4 = CUDA OOM, measured) | ~12 min from run start to the last result (`--task-set actions`: ~14 min), stack create / delete not included (measured 2026-11-02, ap-northeast-2) | ~0.46-0.53 in `ap-northeast-2` (US$2.288 per hour there) |
 | `ge-act` (3 LIBERO-Goal tasks × 10 ep) | `g6.2xlarge` | ~22 min from run start to the last result (`--task-set actions`: ~19 min), stack create / delete not included (measured 2026-11-02, ap-northeast-2) | ~0.38-0.44 in `ap-northeast-2` (US$1.20208 per hour there) |
+| `dino-wm` (Push-T + Wall, 20 planning episodes each) | `g6e.xlarge` | ~2-5 h estimate (setup ~25-35 min incl. a 59 GB dataset unzip; MPC + CEM in fp32, each task capped at 150 min; not measured yet — `--task-set probe` measures 2 episodes per environment) | ~4.6-11.4 in `ap-northeast-2` (US$2.288 per hour there) |
+| `jepa-wms` (Push-T + Wall, 20 planning episodes each) | `g6.xlarge` | ~1-3 h estimate (setup ~25-35 min; CEM, one plan per episode, each task capped at 120 min; not measured yet) | ~1.0-3.0 in `ap-northeast-2` (US$0.9896 per hour there) |
 | `lingbot-va` | `g6e.2xlarge` | ~2.5 h (6 episodes) | ~5.61 |
 | `vla-adapter` | `g6.xlarge` | not recorded | 0.8048 per hour |
 | `fastwam` | `g6e.2xlarge` | ~30-40 min | ~1.12-1.49 |

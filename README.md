@@ -150,6 +150,8 @@ Instance = first choice in `models/<target>.yaml`; the deploy falls back to othe
 | `rlinf-oft-libero` | OpenVLA-OFT-7B one-demo SFT, **improved with RL** (RLinf GRPO): eval → train → re-eval | LIBERO-Goal (also 10 / Object) | `g6e.8xlarge` (`smoke`, 1 GPU) / `p5.48xlarge` or `g6e.48xlarge` (`--rl-profile full`, 8 GPU) |
 | `lerobot-gym` | ACT (ALOHA insertion, cube transfer) + Diffusion Policy (Push-T), LeRobot reference checkpoints | gym-aloha bimanual (MuJoCo) + gym-pusht | `g6.xlarge` |
 | `multitask-dit` | LBM-style Multi-task DiT (LeRobot port, community checkpoint; not TRI weights) | LIBERO-10 | `g6.xlarge` |
+| `spatialvla` | SpatialVLA-4B zero-shot (MIT), the authors' SimplerEnv eval | SimplerEnv Google Robot + WidowX (visual matching) | `g6.xlarge` |
+| `magma` | Magma-8B zero-shot (MIT), the authors' SimplerEnv eval | SimplerEnv WidowX + Google Robot | `g6.2xlarge` |
 
 Stack names, robots, per-target notes, deploy and cleanup commands: [docs/targets.md](docs/targets.md). Measured success rates: [docs/results.md](docs/results.md).
 

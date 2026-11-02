@@ -39,6 +39,8 @@ Each target is one `--vla <target>` value for `python vlasim.py deploy` / `destr
 | `rlinf-oft-libero` | — | OpenVLA-OFT-7B one-demo SFT (`Haozhan72/Openvla-oft-SFT-libero-goal-traj1`) **improved with RL** (RLinf GRPO)[¹⁶](#note-16-rl-post-training-with-rlinf-rlinf-oft-libero) | LIBERO-Goal: eval of the SFT checkpoint, GRPO training, eval of the RL checkpoint (same protocol) | Franka Panda (7-DOF) | `RLinf-OFT-LIBERO-Demo` |
 | `lerobot-gym` | — | LeRobot reference policies, one checkpoint per task: ACT (`lerobot/act_aloha_sim_insertion_human`, `lerobot/act_aloha_sim_transfer_cube_human`) and Diffusion Policy (`lerobot/diffusion_pusht`)[¹⁷](#note-17-lerobot-gym-act-on-aloha-diffusion-policy-on-push-t) | gym-aloha `AlohaInsertion-v0` (bimanual peg insertion), `AlohaTransferCube-v0` (bimanual cube transfer); gym-pusht `PushT-v0` (planar pushing) | ALOHA dual arm (2 × 6-DOF + grippers, MuJoCo) / 2-D point pusher | `LeRobot-Gym-Demo` |
 | `multitask-dit` | — | LBM-style Multi-task DiT (LeRobot `multi_task_dit` port; community LIBERO-10 checkpoint, **not TRI weights**)[¹⁸](#note-18-multitask-dit-lbm-style-multi-task-dit-not-tri-weights) | LIBERO-10: stove + moka pot, bowl into drawer + close | Franka Panda (7-DOF) | `MultiTask-DiT-Demo` |
+| `spatialvla` | — | SpatialVLA-4B zero-shot (`IPEC-COMMUNITY/spatialvla-4b-224-pt`, MIT), the authors' SimplerEnv eval[¹⁹](#note-19-simplerenv-with-the-authors-own-eval-spatialvla-magma) | SimplerEnv visual matching: Google pick coke can, move near (`--task-set actions`: open / close drawer); WidowX carrot on plate, eggplant in basket | Google Robot (Fractal) / WidowX 250 | `SpatialVLA-Demo` |
+| `magma` | — | Magma-8B zero-shot (`microsoft/Magma-8B`, MIT), the authors' SimplerEnv eval[¹⁹](#note-19-simplerenv-with-the-authors-own-eval-spatialvla-magma) | SimplerEnv: WidowX carrot on plate, eggplant in basket; Google move near (`--task-set actions`: open the drawer and put the apple in) | WidowX 250 / Google Robot (Fractal) | `Magma-Demo` |
 
 ## Notes
 
@@ -276,6 +278,29 @@ TRI's Large Behavior Model ([arXiv 2507.05331](https://arxiv.org/abs/2507.05331)
 - **Measured (ap-northeast-2, `g6.xlarge`, 2026-11-02, run `2026-11-02-0931`).** LIBERO-10 tasks 2 and 3 × 5 episodes = 0/10 (max reward 0 in every episode). The pipeline runs end to end (10 videos, `eval_info.json`, `summary.txt`); the score reflects the short community training run, not the policy class. See [results](results.md#lerobot-gym-and-multi-task-dit-lerobot-gym-multitask-dit).
 - **Not added.** `TRI-ML/multitask-dit-robosuite-wrist-diffusion-064000` (TRI's verified Hub org, 95.6% over 90 robosuite episodes on its card) is trained on robosuite Lift / PickPlaceCan / NutAssemblySquare with a 32-D state from the dataset `TRI-ML/PretrainFinetune`; LeRobot has no robosuite env type at the pin, so it cannot be evaluated with `lerobot-eval`. A train-then-evaluate path (`lerobot-train` on LIBERO) does not fit the existing templates cheaply: the documented recipe is 100k steps at batch size 320.
 
+### Note 19: SimplerEnv with the authors' own eval (spatialvla, magma)
+
+Both targets run the SimplerEnv evaluation the model authors publish, not a re-implementation, through one shared template (`templates/simpler-userdata.sh.j2`): a SimplerEnv checkout at a pinned commit (with its `ManiSkill2_real2sim` submodule, checked after the clone), the authors' plugin copied over it where they ship one, one Python 3.10 venv installed from a lock file in [`assets/simpler/`](../assets/simpler/) (the `.in` next to it is the input; recompile with the `uv pip compile` line in its header), and one `main_inference` call per task variant. Each `tasks:` entry carries the arguments of the authors' script (named in its `source:` field) minus the five the template sets (`--policy-model`, `--ckpt-path`, `--policy-setup`, `--env-name`, `--logging-dir`). SimplerEnv writes one video per episode named `success_…` / `failure_…`; the template counts them, uploads them as `<task>--<success|failure>-NNN.mp4`, and fails the run if the count differs from the episodes the arguments define (`generate.simpler_episode_count`: robot-pose grid × object grid or episode range).
+
+| | `spatialvla` | `magma` |
+|---|---|---|
+| Checkpoint | `IPEC-COMMUNITY/spatialvla-4b-224-pt @886c4557` (the one `scripts/run_spatialvla.sh` evaluates; README "SpatialVLA (zero-shot)" rows) | `microsoft/Magma-8B @4159b1de` (pretrained; card "SE-Google Robot 52.3 / SE-Bridge 35.4") |
+| Harness | `DelinQu/SimplerEnv-OpenVLA @32143c81` (SpatialVLA README: "We release the SimplerEnv evaluation code for SpatialVLA based on DelinQu/SimplerEnv-OpenVLA"); ManiSkill2_real2sim `@cd45dd27` | `simpler-env/SimplerEnv @d55e1916` + `microsoft/Magma @e3737803` `tools/simplerenv-magma/simpler_env` copied over `simpler_env/` (Magma README "Evaluation with SimplerEnv"); ManiSkill2_real2sim `@ef7a4d4f` |
+| Entry | `simpler_env/main_inference.py --policy-model spatialvla --action-ensemble-temp -0.8` | `simpler_env/main_inference_magma.py --policy-model magma` |
+| venv | torch 2.5.1, transformers 4.47.0 (SpatialVLA `requirements.txt`), tensorflow 2.15.0, sapien 2.2.2 | torch 2.3.1, transformers fork `jwyang/transformers@1708d3ca` (`dev/jwyang-v4.48.2`; the Magma-8B card says the fork is required), flash-attn 2.6.3 wheel, open_clip_torch 2.30.0, tensorflow 2.15.0, sapien 2.2.2 |
+| Default run | pick coke can (1 of the script's 12 configs, 25 ep), move near (episodes 0-19 of 60), carrot on plate (24), eggplant in basket (24) = 93 episodes | carrot on plate (24), eggplant in basket (24), move near (episodes 0-19 of 60) = 68 episodes |
+| `--task-set bridge` | all four WidowX tasks of `scripts/bridge.sh`, 4 × 24 | all four of Magma's `bridge.sh`, 4 × 24 |
+| `--task-set actions` | open / close top drawer, 9 robot positions each (`drawer_visual_matching.sh`, first URDF variant, ray tracing on) | open the top drawer and put the apple in, 3 positions × 9 apple spots (`put_drawer_visual_matching.sh`, first URDF variant) |
+| Instance | `g6.xlarge` (8.09 GB bf16 weights, 8.5 GB inference per the README) | `g6.2xlarge` (17.8 GB bf16 weights exceed the 16 GB host RAM of an xlarge; the load also reads the 4.8 GB `laion/CLIP-convnext_xxlarge` tower, prefetched at `@51633fd7`) |
+
+- **Harness pin for `spatialvla`.** The fork is pinned to `32143c81` (2025-03-24), not its `main` (`ccfe3809`): from `879f73c` (2025-05-19) the fork's `maniskill2_evaluator.py` passes `eef_pos=obs["agent"]["eef_pos"]` to the policy, a key only newer `allenzren/ManiSkill2_real2sim` commits provide, while the submodule gitlink stays at `cd45dd27`, so a recursive clone of `main` fails on the first step. `32143c81` → `ccfe3809` changes no SpatialVLA file and no task script, only that line.
+- **Remote code.** Both checkpoints load with `trust_remote_code`. The checkpoint files come from the pinned revision; Magma's `config.json` names its code as `microsoft/Magma-8B--modeling_magma...`, so transformers fetches the modeling code from the Hub's `main` (the same commit as the pin on 2026-11-02).
+- **Changes to the authors' commands.** None to the arguments. Magma's scripts give overlay paths as `./SimplerEnv/ManiSkill2_real2sim/...` (run from the parent of the checkout); the template runs from the checkout, so they start with `./ManiSkill2_real2sim/`. `gymnasium` is pinned to 0.29.1: the fork's ManiSkill2_real2sim `@cd45dd27` asks for `gymnasium>=0.28.1` and an unpinned resolve picks 1.x; upstream capped it below 1.0 in `ef7a4d4` ("fix gym version <1.0").
+- **Subsets.** Defaults are cut so a run finishes in about an hour; every cut is written in the task's `source:` field and in `summary.txt`. Published numbers average over the full protocol (all URDF / orientation variants, all 60 move-near episodes), so a default run is a spot check, not a reproduction.
+- **Randomness.** SimplerEnv has no seed flag: start states are the fixed grids / episode ids in the arguments (`seeds.py` records `not-controllable`). SpatialVLA decodes greedily; Magma samples its action tokens (temperature 0.7, no seed), so its runs can differ episode by episode.
+- **Not measured yet.** Neither target has been deployed; the instance sizes, timeouts and time estimates come from the model sizes, not from a run.
+- **Dropped: CogACT.** `CogACT/CogACT-Base` (MIT) has an official SimplerEnv plugin (`microsoft/CogACT` `sim_cogact`, README "Evaluation in SIMPLER"), but loading it builds the Prismatic `llama2-7b-pure` backbone from `meta-llama/Llama-2-7b-hf` (config + tokenizer, `prismatic/models/backbones/llm/base_llm.py`), a gated repo under the Llama 2 license, so every user would need an approved HF token; and the authors' `main_inference.py` snippet runs the 30.5 GB fp32 `.pt` without `use_bf16`, which does not fit a 24 GB GPU. A follow-up can add it with an HF-token path (`g6e`, ≥ 64 GB host RAM).
+
 ## Task sets and action types
 
 Most benchmarks default to pick-and-place, but several pinned checkpoints were trained (and are evaluated upstream) on other motions too. `--task-set NAME` runs `task_sets.NAME` of `models/<target>.yaml` instead of its `tasks:` list, on the same stack, results bucket, template and checkpoint revision; `actions` is the set of those non-pick-and-place tasks:
@@ -287,6 +312,8 @@ python vlasim.py deploy --vla gr00t --task-set actions              # LIBERO-Goa
 python vlasim.py deploy --vla lingbot-vla2 --task-set actions       # RoboTwin: handover, lift, bell, switch, alarm, hammer, stamp
 python vlasim.py deploy --vla smolvla-robotwin --task-set actions   # same 7 RoboTwin tasks
 python vlasim.py deploy --vla lerobot-gym --task-set aloha          # ACT: ALOHA bimanual insertion, cube transfer
+python vlasim.py deploy --vla spatialvla --task-set actions         # SimplerEnv Google robot: open / close the top drawer
+python vlasim.py deploy --vla magma --task-set actions              # SimplerEnv Google robot: open the drawer, put the apple in
 ```
 
 `lerobot-gym` has no pick-and-place task at all, so its sets split it by simulator (`aloha`, `pusht`) instead of having an `actions` set.
@@ -318,6 +345,8 @@ python vlasim.py deploy --vla lerobot-gym --task-set aloha          # ACT: ALOHA
 | | `beat_block_hammer`, `stamp_seal` | tool-use | default subset |
 | `lerobot-gym` (default run) | `AlohaInsertion-v0`, `AlohaTransferCube-v0` | bimanual | single-task ACT checkpoints trained on these sims (human demos); [Note 17](#note-17-lerobot-gym-act-on-aloha-diffusion-policy-on-push-t) |
 | | `PushT-v0` | push | single-task Diffusion Policy checkpoint trained on Push-T |
+| `spatialvla` | `OpenTopDrawerCustomInScene-v0`, `CloseTopDrawerCustomInScene-v0` | articulated | `scripts/drawer_visual_matching.sh` of the authors' harness; README Google "Open/Close Drawer" 59.3% (visual matching, zero-shot) |
+| `magma` | `PlaceIntoClosedTopDrawerCustomInScene-v0` | articulated | Magma's own `put_drawer_visual_matching.sh` (the drawer is opened before the apple goes in) |
 
 The default `gr00t` LIBERO-10 tasks (stove + moka pot, bowl into drawer + close) and the `rldx` / `rldx-gr1` microwave and drawer tasks are tagged `articulated` too: the [showcase](showcase.md) groups its clips by these tags.
 
@@ -426,6 +455,8 @@ does not have to exist any more (its bucket is retained); the gallery score badg
 | `lingbot-vla2` | `g6e.2xlarge` → `g6e.4xlarge` | 250 |
 | `lerobot-gym` | `g6.xlarge` → `g5.xlarge` → `g6.2xlarge` → `g5.2xlarge` | 100 |
 | `multitask-dit` | `g6.xlarge` → `g5.xlarge` → `g6.2xlarge` → `g5.2xlarge` | 120 |
+| `spatialvla` | `g6.xlarge` → `g5.xlarge` → `g6.2xlarge` → `g5.2xlarge` | 120 |
+| `magma` | `g6.2xlarge` → `g5.2xlarge` → `g6e.xlarge` → `g6.4xlarge` | 150 |
 | `rlinf-oft-libero` | `smoke` (default, 1 GPU): `g6e.8xlarge` → `g6e.4xlarge` → `g6e.16xlarge` → `p5.4xlarge`; `full` (8 GPU): `p5.48xlarge` → `p4de.24xlarge` → `p5en.48xlarge` | 500 / 1500 |
 | `flora-judge` ([post-run judge](#post-run-judge-flora-rewarder)) | `g7e.2xlarge` → `g7e.4xlarge` → `g6e.12xlarge` → `p5.4xlarge` | 250 |
 
@@ -480,6 +511,10 @@ python vlasim.py deploy --vla aspire --email you@example.com         # ASPIRE ag
 
 # LeRobot gym sims (Apache-2.0): ACT on ALOHA (bimanual insertion, cube transfer) + Diffusion Policy on Push-T (~30-60 min, estimate)
 python vlasim.py deploy --vla lerobot-gym --email you@example.com
+
+# SimplerEnv with the authors' own eval (MIT; estimates, not measured yet)
+python vlasim.py deploy --vla spatialvla --email you@example.com   # SpatialVLA-4B zero-shot: Google + WidowX, 93 ep (~60-90 min)
+python vlasim.py deploy --vla magma --email you@example.com        # Magma-8B zero-shot: WidowX + Google, 68 ep (~75-120 min)
 
 # Real2Sim — capture -> 3DGS -> collision meshes -> MuJoCo grasp replay (~12 min measured, not a policy)
 # Default input HOPE-Video is CC BY-NC-SA 4.0 (non-commercial); your own capture: input.* in models/real2sim.yaml

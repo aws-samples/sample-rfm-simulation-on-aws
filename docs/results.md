@@ -713,6 +713,24 @@ First AWS runs, ap-northeast-2, `g6.xlarge`, 2026-11-02, seed 1000. Success is `
 
 The two ACT hub repos ship byte-identical `eval_info.json` files (83.0%, 500 episodes), so they do not give a per-task number; the paper's table is used instead. The ACT paper trained its own policies (3 seeds) rather than these LeRobot checkpoints. `lerobot-gym` took about 13 minutes from run start to the last result for all 30 episodes; `multitask-dit` about 14 minutes for 10 episodes.
 
+### SimplerEnv with the authors' own eval (`spatialvla`, `magma`)
+
+Not run on AWS yet. The reference numbers below are what the authors publish for the pinned checkpoints, so a first run can be put next to them; a default run uses one URDF variant per task and 20 of the 60 move-near episodes ([targets note 19](targets.md#note-19-simplerenv-with-the-authors-own-eval-spatialvla-magma)), so expect differences of the size of the 95% interval at n = 20-25 (about ±0.2).
+
+| `--vla` | Task (`env_name` in `summary.txt`) | Published (zero-shot) | Source |
+|---|---|---|---|
+| `spatialvla` | `google_robot_pick_coke_can` | 81.0% visual matching, 89.5% variant aggregation | SpatialVLA README @18fd74b2, Google Robot table, "SpatialVLA (zero-shot)" |
+| `spatialvla` | `google_robot_move_near` | 69.6% VM, 71.7% VA | same |
+| `spatialvla` | `google_robot_open_top_drawer` / `_close_top_drawer` (`--task-set actions`) | 59.3% VM, 36.2% VA (open / close drawer, all drawers) | same |
+| `spatialvla` | `widowx_spoon_on_towel` | 20.8% success (25.0% grasp) | SpatialVLA README, WidowX table |
+| `spatialvla` | `widowx_carrot_on_plate` | 20.8% (41.7% grasp) | same |
+| `spatialvla` | `widowx_stack_green_on_yellow_block` | 25.0% (58.3% grasp) | same |
+| `spatialvla` | `widowx_put_eggplant_in_basket` | 70.8% (79.2% grasp) | same; overall WidowX 34.4% |
+| `magma` | WidowX Bridge, 4 tasks | 35.4% average | `microsoft/Magma-8B` card ("SE-Bridge"); paper arXiv:2502.13130 Table 3, "Magma-8B (Full) with SoM+ToM" |
+| `magma` | Google Robot | 52.3% average | same ("SE-Google Robot") |
+
+Magma publishes per-task SimplerEnv rates only as a bar chart (paper Fig. 8), not as numbers, so its rows are suite averages. `success_rate` counts SimplerEnv's final success; the WidowX "grasp" columns are not recorded by the template.
+
 ### RoboLab (`robolab-cosmos3`, `robolab-pi05`)
 
 Reference numbers are from the public [RoboLab leaderboard](https://research.nvidia.com/labs/srl/projects/robolab/leaderboard.html) (`static/data/leaderboard.json` v76, generated 2026-10-23): RoboLab-120, 10 episodes per task, default instructions, success rate with a 95% Clopper-Pearson interval, Isaac Lab 2.2.0 / Isaac Sim 5.0.0. The measured column is filled by the first AWS run (STEP B). The default 12-task subset is **not** comparable to these rows; only the `edge-full` / `full` variants run the same protocol.

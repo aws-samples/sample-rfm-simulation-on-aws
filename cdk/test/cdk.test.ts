@@ -68,6 +68,21 @@ test('yaml-driven targets launch their own preferred instance list', () => {
   });
 });
 
+// lerobot-gym (ACT on gym-aloha, Diffusion Policy on gym-pusht): smallest GPU tier, its own stack and bucket.
+test('lerobot-gym launches the smallest GPU tier with its yaml timeout and EBS size', () => {
+  const app = new cdk.App({ context: { region: 'ap-northeast-2', vla: 'lerobot-gym', notify_email: 'test@example.com' } });
+  const stack = new VlaSimulatorStack(app, 'LeRobot-Gym-Demo', {
+    vla: 'lerobot-gym',
+    env: { account: '123456789012', region: 'ap-northeast-2' },
+  });
+  const template = Template.fromStack(stack);
+  template.hasResourceProperties('AWS::CloudFormation::CustomResource', {
+    InstanceTypes: 'g6.xlarge,g5.xlarge,g6.2xlarge,g5.2xlarge', EbsGb: '100',
+  });
+  template.hasResourceProperties('AWS::CloudFormation::WaitCondition', { Timeout: String(120 * 60) });
+  template.hasResourceProperties('AWS::S3::Bucket', { BucketName: 'vla-sim-results-lerobot-gym-demo-ap-northeast-2-123456789012' });
+});
+
 // robolab-*: model.variant selects variants.<name>.instance (instance list, EBS, timeout) over instance.
 test('robolab-cosmos3 launches the instance list of its default variant', () => {
   const app = new cdk.App({ context: { region: 'us-east-1', vla: 'robolab-cosmos3', notify_email: 'test@example.com' } });

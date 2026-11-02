@@ -172,8 +172,11 @@ def _render(vla, out_dir, *extra, ok=True):
     return proc
 
 
+ACTIONS_TARGETS = [v for v in SET_TARGETS if "actions" in task_sets.names(_model(v))]
+
+
 @pytest.mark.skipif(BASH is None, reason="bash not on PATH")
-@pytest.mark.parametrize("vla", SET_TARGETS)
+@pytest.mark.parametrize("vla", ACTIONS_TARGETS)
 def test_task_set_renders_and_writes_action_type(vla, tmp_path):
     proc = _render(vla, tmp_path, "--task-set", "actions")
     assert "Tasks:  actions:" in proc.stdout

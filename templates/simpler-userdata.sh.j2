@@ -298,6 +298,7 @@ log "[4/7] Verifying the venv (torch CUDA, policy wrapper + simulator imports, S
 ( cd "${HARNESS_DIR}" && "${PY}" - <<'PYCHECK' ) 2>&1 | tee /tmp/{{ vla }}_import_check.log \
     || die "venv check failed (see /tmp/{{ vla }}_import_check.log)"
 import importlib
+import importlib.metadata
 import torch
 print('torch:', torch.__version__, 'cuda:', torch.version.cuda, 'available:', torch.cuda.is_available())
 assert torch.cuda.is_available(), 'CUDA not visible to torch'
@@ -310,7 +311,7 @@ import sapien.core as sapien
 engine = sapien.Engine()
 renderer = sapien.SapienRenderer()  # as ManiSkill2_real2sim sapien_env.py builds it
 engine.set_renderer(renderer)
-print('SAPIEN renderer OK:', sapien.__version__)
+print('SAPIEN renderer OK:', importlib.metadata.version('sapien'))
 PYCHECK
 STACK_VERSIONS=$("${PY}" -c "
 import importlib.metadata as m

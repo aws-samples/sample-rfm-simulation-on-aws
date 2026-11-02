@@ -32,3 +32,7 @@ numpy==1.26.4
 pyyaml
 # mujoco: robosuite declares only mujoco>=2.3.0; mujoco 3.10 changed mj_fullM (FIX 14 of the openvla-oft template).
 mujoco==3.3.1
+# undeclared runtime deps: bddl imports future; LIBERO imports h5py and matplotlib
+future
+h5py
+matplotlib

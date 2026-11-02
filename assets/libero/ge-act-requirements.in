@@ -34,3 +34,7 @@ termcolor
 opencv-python-headless==4.11.0.86
 numpy==1.26.4
 mujoco==3.3.1
+# undeclared runtime deps: bddl imports future; LIBERO imports h5py and matplotlib
+future
+h5py
+matplotlib

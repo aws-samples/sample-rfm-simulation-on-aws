@@ -14,6 +14,8 @@ Clips are grouped by **action type**, the tag every task carries (`action_type` 
 - [Tool use](#tool-use)
 - [Locomotion: whole-body loco-manipulation](#locomotion-whole-body-loco-manipulation)
 
+Bimanual and push clips are not captured yet: `lerobot-gym` (ACT on ALOHA insertion / cube transfer, Diffusion Policy on Push-T; [Note 17](targets.md#note-17-lerobot-gym-act-on-aloha-diffusion-policy-on-push-t)) and the RoboTwin `actions` set will fill a **Bimanual** and a **Push** section here once a run's videos are pulled (video names carry the task and the outcome).
+
 ## Pick and place
 
 ### `pi` — π0.5 on LIBERO (Franka Panda 7-DOF)

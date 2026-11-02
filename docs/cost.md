@@ -51,6 +51,8 @@ Instance = the first entry of `instance.preferred` (the AZ selector may fall bac
 | `gr00t-bridge` | `g6.2xlarge` | ~90-150 min (estimate, not yet run) | ~1.47-2.44 |
 | `xvla` | `g6.2xlarge` | ~15-30 min | ~0.24-0.49 |
 | `smolvla` | `g6.xlarge` | ~15-30 min | ~0.20-0.40 |
+| `lerobot-gym` (3 tasks × 10 ep) | `g6.xlarge` | ~30-60 min (estimate, not yet run) | ~0.40-0.80 |
+| `multitask-dit` (2 tasks × 5 ep) | `g6.xlarge` | ~30-60 min (estimate, not yet run) | ~0.40-0.80 |
 | `lingbot-va` | `g6e.2xlarge` | ~2.5 h (6 episodes) | ~5.61 |
 | `vla-adapter` | `g6.xlarge` | not recorded | 0.8048 per hour |
 | `fastwam` | `g6e.2xlarge` | ~30-40 min | ~1.12-1.49 |

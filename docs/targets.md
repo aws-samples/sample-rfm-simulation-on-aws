@@ -37,6 +37,8 @@ Each target is one `--vla <target>` value for `python vlasim.py deploy` / `destr
 | `smolvla-robotwin` | — | SmolVLA-450M (`lerobot/smolvla_robotwin`)[¹⁵](#note-15-robotwin-20-smolvla-robotwin-lingbot-vla2) | RoboTwin 2.0: 5-task clean subset (default) or the official 49 tasks × 100 episodes, clean / randomized | Aloha-AgileX dual arm (2 × 6-DOF + grippers, 14-D joint actions) | `SmolVLA-RoboTwin-Demo` |
 | `lingbot-vla2` | — | LingBot-VLA 2.0 (Robbyant, Qwen3-VL-4B + sparse-MoE action expert, 6B, fp32)[¹⁵](#note-15-robotwin-20-smolvla-robotwin-lingbot-vla2) | RoboTwin 2.0, same protocol as `smolvla-robotwin` | Aloha-AgileX dual arm | `LingBot-VLA2-Demo` |
 | `rlinf-oft-libero` | — | OpenVLA-OFT-7B one-demo SFT (`Haozhan72/Openvla-oft-SFT-libero-goal-traj1`) **improved with RL** (RLinf GRPO)[¹⁶](#note-16-rl-post-training-with-rlinf-rlinf-oft-libero) | LIBERO-Goal: eval of the SFT checkpoint, GRPO training, eval of the RL checkpoint (same protocol) | Franka Panda (7-DOF) | `RLinf-OFT-LIBERO-Demo` |
+| `lerobot-gym` | — | LeRobot reference policies, one checkpoint per task: ACT (`lerobot/act_aloha_sim_insertion_human`, `lerobot/act_aloha_sim_transfer_cube_human`) and Diffusion Policy (`lerobot/diffusion_pusht`)[¹⁷](#note-17-lerobot-gym-act-on-aloha-diffusion-policy-on-push-t) | gym-aloha `AlohaInsertion-v0` (bimanual peg insertion), `AlohaTransferCube-v0` (bimanual cube transfer); gym-pusht `PushT-v0` (planar pushing) | ALOHA dual arm (2 × 6-DOF + grippers, MuJoCo) / 2-D point pusher | `LeRobot-Gym-Demo` |
+| `multitask-dit` | — | LBM-style Multi-task DiT (LeRobot `multi_task_dit` port; community LIBERO-10 checkpoint, **not TRI weights**)[¹⁸](#note-18-multitask-dit-lbm-style-multi-task-dit-not-tri-weights) | LIBERO-10: stove + moka pot, bowl into drawer + close | Franka Panda (7-DOF) | `MultiTask-DiT-Demo` |
 
 ## Notes
 
@@ -248,6 +250,30 @@ This target is a workflow, not only an evaluation: **evaluate -> improve with RL
 - **Hardware is the open question.** RLinf documents the OpenVLA-OFT recipe on 8 × H100 80 GB; there is no published single-GPU config and no published time per step. LIBERO rollouts are CPU-bound (about one core per env) and need EGL from the NVIDIA driver (the container gets `NVIDIA_DRIVER_CAPABILITIES=all` so the NVIDIA container toolkit mounts the driver's EGL libraries, and the verify fails on a black frame). 48 GB and 40 GB GPUs are not in the `full` list (below the tested memory; the smoke runs confirmed the eval OOM on 44 GB); first runs measure time per step and memory, see [cost.md](cost.md#rl-post-training-rlinf-oft-libero).
 - **Not done here.** π0.5 PPO on LIBERO (RLinf reports 84.6% -> 98.8% on Goal from a few-shot SFT) needs openpi weights and another venv of the same image; GR00T and LingBot-VLA RL recipes and ManiSkill / RoboTwin RL are not wired. [SimpleVLA-RL](https://github.com/PRIME-RL/SimpleVLA-RL) (MIT) trains the same SFT checkpoints and was not chosen because it has no tagged release or image.
 
+### Note 17: lerobot-gym (ACT on ALOHA, Diffusion Policy on Push-T)
+
+The single-task reference policies LeRobot publishes for its own gym simulators, as one target with **one checkpoint per task** (each `tasks:` entry names its `hf_repo` + revision, `env_type`, gym `task` and `policy_type`; `templates/lerobot-gym-userdata.sh.j2` runs one `lerobot-eval --env.type=<env_type> --env.task=<task>` per entry). One target instead of one per policy because the three share the LeRobot install, the instance size and the results bucket; `--task-set aloha` or `--task-set pusht` runs one family only.
+
+```bash
+python vlasim.py deploy --vla lerobot-gym                     # ACT insertion + ACT cube transfer + Diffusion Push-T, 10 episodes each
+python vlasim.py deploy --vla lerobot-gym --task-set aloha    # ALOHA only (bimanual)
+python vlasim.py deploy --vla lerobot-gym --task-set pusht    # Push-T only (push)
+```
+
+- **Pins.** LeRobot `@ae2b57f1` (0.6.2, the `smolvla` pin; `uv sync --locked --extra aloha --extra pusht --extra diffusion`, Python 3.12), which resolves gym-aloha 0.1.5, gym-pusht 0.1.8, MuJoCo 3.8.1, dm-control 1.0.41, pymunk 6.11.1, gymnasium 1.3.0. Checkpoints `lerobot/act_aloha_sim_insertion_human @33259aa8`, `lerobot/act_aloha_sim_transfer_cube_human @ba73b276`, `lerobot/diffusion_pusht @84a7c231` (all Apache-2.0).
+- **Checkpoint format.** The three hub checkpoints predate LeRobot's processor pipeline (no `policy_preprocessor.json`; the normalisation statistics are buffers in `model.safetensors`), and `lerobot-eval` at the pin refuses them with `ProcessorMigrationError`. The UserData converts each one with the in-tree `src/lerobot/processor/migrate_policy_normalization.py` of the same commit into its own directory and evaluates that. The script at the pin builds the config from raw `config.json` without draccus decoding, so a JSON list stays a list in a tuple field (Diffusion `crop_shape: [84, 84]`) and saving fails with `Couldn't encode 84`; a 20-line wrapper in the template turns those lists into tuples first. The weights are unchanged.
+- **Checked locally (CPU, 2026-11-02).** All three checkpoints convert with the wrapper; the converted ACT checkpoints load and return a 14-D action through their processors; `lerobot-eval --env.type=pusht` ran 2 Push-T episodes end to end on the converted Diffusion checkpoint (capped at 48 steps, so 0/2 success; `eval_info.json` + 2 videos written). gym-aloha was not run locally (no EGL on that host); on the GPU instance MuJoCo renders through EGL as in the LIBERO targets.
+- **Results.** Each task is one `task-N/` with `suite: <env_type>`, `env_name: <gym task>`, `policy_type`, `action_type` (`bimanual` for both ALOHA tasks, `push` for Push-T) and a stack fingerprint (LeRobot commit, MuJoCo, gym package version). Videos are named `<gym task>--eval_episode_N-<success|failure>.mp4` (outcome from `eval_info.json`), up to 10 per task. Episodes run from `--seed` 1000 like the `eval_info.json` in each hub repo (50 episodes there: insertion, transfer and Push-T upstream numbers can be read from those files).
+
+### Note 18: multitask-dit (LBM-style Multi-task DiT, not TRI weights)
+
+TRI's Large Behavior Model ([arXiv 2507.05331](https://arxiv.org/abs/2507.05331)) has no public weights for any simulator. LeRobot ships `multi_task_dit` (`src/lerobot/policies/multi_task_dit`, CLIP vision + text conditioning, diffusion or flow-matching DiT head), whose docs say the implementation is "based on the work described in TRI's LBM paper". This target runs that policy class through the shared lerobot-libero template ([Note 6](#note-6-shared-lerobot-libero-template-xvla-smolvla-lingbot-va)).
+
+- **Checkpoint.** The only public `multi_task_dit` checkpoint for a simulator LeRobot evaluates (HF Hub search, 2026-11-02) is a community upload, `LuigiDu/multitask-dit-libero10-all-seed1000 @0f6ca5d8` (Apache-2.0 card, LeRobot 0.6.1 format with processor files, ~249M parameters). Its `train_config.json`: `HuggingFaceVLA/libero` episodes 0-378 (the 10 LIBERO-10 tasks), **15000 steps at batch size 2**, no evaluation on the card. LeRobot's own LIBERO result for this policy (`docs/source/multi_task_dit.mdx`: LIBERO-10 83.2%, 100k steps at batch size 320) has no public checkpoint. Expect a low success rate: the target shows the policy class runs, not what LBM-style training reaches.
+- **Settings.** `--env.observation_height=256 --env.observation_width=256` (training images are 256 × 256 and the policy center-crops 224 at eval; LIBERO's default 360 would crop a narrower view). LIBERO-10 task ids 2 and 3 (stove + moka pot, bowl into drawer + close), 5 episodes each.
+- **Checked locally (CPU, 2026-11-02).** The checkpoint loads at the LeRobot pin and returns a 7-D action through its processors. Not run in LIBERO here.
+- **Not added.** `TRI-ML/multitask-dit-robosuite-wrist-diffusion-064000` (TRI's verified Hub org, 95.6% over 90 robosuite episodes on its card) is trained on robosuite Lift / PickPlaceCan / NutAssemblySquare with a 32-D state from the dataset `TRI-ML/PretrainFinetune`; LeRobot has no robosuite env type at the pin, so it cannot be evaluated with `lerobot-eval`. A train-then-evaluate path (`lerobot-train` on LIBERO) does not fit the existing templates cheaply: the documented recipe is 100k steps at batch size 320.
+
 ## Task sets and action types
 
 Most benchmarks default to pick-and-place, but several pinned checkpoints were trained (and are evaluated upstream) on other motions too. `--task-set NAME` runs `task_sets.NAME` of `models/<target>.yaml` instead of its `tasks:` list, on the same stack, results bucket, template and checkpoint revision; `actions` is the set of those non-pick-and-place tasks:
@@ -258,7 +284,10 @@ python vlasim.py deploy --vla rldx-simpler --task-set actions       # Google rob
 python vlasim.py deploy --vla gr00t --task-set actions              # LIBERO-Goal: open drawer, turn on stove, push plate
 python vlasim.py deploy --vla lingbot-vla2 --task-set actions       # RoboTwin: handover, lift, bell, switch, alarm, hammer, stamp
 python vlasim.py deploy --vla smolvla-robotwin --task-set actions   # same 7 RoboTwin tasks
+python vlasim.py deploy --vla lerobot-gym --task-set aloha          # ACT: ALOHA bimanual insertion, cube transfer
 ```
+
+`lerobot-gym` has no pick-and-place task at all, so its sets split it by simulator (`aloha`, `pusht`) instead of having an `actions` set.
 
 `--task-set` cannot be combined with `--libero-variant plus`, `--libero-objects real2sim`, `--robotwin-protocol` (each of those replaces the task list itself), `--collect`, `--bridge` or `--judge`. A set may override model keys for its run (`gr00t`'s set switches `hf_subfolder` to `libero_goal`, the same mechanism `--libero-variant plus` uses). Module: [`task_sets.py`](../task_sets.py); tests: `tests/test_task_sets.py`.
 
@@ -285,6 +314,8 @@ python vlasim.py deploy --vla smolvla-robotwin --task-set actions   # same 7 Rob
 | `smolvla-robotwin`, `lingbot-vla2` | `handover_block`, `lift_pot` | bimanual | RoboTwin 2.0 tasks; the default subset already runs them (measured 2026-10-30, [results](results.md#expected-results)) |
 | | `click_bell`, `turn_switch`, `click_alarmclock` | press | `click_bell` in the default subset; `turn_switch` / `click_alarmclock` are in the 50-task suite both checkpoints were trained on |
 | | `beat_block_hammer`, `stamp_seal` | tool-use | default subset |
+| `lerobot-gym` (default run) | `AlohaInsertion-v0`, `AlohaTransferCube-v0` | bimanual | single-task ACT checkpoints trained on these sims (human demos); [Note 17](#note-17-lerobot-gym-act-on-aloha-diffusion-policy-on-push-t) |
+| | `PushT-v0` | push | single-task Diffusion Policy checkpoint trained on Push-T |
 
 The default `gr00t` LIBERO-10 tasks (stove + moka pot, bowl into drawer + close) and the `rldx` / `rldx-gr1` microwave and drawer tasks are tagged `articulated` too: the [showcase](showcase.md) groups its clips by these tags.
 
@@ -391,6 +422,8 @@ does not have to exist any more (its bucket is retained); the gallery score badg
 | `robolab-pi05` | `subset` (default): `g6e.2xlarge` → `g6e.4xlarge`; `full`: `g6e.48xlarge` | 500 / 900 |
 | `smolvla-robotwin` | `g6.2xlarge` → `g5.2xlarge` → `g6.4xlarge` → `g5.4xlarge` | 200 |
 | `lingbot-vla2` | `g6e.2xlarge` → `g6e.4xlarge` | 250 |
+| `lerobot-gym` | `g6.xlarge` → `g5.xlarge` → `g6.2xlarge` → `g5.2xlarge` | 100 |
+| `multitask-dit` | `g6.xlarge` → `g5.xlarge` → `g6.2xlarge` → `g5.2xlarge` | 120 |
 | `rlinf-oft-libero` | `smoke` (default, 1 GPU): `g6e.8xlarge` → `g6e.4xlarge` → `g6e.16xlarge` → `p5.4xlarge`; `full` (8 GPU): `p5.48xlarge` → `p4de.24xlarge` → `p5en.48xlarge` | 500 / 1500 |
 | `flora-judge` ([post-run judge](#post-run-judge-flora-rewarder)) | `g7e.2xlarge` → `g7e.4xlarge` → `g6e.12xlarge` → `p5.4xlarge` | 250 |
 
@@ -440,7 +473,11 @@ python vlasim.py deploy --vla lingbot-va --email you@example.com   # LingBot-VA 
 python vlasim.py deploy --vla vla-adapter --email you@example.com  # VLA-Adapter-Pro (MIT), LIBERO-Spatial
 python vlasim.py deploy --vla fastwam --email you@example.com      # FastWAM world action model (research-only weights), LIBERO-Spatial (~30-40 min)
 python vlasim.py deploy --vla cosmos-policy --email you@example.com  # Cosmos Policy (NVIDIA WAM, research-only weights; HF token must accept the Cosmos-Predict2 license), LIBERO-Spatial (~60-90 min)
+python vlasim.py deploy --vla multitask-dit --email you@example.com  # LBM-style Multi-task DiT (community LIBERO-10 checkpoint, not TRI weights), 2 tasks x 5 ep
 python vlasim.py deploy --vla aspire --email you@example.com         # ASPIRE agentic skill discovery (Claude Code on Amazon Bedrock; HF token must have SAM3 access), LIBERO-Spatial 2 tasks (~45 min, ~US$3 Bedrock)
+
+# LeRobot gym sims (Apache-2.0): ACT on ALOHA (bimanual insertion, cube transfer) + Diffusion Policy on Push-T (~30-60 min, estimate)
+python vlasim.py deploy --vla lerobot-gym --email you@example.com
 
 # Real2Sim — capture -> 3DGS -> collision meshes -> MuJoCo grasp replay (~12 min measured, not a policy)
 # Default input HOPE-Video is CC BY-NC-SA 4.0 (non-commercial); your own capture: input.* in models/real2sim.yaml

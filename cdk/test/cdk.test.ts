@@ -90,6 +90,10 @@ test.each([
   // LIBERO targets (authors' own LIBERO loop): UniVLA 17 GB / GE-Act 2B + T5-XXL, both on the 32 GB host of a .2xlarge.
   ['univla', 'UniVLA-Demo', 'g6e.xlarge,g6e.2xlarge', '150', 180],
   ['ge-act', 'GE-Act-Demo', 'g6.2xlarge,g5.2xlarge,g6e.xlarge,g6.4xlarge', '150', 180],
+  // Latent world-model planners (goal image, not language): fp32 CEM / MPC on an L40S first for DINO-WM, an L4 for
+  // JEPA-WM; 200 GB EBS because the Wall dataset unpacks to 59 GB.
+  ['dino-wm', 'DINO-WM-Demo', 'g6e.xlarge,g6.2xlarge,g5.2xlarge,g6e.2xlarge', '200', 360],
+  ['jepa-wms', 'JEPA-WMs-Demo', 'g6.xlarge,g5.xlarge,g6.2xlarge,g6e.xlarge', '200', 540],
 ])('%s launches its yaml instance list, EBS size and timeout', (vla, stackName, types, ebs, minutes) => {
   const app = new cdk.App({ context: { region: 'ap-northeast-2', vla, notify_email: 'test@example.com' } });
   const stack = new VlaSimulatorStack(app, stackName, {

@@ -14,8 +14,6 @@ Clips are grouped by **action type**, the tag every task carries (`action_type` 
 - [Tool use](#tool-use)
 - [Locomotion: whole-body loco-manipulation](#locomotion-whole-body-loco-manipulation)
 
-Bimanual and push clips are not captured yet: `lerobot-gym` (ACT on ALOHA insertion / cube transfer, Diffusion Policy on Push-T; [Note 17](targets.md#note-17-lerobot-gym-act-on-aloha-diffusion-policy-on-push-t)) and the RoboTwin `actions` set will fill a **Bimanual** and a **Push** section here once a run's videos are pulled (video names carry the task and the outcome).
-
 ## Pick and place
 
 ### `pi` — π0.5 on LIBERO (Franka Panda 7-DOF)
@@ -258,6 +256,16 @@ Default LIBERO-10 tasks, both two-stage with a fixture motion (us-west-2, `g6.4x
 
 Carries a `mujoco==3.3.1` pin (FIX 14, `sim_protect_pins`): mujoco 3.10.0 shipped 2026-06-22 — after this target validated 2026-04-27 — and its `mj_fullM` signature change breaks robosuite's call site, so `setup_libero.sh`'s own closing env check fails on a clean deploy without the pin (see [#4](https://github.com/aws-samples/sample-rfm-simulation-on-aws/issues/4)).
 
+### `multitask-dit` — Multi-task DiT (LBM-style LeRobot port) on the same LIBERO-10 stove task
+
+Contrast with the `gr00t` SCENE3 clip above: the same `turn on the stove and put the moka pot on it` task, run by LeRobot's `multi_task_dit` policy (an implementation based on TRI's LBM paper; **not TRI's weights**, which are not public) from the only public simulator checkpoint, a community upload trained for 15,000 steps at batch size 2 (`LuigiDu/multitask-dit-libero10-all-seed1000`). LeRobot's documented recipe is 100k steps at batch size 320, so this is a pipeline check of the policy class, not a measure of what LBM-style models can do. ap-northeast-2, `g6.xlarge`, 2026-11-02, run `2026-11-02-0931`: LIBERO-10 tasks 2 and 3 × 5 episodes = **0/10** (max reward 0 in every episode, `eval_info.json`).
+
+| Failure — `KITCHEN_SCENE3: turn on the stove and put the moka pot on it` (0/5 on this task, 0/10 overall) |
+|---|
+| ![Multi-task DiT — stove + moka pot (failure)](showcase/multitask-dit/libero10-scene3-stove-moka-failure.gif) |
+| MP4: [`multitask-dit/libero10-scene3-stove-moka-failure.mp4`](showcase/multitask-dit/libero10-scene3-stove-moka-failure.mp4) |
+| _Episode 0: the arm moves toward the scene objects but never satisfies the goal before the episode ends._ |
+
 ## Press: buttons and bells
 
 Press a button or bell: a short, precise contact motion with no grasp.
@@ -281,9 +289,18 @@ Same `--task-set actions` run as in [articulated](#gr00t--gr00t-n17-on-libero-10
 | ![GR00T N1.7 — push plate (success)](showcase/gr00t/libero-goal-push-plate-success.gif) |
 | MP4: [`gr00t/libero-goal-push-plate-success.mp4`](showcase/gr00t/libero-goal-push-plate-success.mp4) |
 
+### `lerobot-gym` — Diffusion Policy on Push-T
+
+LeRobot's reference Diffusion Policy checkpoint (`lerobot/diffusion_pusht`) on gym-pusht `PushT-v0`: push the T-shaped block onto the target pose; an episode succeeds when the overlap reaches 95%. ap-northeast-2, `g6.xlarge`, 2026-11-02, run `2026-11-02-1056`: **0.8 (8/10)**, average max overlap 0.99. The model card reports 65.4% over 500 episodes; 10 episodes is a small sample (95% interval 49-94%).
+
+| Success — `PushT-v0` (SR 0.8, 8/10) |
+|---|
+| ![Diffusion Policy — Push-T (success)](showcase/lerobot-gym/pusht-success.gif) |
+| MP4: [`lerobot-gym/pusht-success.mp4`](showcase/lerobot-gym/pusht-success.mp4) (GIF is 4× speed) |
+
 ## Bimanual
 
-Both arms act on the scene: one hands an object to the other, or both lift it together. RoboTwin 2.0 (`aloha-agilex` dual arm, clean setting), run `2026-10-30-1728` in ap-northeast-2. RoboTwin video names carry the episode index only; success labels below come from `eval_info.json` (`per_task[].metrics.successes`).
+Both arms act on the scene: one hands an object to the other, both lift it together, or each holds one part of an assembly. RoboTwin 2.0 (`aloha-agilex` dual arm, clean setting), run `2026-10-30-1728` in ap-northeast-2. RoboTwin video names carry the episode index only; success labels below come from `eval_info.json` (`per_task[].metrics.successes`).
 
 | `lingbot-vla2` — `handover_block` (SR 1.0, 5/5) · `g6e.2xlarge` | `lingbot-vla2` — `lift_pot` (SR 0.6, 3/5) · `g6e.2xlarge` |
 |---|---|
@@ -296,6 +313,22 @@ Both arms act on the scene: one hands an object to the other, or both lift it to
 | ![SmolVLA RoboTwin — handover block (failure)](showcase/smolvla-robotwin/robotwin-handover-block-failure.gif) |
 | MP4: [`smolvla-robotwin/robotwin-handover-block-failure.mp4`](showcase/smolvla-robotwin/robotwin-handover-block-failure.mp4) (GIF is 4× speed) |
 | _Same task and seeds, smaller policy: all five episodes miss. The handover is where the two RoboTwin policies differ most (5/5 vs 0/5)._ |
+
+### `lerobot-gym` — ACT on ALOHA sim (insertion, cube transfer)
+
+LeRobot's reference ACT checkpoints, one per task, trained on human demonstrations (`lerobot/act_aloha_sim_insertion_human`, `lerobot/act_aloha_sim_transfer_cube_human`), on gym-aloha (two 6-DOF arms, MuJoCo). ap-northeast-2, `g6.xlarge`, 2026-11-02, run `2026-11-02-1056`, 10 episodes per task from seed 1000: `AlohaInsertion-v0` **0.1 (1/10)**, `AlohaTransferCube-v0` **0.7 (7/10)**. The ACT paper (Table I, human data, 3 seeds × 50 trials) reports 20% insertion and 50% transfer; at 10 episodes both are within sampling noise (95% intervals 2-40% and 40-89%). Labels come from the video names (`<task>--eval_episode_N-<success|failure>.mp4`).
+
+| Success — `AlohaInsertion-v0` (SR 0.1, 1/10; episode 5) | Success — `AlohaTransferCube-v0` (SR 0.7, 7/10; episode 1) |
+|---|---|
+| ![ACT — ALOHA insertion (success)](showcase/lerobot-gym/aloha-insertion-success.gif) | ![ACT — ALOHA cube transfer (success)](showcase/lerobot-gym/aloha-transfer-cube-success.gif) |
+| MP4: [`lerobot-gym/aloha-insertion-success.mp4`](showcase/lerobot-gym/aloha-insertion-success.mp4) | MP4: [`lerobot-gym/aloha-transfer-cube-success.mp4`](showcase/lerobot-gym/aloha-transfer-cube-success.mp4) |
+| _The one success: each arm picks one part (socket, peg) and they meet in mid-air until the peg touches the pins (about 5 mm clearance)._ | _The right arm picks the cube and hands it to the left gripper._ |
+
+| Failure — `AlohaTransferCube-v0` (3/10 of this task; episode 0) |
+|---|
+| ![ACT — ALOHA cube transfer (failure)](showcase/lerobot-gym/aloha-transfer-cube-failure.gif) |
+| MP4: [`lerobot-gym/aloha-transfer-cube-failure.mp4`](showcase/lerobot-gym/aloha-transfer-cube-failure.mp4) |
+| _Runs the full 400-step episode (8 s at 50 fps) without completing the handover._ |
 
 ## Tool use
 

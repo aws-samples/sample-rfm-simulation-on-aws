@@ -700,6 +700,19 @@ Totals: `rldx-kitchen` 25/30 (0.83), `rldx-simpler` 6/10 (0.60), `gr00t` 14/15 (
 
 The RoboTwin `actions` set (bimanual, press, tool-use tasks) was not re-run; five of its seven tasks are the default subset measured on 2026-10-30 ([RoboTwin 2.0](#robotwin-20-smolvla-robotwin-lingbot-vla2) below).
 
+### LeRobot gym and Multi-task DiT (`lerobot-gym`, `multitask-dit`)
+
+First AWS runs, ap-northeast-2, `g6.xlarge`, 2026-11-02, seed 1000. Success is `success_rate` / `n_success` from each task's `summary.txt` (checked against `eval_info.json` and the per-episode video names). Ten episodes per task is a small sample: the 95% interval spans about ±0.25 around the measured rate.
+
+| `--vla` | Task | `action_type` | Success | Published | Run id |
+|---|---|---|---|---|---|
+| `lerobot-gym` (ACT) | `AlohaInsertion-v0` | bimanual | 0.1 (1/10), CI 2-40% | 20% (ACT paper Table I, human data, 3 seeds × 50 trials) | `2026-11-02-1056` |
+| `lerobot-gym` (ACT) | `AlohaTransferCube-v0` | bimanual | 0.7 (7/10), CI 40-89% | 50% (ACT paper Table I, human data) | `2026-11-02-1056` |
+| `lerobot-gym` (Diffusion Policy) | `PushT-v0` | push | 0.8 (8/10), CI 49-94%; avg max overlap 0.99 | 65.4% over 500 episodes ([`lerobot/diffusion_pusht`](https://huggingface.co/lerobot/diffusion_pusht) card) | `2026-11-02-1056` |
+| `multitask-dit` | LIBERO-10 tasks 2, 3 (stove + moka pot, bowl into drawer + close) | articulated | 0.0 (0/10), CI 0-28% | none for this checkpoint (community upload, 15k steps at batch size 2); LeRobot docs: LIBERO-10 83.2% at 100k steps × batch 320, no public checkpoint | `2026-11-02-0931` |
+
+The two ACT hub repos ship byte-identical `eval_info.json` files (83.0%, 500 episodes), so they do not give a per-task number; the paper's table is used instead. The ACT paper trained its own policies (3 seeds) rather than these LeRobot checkpoints. `lerobot-gym` took about 13 minutes from run start to the last result for all 30 episodes; `multitask-dit` about 14 minutes for 10 episodes.
+
 ### RoboLab (`robolab-cosmos3`, `robolab-pi05`)
 
 Reference numbers are from the public [RoboLab leaderboard](https://research.nvidia.com/labs/srl/projects/robolab/leaderboard.html) (`static/data/leaderboard.json` v76, generated 2026-10-23): RoboLab-120, 10 episodes per task, default instructions, success rate with a 95% Clopper-Pearson interval, Isaac Lab 2.2.0 / Isaac Sim 5.0.0. The measured column is filled by the first AWS run (STEP B). The default 12-task subset is **not** comparable to these rows; only the `edge-full` / `full` variants run the same protocol.

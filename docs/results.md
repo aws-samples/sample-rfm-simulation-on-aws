@@ -678,6 +678,28 @@ Source: [`results/cells.csv`](https://github.com/byongwu/pai-same-policy-differe
 | `smolvla-robotwin` | RoboTwin2/clean, 5 tasks × 5 ep | — (not stated on the model card) | measured 2026-10-30 (`g6.2xlarge`, ap-northeast-2): **48.0% (12/25)**, CI 30-67%; beat_block_hammer 4/5, click_bell 5/5, handover_block 0/5, lift_pot 2/5, stamp_seal 1/5 |
 | `lingbot-vla2` | RoboTwin2/clean, 5 tasks × 5 ep | 93.52% clean / 92.80% randomized, 50-task avg (upstream README) | measured 2026-10-30 (`g6e.2xlarge`, ap-northeast-2): **80.0% (20/25)**, CI 61-91%; beat_block_hammer 3/5, click_bell 5/5, handover_block 5/5, lift_pot 3/5, stamp_seal 4/5 |
 
+### Action task sets (`--task-set actions`)
+
+Non-pick-and-place tasks on existing targets ([targets: task sets and action types](targets.md#task-sets-and-action-types)), one deploy per target in ap-northeast-2 on 2026-11-02, 5 episodes per task. `action_type` is the tag written to each task's `summary.txt`; success is `success_rate` from the same file (checked against the per-episode labels). Clips: [showcase](showcase.md).
+
+| `--vla` | Task | `action_type` | Success | Instance | Date | Run id |
+|---|---|---|---|---|---|---|
+| `rldx-kitchen` | `OpenSingleDoor` | articulated | 1.0 (5/5) | `g6.2xlarge` | 2026-11-02 | `2026-11-02-0850` |
+| `rldx-kitchen` | `OpenDrawer` | articulated | 0.6 (3/5) | `g6.2xlarge` | 2026-11-02 | `2026-11-02-0850` |
+| `rldx-kitchen` | `CloseDrawer` | articulated | 1.0 (5/5) | `g6.2xlarge` | 2026-11-02 | `2026-11-02-0850` |
+| `rldx-kitchen` | `TurnOnStove` | articulated | 0.4 (2/5) | `g6.2xlarge` | 2026-11-02 | `2026-11-02-0850` |
+| `rldx-kitchen` | `TurnOnSinkFaucet` | articulated | 1.0 (5/5) | `g6.2xlarge` | 2026-11-02 | `2026-11-02-0850` |
+| `rldx-kitchen` | `CoffeePressButton` | press | 1.0 (5/5) | `g6.2xlarge` | 2026-11-02 | `2026-11-02-0850` |
+| `rldx-simpler` | `google_robot_open_drawer` | articulated | 0.4 (2/5) | `g6.2xlarge` | 2026-11-02 | `2026-11-02-0850` |
+| `rldx-simpler` | `google_robot_close_drawer` | articulated | 0.8 (4/5) | `g6.2xlarge` | 2026-11-02 | `2026-11-02-0850` |
+| `gr00t` (`libero_goal`) | `open_the_middle_drawer_of_the_cabinet` | articulated | 0.8 (4/5) | `g6.12xlarge` | 2026-11-02 | `2026-11-02-0851` |
+| `gr00t` (`libero_goal`) | `turn_on_the_stove` | articulated | 1.0 (5/5) | `g6.12xlarge` | 2026-11-02 | `2026-11-02-0851` |
+| `gr00t` (`libero_goal`) | `push_the_plate_to_the_front_of_the_stove` | push | 1.0 (5/5) | `g6.12xlarge` | 2026-11-02 | `2026-11-02-0851` |
+
+Totals: `rldx-kitchen` 25/30 (0.83), `rldx-simpler` 6/10 (0.60), `gr00t` 14/15 (0.93). Upstream publishes only suite averages for these checkpoints (RLDX-1 RoboCasa 24-task 70.6%, SimplerEnv Google-VM 81.5%, GR00T N1.7 LIBERO-Goal 97.5%), not per-task rates, so n = 5 per task is a smoke check, not a comparison. Every failure ran its step cap (45 RoboCasa, 150 SimplerEnv, 720 LIBERO); none was an error. Earlier `rldx-kitchen` run of the same two door / drawer tasks (2026-06-26): 0.8 / 0.8.
+
+The RoboTwin `actions` set (bimanual, press, tool-use tasks) was not re-run; five of its seven tasks are the default subset measured on 2026-10-30 ([RoboTwin 2.0](#robotwin-20-smolvla-robotwin-lingbot-vla2) below).
+
 ### RoboLab (`robolab-cosmos3`, `robolab-pi05`)
 
 Reference numbers are from the public [RoboLab leaderboard](https://research.nvidia.com/labs/srl/projects/robolab/leaderboard.html) (`static/data/leaderboard.json` v76, generated 2026-10-23): RoboLab-120, 10 episodes per task, default instructions, success rate with a 95% Clopper-Pearson interval, Isaac Lab 2.2.0 / Isaac Sim 5.0.0. The measured column is filled by the first AWS run (STEP B). The default 12-task subset is **not** comparable to these rows; only the `edge-full` / `full` variants run the same protocol.

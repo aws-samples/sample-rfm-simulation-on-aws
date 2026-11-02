@@ -1,0 +1,218 @@
+# SpatialVLA (zero-shot, 4B) x SimplerEnv — the authors' own SimplerEnv evaluation.
+# Paper: "SpatialVLA: Exploring Spatial Representations for Visual-Language-Action Model", arXiv:2501.15830
+# Repo:  https://github.com/SpatialVLA/SpatialVLA (README "SimplerEnv Benchmark": the evaluation code is the
+#        authors' fork DelinQu/SimplerEnv-OpenVLA, run with `bash scripts/run_spatialvla.sh`)
+# Template: templates/simpler-userdata.sh.j2 (shared with `magma`; one main_inference.py call per task variant,
+#        success / failure read from the video file names SimplerEnv writes).
+#
+# CLI:   python deploy.py --vla spatialvla [--task-set actions]
+#
+# Checkpoint: IPEC-COMMUNITY/spatialvla-4b-224-pt — the one scripts/run_spatialvla.sh evaluates and the
+#   "SpatialVLA (zero-shot)" rows of the README tables. PaliGemma 2 backbone + Ego3D position encoding; the
+#   README quick start says inference needs 8.5 GB of GPU memory (bf16, 8.09 GB of safetensors).
+# License: the model card and README say MIT for the checkpoints and the code (the SpatialVLA repo has no
+#   LICENSE file at 18fd74b2; the README links one). The weights are fine-tuned from PaliGemma 2; see
+#   docs/licenses.md. Weights are downloaded on the instance at run time, nothing is vendored.
+
+model:
+  id: spatialvla
+  display_name: "SpatialVLA"
+  policy_desc: "SpatialVLA-4B (PaliGemma 2 + Ego3D position encoding + adaptive action grids), zero-shot OXE checkpoint"
+  license: "MIT (SpatialVLA code + checkpoints, model card); harness DelinQu/SimplerEnv-OpenVLA MIT, ManiSkill2_real2sim Apache-2.0"
+  hf_repo: "IPEC-COMMUNITY/spatialvla-4b-224-pt"
+  hf_model_revision: "886c4557dfde53b44c0f74fde7d89bf83a26c3cd"   # main 2025-03-16
+  # SimplerEnv harness = the authors' fork (README 2025/02/06 and "SimplerEnv Benchmark"). Pinned to 32143c8
+  # (2025-03-24), not main ccfe3809: from 879f73c (2025-05-19, GR00T support) the fork's maniskill2_evaluator.py calls
+  # model.step(..., eef_pos=obs["agent"]["eef_pos"]), a key only allenzren/ManiSkill2_real2sim >= 53ebdb9 provides,
+  # while the submodule gitlink stays at cd45dd27 (no eef_pos) -> KeyError on the first step of a recursive clone.
+  # 32143c8 -> ccfe3809 changes no SpatialVLA file and no task script (git diff --stat), only that line.
+  harness_repo: "https://github.com/DelinQu/SimplerEnv-OpenVLA.git"
+  harness_commit: "32143c8102856ef8a0601ed219e56d221f4daaac"
+  # ManiSkill2_real2sim gitlink at that commit (allenzren/ManiSkill2_real2sim, .gitmodules); checked after clone.
+  maniskill_commit: "cd45dd27dc6bb26d048cb6570cdab4e3f935cc37"
+  # SpatialVLA repo pin, recorded for the protocol card (the policy wrapper lives in the harness:
+  # simpler_env/policies/spatialvla/spatialvla_model.py).
+  spatialvla_commit: "18fd74b2a633ec8d9ec7aadcd803969555cc9fbd"
+  entry: "simpler_env/main_inference.py"
+  policy_model: spatialvla
+  # scripts/run_spatialvla.sh @32143c81: action_ensemble_temp=-0.8 passed to every task script.
+  policy_args: ["--action-ensemble-temp", "-0.8"]
+  # Flag the fork adds to simpler_env/evaluation/argparse.py (upstream SimplerEnv has no --action-ensemble-temp).
+  harness_extra_flags: ["--action-ensemble-temp"]
+  python_version: "3.10"
+  requirements: "assets/simpler/spatialvla-requirements.txt"
+  # Imports checked before any download (policy wrapper + simulator).
+  import_check: ["simpler_env.policies.spatialvla.spatialvla_model", "tensorflow", "mani_skill2_real2sim", "sapien.core"]
+  robot_label: "Google Robot (Fractal) and WidowX (Bridge), SimplerEnv visual matching"
+  sim_label: "SimplerEnv (ManiSkill2_real2sim + SAPIEN 2.2, Vulkan headless)"
+
+instance:
+  # 8.09 GB bf16 weights, 8.5 GB inference (README) + SAPIEN renderer: a 24 GB L4 is ample and the 16 GB host RAM
+  # of g6.xlarge holds the 4.97 GB largest shard. A10G next; .2xlarge only as capacity fallback.
+  preferred: [g6.xlarge, g5.xlarge, g6.2xlarge, g5.2xlarge]
+  ebs_gb: 120            # DLAMI + venv (~12 GB: torch 2.5.1, tensorflow 2.15) + 8 GB checkpoint + harness assets + videos
+  creationpolicy_timeout: PT150M   # setup ~25-35 min + 93 episodes (estimate; not measured yet)
+  min_gpu_mib: 15000
+  min_host_mib: 15000
+
+# Tasks: the arguments are copied from the harness scripts at 32143c81 (scripts/<file>, named in `source`).
+# The template adds --policy-model / --ckpt-path / --policy-setup / --env-name / --logging-dir and the
+# policy_args above, then runs one main_inference.py call per entry of `variants` (args appended). The episode
+# count is fixed by the arguments (robot pose grid x object grid or episode range); generate.py computes it and the
+# run fails if SimplerEnv wrote a different number of videos. Subsets of the full protocol are marked in `source`.
+tasks:
+  - name: google_robot_pick_coke_can
+    suite: simpler_google_vm
+    env_name: GraspSingleOpenedCokeCanInScene-v0
+    policy_setup: google_robot
+    description: "Google Robot visual matching: pick up the coke can (horizontal can, 5 x 5 positions)"
+    source: "scripts/pick_coke_can_visual_matching.sh (1 of its 12 configs: lr_switch=True, urdf_version=None)"
+    args: ["--robot", "google_robot_static", "--control-freq", "3", "--sim-freq", "513", "--max-episode-steps", "80",
+           "--scene-name", "google_pick_coke_can_1_v4",
+           "--rgb-overlay-path", "./ManiSkill2_real2sim/data/real_inpainting/google_coke_can_real_eval_1.png",
+           "--robot-init-x", "0.35", "0.35", "1", "--robot-init-y", "0.20", "0.20", "1",
+           "--obj-init-x", "-0.35", "-0.12", "5", "--obj-init-y", "-0.02", "0.42", "5",
+           "--robot-init-rot-quat-center", "0", "0", "0", "1",
+           "--robot-init-rot-rpy-range", "0", "0", "1", "0", "0", "1", "0", "0", "1",
+           "--additional-env-build-kwargs", "lr_switch=True", "urdf_version=None"]
+  - name: google_robot_move_near
+    suite: simpler_google_vm
+    env_name: MoveNearGoogleBakedTexInScene-v0
+    policy_setup: google_robot
+    description: "Google Robot visual matching: move an object near another one (episodes 0-19)"
+    source: "scripts/move_near_visual_matching.sh (urdf_version=None; episodes 0-19 of 0-59)"
+    args: ["--robot", "google_robot_static", "--control-freq", "3", "--sim-freq", "513", "--max-episode-steps", "80",
+           "--scene-name", "google_pick_coke_can_1_v4",
+           "--rgb-overlay-path", "./ManiSkill2_real2sim/data/real_inpainting/google_move_near_real_eval_1.png",
+           "--robot-init-x", "0.35", "0.35", "1", "--robot-init-y", "0.21", "0.21", "1",
+           "--obj-variation-mode", "episode", "--obj-episode-range", "0", "20",
+           "--robot-init-rot-quat-center", "0", "0", "0", "1",
+           "--robot-init-rot-rpy-range", "0", "0", "1", "0", "0", "1", "-0.09", "-0.09", "1",
+           "--additional-env-build-kwargs", "urdf_version=None",
+           "--additional-env-save-tags", "baked_except_bpb_orange"]
+  - name: widowx_carrot_on_plate
+    suite: simpler_bridge
+    env_name: PutCarrotOnPlateInScene-v0
+    policy_setup: widowx_bridge
+    description: "WidowX Bridge: put the carrot on the plate (24 episodes)"
+    source: "scripts/bridge.sh (PutCarrotOnPlateInScene-v0, full)"
+    args: &bridge_table_1 ["--robot", "widowx", "--control-freq", "5", "--sim-freq", "500", "--max-episode-steps", "60",
+           "--scene-name", "bridge_table_1_v1",
+           "--rgb-overlay-path", "ManiSkill2_real2sim/data/real_inpainting/bridge_real_eval_1.png",
+           "--robot-init-x", "0.147", "0.147", "1", "--robot-init-y", "0.028", "0.028", "1",
+           "--obj-variation-mode", "episode", "--obj-episode-range", "0", "24",
+           "--robot-init-rot-quat-center", "0", "0", "0", "1",
+           "--robot-init-rot-rpy-range", "0", "0", "1", "0", "0", "1", "0", "0", "1"]
+  - name: widowx_put_eggplant_in_basket
+    suite: simpler_bridge
+    env_name: PutEggplantInBasketScene-v0
+    policy_setup: widowx_bridge
+    description: "WidowX Bridge: put the eggplant in the yellow basket (sink scene, 24 episodes)"
+    source: "scripts/bridge.sh (PutEggplantInBasketScene-v0, full)"
+    args: ["--robot", "widowx_sink_camera_setup", "--control-freq", "5", "--sim-freq", "500", "--max-episode-steps", "120",
+           "--scene-name", "bridge_table_1_v2",
+           "--rgb-overlay-path", "ManiSkill2_real2sim/data/real_inpainting/bridge_sink.png",
+           "--robot-init-x", "0.127", "0.127", "1", "--robot-init-y", "0.06", "0.06", "1",
+           "--obj-variation-mode", "episode", "--obj-episode-range", "0", "24",
+           "--robot-init-rot-quat-center", "0", "0", "0", "1",
+           "--robot-init-rot-rpy-range", "0", "0", "1", "0", "0", "1", "0", "0", "1"]
+
+# Task sets (deploy.py --task-set NAME; see task_sets.py).
+task_sets:
+  # The other two WidowX Bridge tasks of scripts/bridge.sh (same scene as carrot).
+  bridge:
+    description: "WidowX Bridge: all four tasks of scripts/bridge.sh (4 x 24 episodes)"
+    tasks:
+      - name: widowx_spoon_on_towel
+        suite: simpler_bridge
+        env_name: PutSpoonOnTableClothInScene-v0
+        policy_setup: widowx_bridge
+        description: "WidowX Bridge: put the spoon on the towel (24 episodes)"
+        source: "scripts/bridge.sh (PutSpoonOnTableClothInScene-v0, full)"
+        args: *bridge_table_1
+      - name: widowx_carrot_on_plate
+        suite: simpler_bridge
+        env_name: PutCarrotOnPlateInScene-v0
+        policy_setup: widowx_bridge
+        description: "WidowX Bridge: put the carrot on the plate (24 episodes)"
+        source: "scripts/bridge.sh (PutCarrotOnPlateInScene-v0, full)"
+        args: *bridge_table_1
+      - name: widowx_stack_green_on_yellow_block
+        suite: simpler_bridge
+        env_name: StackGreenCubeOnYellowCubeBakedTexInScene-v0
+        policy_setup: widowx_bridge
+        description: "WidowX Bridge: stack the green block on the yellow block (24 episodes)"
+        source: "scripts/bridge.sh (StackGreenCubeOnYellowCubeBakedTexInScene-v0, full)"
+        args: *bridge_table_1
+      - name: widowx_put_eggplant_in_basket
+        suite: simpler_bridge
+        env_name: PutEggplantInBasketScene-v0
+        policy_setup: widowx_bridge
+        description: "WidowX Bridge: put the eggplant in the yellow basket (sink scene, 24 episodes)"
+        source: "scripts/bridge.sh (PutEggplantInBasketScene-v0, full)"
+        args: ["--robot", "widowx_sink_camera_setup", "--control-freq", "5", "--sim-freq", "500", "--max-episode-steps", "120",
+               "--scene-name", "bridge_table_1_v2",
+               "--rgb-overlay-path", "ManiSkill2_real2sim/data/real_inpainting/bridge_sink.png",
+               "--robot-init-x", "0.127", "0.127", "1", "--robot-init-y", "0.06", "0.06", "1",
+               "--obj-variation-mode", "episode", "--obj-episode-range", "0", "24",
+               "--robot-init-rot-quat-center", "0", "0", "0", "1",
+               "--robot-init-rot-rpy-range", "0", "0", "1", "0", "0", "1", "0", "0", "1"]
+  # `actions` = the drawer half of the Google "Open/Close Drawer" column (README table, 59.3% visual matching):
+  # scripts/drawer_visual_matching.sh, top drawer, its first URDF variant, all 9 robot / overlay positions A0-C2
+  # (1 episode each). Ray tracing is on as in the script (policies use shadows for depth).
+  actions:
+    description: "Google Robot visual matching: open / close the top drawer (2 tasks x 9 positions)"
+    tasks:
+      - name: google_robot_open_top_drawer
+        suite: simpler_google_vm
+        env_name: OpenTopDrawerCustomInScene-v0
+        policy_setup: google_robot
+        action_type: articulated
+        description: "Google Robot visual matching: open the top drawer (9 robot positions)"
+        source: "scripts/drawer_visual_matching.sh (OpenTopDrawerCustomInScene-v0, urdf_version=recolor_cabinet_visual_matching_1, A0-C2)"
+        args: &drawer_args ["--robot", "google_robot_static", "--control-freq", "3", "--sim-freq", "513",
+               "--max-episode-steps", "113", "--scene-name", "dummy_drawer",
+               "--robot-init-rot-quat-center", "0", "0", "0", "1",
+               "--obj-init-x-range", "0", "0", "1", "--obj-init-y-range", "0", "0", "1",
+               "--enable-raytracing", "--additional-env-build-kwargs", "station_name=mk_station_recolor",
+               "light_mode=simple", "disable_bad_material=True", "urdf_version=recolor_cabinet_visual_matching_1"]
+        variants: &drawer_positions
+          - ["--robot-init-x", "0.644", "0.644", "1", "--robot-init-y", "-0.179", "-0.179", "1",
+             "--robot-init-rot-rpy-range", "0", "0", "1", "0", "0", "1", "-0.03", "-0.03", "1",
+             "--rgb-overlay-path", "./ManiSkill2_real2sim/data/real_inpainting/open_drawer_a0.png"]
+          - ["--robot-init-x", "0.765", "0.765", "1", "--robot-init-y", "-0.182", "-0.182", "1",
+             "--robot-init-rot-rpy-range", "0", "0", "1", "0", "0", "1", "-0.02", "-0.02", "1",
+             "--rgb-overlay-path", "./ManiSkill2_real2sim/data/real_inpainting/open_drawer_a1.png"]
+          - ["--robot-init-x", "0.889", "0.889", "1", "--robot-init-y", "-0.203", "-0.203", "1",
+             "--robot-init-rot-rpy-range", "0", "0", "1", "0", "0", "1", "-0.06", "-0.06", "1",
+             "--rgb-overlay-path", "./ManiSkill2_real2sim/data/real_inpainting/open_drawer_a2.png"]
+          - ["--robot-init-x", "0.652", "0.652", "1", "--robot-init-y", "0.009", "0.009", "1",
+             "--robot-init-rot-rpy-range", "0", "0", "1", "0", "0", "1", "0", "0", "1",
+             "--rgb-overlay-path", "./ManiSkill2_real2sim/data/real_inpainting/open_drawer_b0.png"]
+          - ["--robot-init-x", "0.752", "0.752", "1", "--robot-init-y", "0.009", "0.009", "1",
+             "--robot-init-rot-rpy-range", "0", "0", "1", "0", "0", "1", "0", "0", "1",
+             "--rgb-overlay-path", "./ManiSkill2_real2sim/data/real_inpainting/open_drawer_b1.png"]
+          - ["--robot-init-x", "0.851", "0.851", "1", "--robot-init-y", "0.035", "0.035", "1",
+             "--robot-init-rot-rpy-range", "0", "0", "1", "0", "0", "1", "0", "0", "1",
+             "--rgb-overlay-path", "./ManiSkill2_real2sim/data/real_inpainting/open_drawer_b2.png"]
+          - ["--robot-init-x", "0.665", "0.665", "1", "--robot-init-y", "0.224", "0.224", "1",
+             "--robot-init-rot-rpy-range", "0", "0", "1", "0", "0", "1", "0", "0", "1",
+             "--rgb-overlay-path", "./ManiSkill2_real2sim/data/real_inpainting/open_drawer_c0.png"]
+          - ["--robot-init-x", "0.765", "0.765", "1", "--robot-init-y", "0.222", "0.222", "1",
+             "--robot-init-rot-rpy-range", "0", "0", "1", "0", "0", "1", "-0.025", "-0.025", "1",
+             "--rgb-overlay-path", "./ManiSkill2_real2sim/data/real_inpainting/open_drawer_c1.png"]
+          - ["--robot-init-x", "0.865", "0.865", "1", "--robot-init-y", "0.222", "0.222", "1",
+             "--robot-init-rot-rpy-range", "0", "0", "1", "0", "0", "1", "-0.025", "-0.025", "1",
+             "--rgb-overlay-path", "./ManiSkill2_real2sim/data/real_inpainting/open_drawer_c2.png"]
+      - name: google_robot_close_top_drawer
+        suite: simpler_google_vm
+        env_name: CloseTopDrawerCustomInScene-v0
+        policy_setup: google_robot
+        action_type: articulated
+        description: "Google Robot visual matching: close the top drawer (9 robot positions)"
+        source: "scripts/drawer_visual_matching.sh (CloseTopDrawerCustomInScene-v0, urdf_version=recolor_cabinet_visual_matching_1, A0-C2)"
+        args: *drawer_args
+        variants: *drawer_positions
+
+bridge:
+  enabled: false

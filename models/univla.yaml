@@ -1,0 +1,87 @@
+# UniVLA (BAAI, "Unified Vision-Language-Action Model", arXiv:2506.19850) x LIBERO — the authors' own LIBERO loop.
+# An Emu3-based (8.5B) autoregressive world model post-trained to emit FAST action tokens; one checkpoint for all
+# four LIBERO suites (trained on them jointly).
+# Repo:  https://github.com/baaivision/UniVLA (docs/libero.md "Model Evaluation": reference/RoboVLMs,
+#        `bash scripts/run_eval_libero_univla.sh ${CKPT_PATH}` = eval/libero/evaluate_libero_emu.py)
+# Template: templates/libero-own-userdata.sh.j2 (shared with `ge-act`) + assets/libero/own_eval_runner.py
+#        --adapter univla: the authors' evaluate() and EmuVLAModel, run on a task subset with one video per episode.
+#
+# CLI:   python deploy.py --vla univla [--task-set actions]
+#
+# Checkpoint: Yuqi1997/UniVLA subfolder UNIVLA_LIBERO_IMG_BS192_8K ("img sft", README LIBERO table: Spatial 97.0,
+#   Object 99.0, Goal 92.6, 10 90.8, avg 94.8). Not the "video sft" one: model_wrapper_emu.py hard-codes
+#   video_mode=False (single-frame input) and that checkpoint was trained with --frames 2 interleaved history
+#   (scripts/simulator/libero/train_libero_video.sh, max_position_embeddings 3200 vs 1600 here).
+# The wrapper also loads the Emu3 text tokenizer (vq_hub = BAAI/Emu3-Stage1 tokenizer files; the same blobs as the
+#   checkpoint folder's) and the Emu3 vision tokenizer (vision_hub = BAAI/Emu3-VisionTokenizer, remote code).
+# Policy: greedy decoding (GenerationConfig do_sample=False), action chunk of 10, gripper binarised.
+# License: weights Apache-2.0 (HF model card); BAAI Emu3 code / tokenizers Apache-2.0; the UniVLA repository has no
+#   LICENSE file at a91ee5f2 (see docs/licenses.md).
+
+model:
+  id: univla
+  display_name: "UniVLA"
+  policy_desc: "UniVLA (BAAI, Emu3-8.5B world model + FAST action tokens), LIBERO img sft checkpoint"
+  license: "weights Apache-2.0 (Yuqi1997/UniVLA card); Emu3 code Apache-2.0; UniVLA repo has no LICENSE file"
+  checkpoint: "Yuqi1997/UniVLA"
+  revision: "df6c94ff872f4fc056693e507c033ca390694118"   # main 2025-06-26 (all five checkpoint folders)
+  code_repo: "https://github.com/baaivision/UniVLA.git"
+  code_commit: "a91ee5f269d7ad46d46635ee6481d2eb655b4af9"   # main 2025-10-15
+  libero_commit: "8f1084e3132a39270c3a13ebe37270a43ece2a01"   # LIBERO master 2025-03-15
+  adapter: univla
+  eval_label: "UniVLA reference/RoboVLMs/eval/libero/evaluate_libero_emu.py evaluate()"
+  python_version: "3.10"
+  requirements: "assets/libero/univla-requirements.txt"
+  pythonpath: ["reference/Emu3", "reference/RoboVLMs/eval/libero"]
+  import_check: ["emu3.mllm", "flash_attn", "tiktoken", "models.policy_head.noise_schedulers", "libero_utils",
+                 "robosuite", "moviepy.editor", "cv2"]
+  downloads:
+    - repo: "Yuqi1997/UniVLA"
+      revision: "df6c94ff872f4fc056693e507c033ca390694118"
+      dir: UniVLA
+      allow_patterns: ["UNIVLA_LIBERO_IMG_BS192_8K/*"]   # 17.0 GB bf16 (4 safetensors) of the 85 GB repo
+    - repo: "BAAI/Emu3-Stage1"
+      revision: "083e245ab5a4a3de4992d6da04238c96958ec141"
+      dir: Emu3-Stage1
+      allow_patterns: ["emu3.tiktoken", "emu3_vision_tokens.txt", "special_tokens_map.json", "tokenizer_config.json",
+                       "tokenization_emu3.py", "config.json", "configuration_emu3.py"]   # tokenizer only, no weights
+    - repo: "BAAI/Emu3-VisionTokenizer"
+      revision: "c81f916ad371289e205310a7539255e8a9396488"
+      dir: Emu3-VisionTokenizer                           # 1.08 GB
+  runner_args: ["--emu-hub", "{assets}/UniVLA/UNIVLA_LIBERO_IMG_BS192_8K", "--vq-hub", "{assets}/Emu3-Stage1",
+                "--vision-hub", "{assets}/Emu3-VisionTokenizer"]
+
+instance:
+  # 17 GB bf16 weights + 1 GB vision tokenizer: measured CUDA OOM on a 24 GB L4 (22.0 GiB in use at the first
+  # vision-tokenizer encode, every episode). L40S 48 GB (g6e) first; g6e.2xlarge / g6.12xlarge are not used (one GPU).
+  preferred: [g6e.xlarge, g6e.2xlarge]
+  ebs_gb: 150            # DLAMI + venv (~10 GB) + 18 GB weights + LIBERO + videos
+  creationpolicy_timeout: PT180M   # setup ~30-40 min + 30 episodes of token-by-token decoding (estimate; not measured)
+  min_gpu_mib: 40000
+  min_host_mib: 30000
+
+# Tasks: LIBERO task ids of a suite (env_name = the task name at that id in LIBERO @8f1084e3, checked at render time
+# and again on the instance). Episode k uses LIBERO's fixed init state k. The authors' loop runs every task of a
+# suite with one episode count, so tasks of one suite share n_episodes (one runner call, one model load).
+tasks:
+  - {suite: libero_goal, task_id: 1, env_name: put_the_bowl_on_the_stove,
+       n_episodes: 10, description: "LIBERO-Goal: put the bowl on the stove"}
+  - {suite: libero_goal, task_id: 6, env_name: put_the_cream_cheese_in_the_bowl,
+       n_episodes: 10, description: "LIBERO-Goal: put the cream cheese in the bowl"}
+  - {suite: libero_goal, task_id: 8, env_name: put_the_bowl_on_the_plate,
+       n_episodes: 10, description: "LIBERO-Goal: put the bowl on the plate"}
+
+task_sets:
+  # Non-pick-and-place tasks of LIBERO-Goal (same checkpoint): open a drawer, push a plate, turn a stove knob.
+  actions:
+    description: "LIBERO-Goal: open the middle drawer, push the plate, turn on the stove (3 x 10 episodes)"
+    tasks:
+      - {suite: libero_goal, task_id: 0, env_name: open_the_middle_drawer_of_the_cabinet,
+       n_episodes: 10, description: "LIBERO-Goal: open the middle drawer of the cabinet"}
+      - {suite: libero_goal, task_id: 5, env_name: push_the_plate_to_the_front_of_the_stove,
+       n_episodes: 10, description: "LIBERO-Goal: push the plate to the front of the stove"}
+      - {suite: libero_goal, task_id: 7, env_name: turn_on_the_stove,
+       n_episodes: 10, description: "LIBERO-Goal: turn on the stove"}
+
+bridge:
+  enabled: false

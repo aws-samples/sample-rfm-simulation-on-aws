@@ -71,6 +71,10 @@ STACK_NAMES = {
     "rlinf-oft-libero": "RLinf-OFT-LIBERO-Demo",
     "lerobot-gym": "LeRobot-Gym-Demo",
     "multitask-dit": "MultiTask-DiT-Demo",
+    "spatialvla": "SpatialVLA-Demo",
+    "magma": "Magma-Demo",
+    "univla": "UniVLA-Demo",
+    "ge-act": "GE-Act-Demo",
 }
 
 

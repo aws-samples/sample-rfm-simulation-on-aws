@@ -25,6 +25,8 @@ Usage:
     python generate.py --vla real2sim    [--config simulator-config.yaml] [--dry-run]
     python generate.py --vla robolab-cosmos3 [--dry-run]   # model.variant in the yaml: edge | nano | edge-full
     python generate.py --vla smolvla-robotwin [--robotwin-protocol subset|clean|randomized|full] [--robotwin-shard K/N]
+    python generate.py --vla spatialvla  [--task-set bridge|actions]   # also: magma (SimplerEnv, authors' eval)
+    python generate.py --vla univla      [--task-set actions]   # also: ge-act (LIBERO, authors' eval loop)
     python generate.py --vla rlinf-oft-libero [--rl-profile smoke|full] [--rl-steps N] [--rl-eval-run RUN_ID]
     python generate.py --judge-target flora-judge [--dry-run]   # post-run judge (deploy.py --judge)
 """
@@ -1023,6 +1025,438 @@ def generate_lerobot_gym(config: dict, dry_run: bool, vla: str = "lerobot-gym") 
     return env.get_template("lerobot-gym-userdata.sh.j2").render(**_with_protocol(ctx, config, card))
 
 
+# ── SimplerEnv targets: the authors' own SimplerEnv evaluation (shared templates/simpler-userdata.sh.j2) ──────────
+# Each target pins a SimplerEnv harness (upstream or the authors' fork) and its ManiSkill2_real2sim submodule, an
+# optional policy plugin copied over the harness simpler_env/ (Magma), one venv from a lock file in assets/simpler/,
+# and a checkpoint. A task is one SimplerEnv environment run through the harness' main_inference script with the
+# arguments of the authors' eval script; `variants` adds one call per robot position / overlay.
+SIMPLER_TARGETS = ("spatialvla", "magma")
+SIMPLER_POLICY_SETUPS = ("google_robot", "widowx_bridge")
+# simpler_env/evaluation/argparse.py flags (upstream SimplerEnv d55e191; forks add their own via harness_extra_flags).
+SIMPLER_FLAGS = (
+    "--policy-model", "--policy-setup", "--ckpt-path", "--env-name", "--additional-env-save-tags", "--scene-name",
+    "--enable-raytracing", "--robot", "--obs-camera-name", "--action-scale", "--control-freq", "--sim-freq",
+    "--max-episode-steps", "--rgb-overlay-path", "--robot-init-x-range", "--robot-init-y-range",
+    "--robot-init-rot-quat-center", "--robot-init-rot-rpy-range", "--obj-variation-mode", "--obj-episode-range",
+    "--obj-init-x-range", "--obj-init-y-range", "--additional-env-build-kwargs", "--logging-dir", "--tf-memory-limit",
+    "--octo-init-rng",
+)
+# Set by the template from the yaml (model + task fields), never in a task's args.
+SIMPLER_TEMPLATE_FLAGS = ("--policy-model", "--ckpt-path", "--policy-setup", "--env-name", "--logging-dir")
+_SIMPLER_TOKEN_RE = re.compile(r"^[A-Za-z0-9_./=:,+-]+$")
+_SIMPLER_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
+_COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
+
+
+def simpler_flag(token: str, flags=SIMPLER_FLAGS) -> str | None:
+    """The argparse option a `--` token selects: an exact flag, else the one flag it is a prefix of (argparse
+    allow_abbrev, e.g. the scripts' --robot-init-x = --robot-init-x-range). None for an unknown or ambiguous token."""
+    if token in flags:
+        return token
+    hits = [f for f in flags if f.startswith(token)]
+    return hits[0] if len(hits) == 1 else None
+
+
+def simpler_parse_args(argv: list, flags=SIMPLER_FLAGS) -> dict:
+    """{flag: [values]} of a main_inference.py argv (later occurrences win, as in argparse). ValueError on a token
+    that is not a known flag or an option value."""
+    out, cur = {}, None
+    for tok in argv:
+        tok = str(tok)
+        if tok.startswith("--"):
+            cur = simpler_flag(tok, flags)
+            if cur is None:
+                raise ValueError(f"{tok!r} is not a SimplerEnv main_inference flag (or is ambiguous)")
+            out[cur] = []
+        elif cur is None:
+            raise ValueError(f"{tok!r} comes before any flag")
+        else:
+            out[cur].append(tok)
+    return out
+
+
+def simpler_episode_count(argv: list, flags=SIMPLER_FLAGS) -> int:
+    """Episodes one main_inference.py call runs (simpler_env/evaluation/maniskill2_evaluator.py): robot x positions
+    x robot y positions x (roll x pitch x yaw) x objects, where objects = end - start of --obj-episode-range in
+    `episode` mode and the --obj-init-x-range count x --obj-init-y-range count in `xy` mode. Defaults are those of
+    simpler_env/evaluation/argparse.py (1 robot pose; xy mode, 5 x 5 objects; episodes 0-60)."""
+    a = simpler_parse_args(argv, flags)
+
+    def num(flag, idx, default):
+        vals = a.get(flag)
+        if vals is None:
+            return default
+        try:
+            return int(float(vals[idx]))
+        except (IndexError, ValueError):
+            raise ValueError(f"{flag} needs a value at position {idx + 1}, got {vals}") from None
+
+    for flag, n in (("--robot-init-x-range", 3), ("--robot-init-y-range", 3), ("--robot-init-rot-rpy-range", 9),
+                    ("--obj-episode-range", 2), ("--obj-init-x-range", 3), ("--obj-init-y-range", 3)):
+        if flag in a and len(a[flag]) != n:
+            raise ValueError(f"{flag} takes {n} values, got {len(a[flag])}")
+    robot = num("--robot-init-x-range", 2, 1) * num("--robot-init-y-range", 2, 1)
+    robot *= num("--robot-init-rot-rpy-range", 2, 1) * num("--robot-init-rot-rpy-range", 5, 1) \
+        * num("--robot-init-rot-rpy-range", 8, 1)
+    mode = (a.get("--obj-variation-mode") or ["xy"])[0]
+    if mode == "episode":
+        objects = num("--obj-episode-range", 1, 60) - num("--obj-episode-range", 0, 0)
+    elif mode == "xy":
+        objects = num("--obj-init-x-range", 2, 5) * num("--obj-init-y-range", 2, 5)
+    else:
+        raise ValueError(f"--obj-variation-mode must be xy or episode, got {mode!r}")
+    if robot < 1 or objects < 1:
+        raise ValueError(f"no episodes: {robot} robot poses x {objects} objects")
+    return robot * objects
+
+
+def simpler_tasks(config: dict, vla: str) -> list:
+    """Validated `tasks:` of a SimplerEnv model yaml, each with `action_type`, `variants` (at least one, possibly
+    empty, argv list), per-variant `episodes` and the total `n_episodes` filled in. Raises ValueError."""
+    model = config.get("model") or {}
+    flags = SIMPLER_FLAGS + tuple(model.get("harness_extra_flags") or ())
+    tasks = config.get("tasks") or []
+    if not isinstance(tasks, list) or not tasks:
+        raise ValueError(f"models/{vla}.yaml has no tasks entry")
+    out, names = [], set()
+    for i, t in enumerate(tasks):
+        where = f"models/{vla}.yaml tasks[{i}]"
+        if not isinstance(t, dict):
+            raise ValueError(f"{where}: not a mapping")
+        for key in ("name", "env_name", "policy_setup", "args"):
+            if not t.get(key):
+                raise ValueError(f"{where}: {key} is required")
+        for key in ("name", "env_name"):
+            if not _SIMPLER_NAME_RE.match(str(t[key])):
+                raise ValueError(f"{where}: {key} {t[key]!r} has characters outside [A-Za-z0-9_.-]")
+        if t["name"] in names:
+            raise ValueError(f"{where}: duplicate task name {t['name']!r}")
+        names.add(t["name"])
+        if t["policy_setup"] not in SIMPLER_POLICY_SETUPS:
+            raise ValueError(f"{where}: policy_setup must be one of {', '.join(SIMPLER_POLICY_SETUPS)}")
+        variants = t.get("variants") or [[]]
+        if not isinstance(t["args"], list) or not isinstance(variants, list) \
+                or not all(isinstance(v, list) for v in variants):
+            raise ValueError(f"{where}: args and every variants entry must be lists of strings")
+        episodes = []
+        for v in variants:
+            argv = [str(x) for x in list(t["args"]) + list(v)]
+            bad = [x for x in argv if not _SIMPLER_TOKEN_RE.match(x)]
+            if bad:
+                raise ValueError(f"{where}: unsafe argument tokens {bad}")
+            try:
+                parsed = simpler_parse_args(argv, flags)
+                episodes.append(simpler_episode_count(argv, flags))
+            except ValueError as e:
+                raise ValueError(f"{where}: {e}") from None
+            set_here = sorted(set(parsed) & set(SIMPLER_TEMPLATE_FLAGS))
+            if set_here:
+                raise ValueError(f"{where}: {', '.join(set_here)} is set by the template")
+        out.append(dict(t, args=[str(x) for x in t["args"]], variants=[[str(x) for x in v] for v in variants],
+                        episodes=episodes, n_episodes=sum(episodes), action_type=task_sets.action_type(t),
+                        suite=str(t.get("suite") or "simplerenv")))
+    return out
+
+
+def generate_simpler(config: dict, dry_run: bool, vla: str) -> str:
+    """A VLA's own SimplerEnv evaluation (Google Robot / WidowX visual matching), in-process on one GPU.
+
+    The harness (a SimplerEnv checkout at a pinned commit, plus the plugin of the model repo where the authors ship
+    one) runs main_inference per task variant; success per episode comes from the `success_` / `failure_` prefix of
+    the videos SimplerEnv writes (models/spatialvla.yaml, models/magma.yaml)."""
+    model = config.get("model", {})
+    instance = config.get("instance", {})
+
+    def fail(msg):
+        print(f"[error] models/{vla}.yaml: {msg}", file=sys.stderr)
+        sys.exit(1)
+
+    for key in ("hf_repo", "hf_model_revision", "harness_repo", "harness_commit", "maniskill_commit", "entry",
+                "policy_model", "python_version", "requirements"):
+        if not model.get(key):
+            fail(f"model.{key} is required")
+    for key in ("hf_model_revision", "harness_commit", "maniskill_commit"):
+        if not _COMMIT_RE.match(str(model[key])):
+            fail(f"model.{key} must be a 40-hex commit")
+    if not _HF_REPO_RE.match(str(model["hf_repo"])):
+        fail(f"model.hf_repo {model['hf_repo']!r} is not <org>/<name>")
+    plugin = {}
+    if model.get("plugin_repo"):
+        if not _COMMIT_RE.match(str(model.get("plugin_commit", ""))) or not model.get("plugin_src"):
+            fail("model.plugin_repo needs plugin_commit (40-hex) and plugin_src")
+        plugin = {k: _shell_safe(model[k], k) for k in ("plugin_repo", "plugin_commit", "plugin_src")}
+        # "<file under simpler_env/>:<class>": the harness evaluator calls model.visualize_epoch() after every
+        # episode; a plugin policy without it crashes after episode 1 -> add a no-op (video saving is separate).
+        shim = model.get("plugin_visualize_shim")
+        if shim:
+            if not re.fullmatch(r"[A-Za-z0-9_/]+\.py:[A-Za-z_][A-Za-z0-9_]*", str(shim)):
+                fail("model.plugin_visualize_shim must look like 'policies/x/y.py:ClassName'")
+            plugin["shim_file"], plugin["shim_class"] = str(shim).split(":")
+    prefetch = []
+    for p in model.get("prefetch") or []:
+        if not _HF_REPO_RE.match(str(p.get("repo", ""))) or not _COMMIT_RE.match(str(p.get("revision", ""))):
+            fail(f"model.prefetch entries need repo <org>/<name> and a 40-hex revision, got {p}")
+        prefetch.append(dict(repo=str(p["repo"]), revision=str(p["revision"])))
+    policy_args = [str(x) for x in model.get("policy_args") or []]
+    bad = [x for x in policy_args if not _SIMPLER_TOKEN_RE.match(x)]
+    if bad:
+        fail(f"model.policy_args has unsafe tokens: {bad}")
+    imports = [str(x) for x in model.get("import_check") or []]
+    if any(not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_.]*", m) for m in imports):
+        fail(f"model.import_check entries must be module names: {imports}")
+    req = BASE_DIR / str(model["requirements"])
+    if not req.is_file():
+        fail(f"model.requirements {model['requirements']} not found")
+    try:
+        tasks = simpler_tasks(config, vla)
+    except ValueError as e:
+        print(f"[error] {e}", file=sys.stderr)
+        sys.exit(1)
+    ctx = {
+        "vla": vla,
+        "task_set": config.get("task_set") or "",
+        "tasks_json": _tasks_json_for_bash(tasks),
+        "tasks": tasks,
+        "n_episodes_total": sum(t["n_episodes"] for t in tasks),
+        "display_name": _shell_safe(model.get("display_name", vla), "display_name"),
+        "policy_desc": _shell_safe(model.get("policy_desc", vla), "policy_desc"),
+        "license": _shell_safe(model.get("license", "see model card"), "license"),
+        "hf_repo": model["hf_repo"],
+        "hf_model_revision": model["hf_model_revision"],
+        "ckpt_name": str(model["hf_repo"]).split("/")[-1],
+        "prefetch": prefetch,
+        "harness_repo": _shell_safe(model["harness_repo"], "harness_repo"),
+        "harness_commit": model["harness_commit"],
+        "maniskill_commit": model["maniskill_commit"],
+        "plugin": plugin,
+        "entry": _shell_safe(model["entry"], "entry"),
+        "policy_model": _shell_safe(model["policy_model"], "policy_model"),
+        "policy_args": policy_args,
+        "python_version": _shell_safe(model["python_version"], "python_version"),
+        "requirements_name": req.name,
+        "requirements_b64": base64.encodebytes(req.read_bytes()).decode(),
+        "import_check_json": json.dumps(imports),
+        "robot_label": _shell_safe(model.get("robot_label", "SimplerEnv"), "robot_label"),
+        "sim_label": _shell_safe(model.get("sim_label", "SimplerEnv"), "sim_label"),
+        "min_gpu_mib": int(instance.get("min_gpu_mib", 15000)),
+        "min_host_mib": int(instance.get("min_host_mib", 15000)),
+    }
+    card = {"start_states": "SimplerEnv fixed grids (robot pose x object grid / episode ids in each task's args)",
+            "checkpoints": prefetch}
+    env = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)), keep_trailing_newline=True)  # nosec B701 - shell script template
+    return env.get_template("simpler-userdata.sh.j2").render(**_with_protocol(ctx, config, card))
+
+
+# ── LIBERO targets: the authors' own LIBERO evaluation loop (shared templates/libero-own-userdata.sh.j2) ─────────
+# The authors' repository is cloned at a pinned commit, LIBERO at a pinned commit, one venv comes from a lock file in
+# assets/libero/, the weights come from the Hugging Face Hub or a pinned direct URL (sha256-checked), and
+# assets/libero/own_eval_runner.py calls the authors' episode loop for a subset of tasks and keeps one video per
+# episode (models/univla.yaml, models/ge-act.yaml). A task is one LIBERO task (suite + task id); consecutive tasks of
+# one suite with the same episode count share one runner call (one model load).
+LIBERO_OWN_TARGETS = ("univla", "ge-act")
+LIBERO_OWN_ADAPTERS = ("univla", "ge-act")
+LIBERO_OWN_RUNNER = BASE_DIR / "assets" / "libero" / "own_eval_runner.py"
+# LIBERO @8f1084e3 libero/libero/benchmark/libero_suite_task_map.py (task order 0 = the order the suites use).
+LIBERO_TASKS = {
+    "libero_spatial": [
+        "pick_up_the_black_bowl_between_the_plate_and_the_ramekin_and_place_it_on_the_plate",
+        "pick_up_the_black_bowl_next_to_the_ramekin_and_place_it_on_the_plate",
+        "pick_up_the_black_bowl_from_table_center_and_place_it_on_the_plate",
+        "pick_up_the_black_bowl_on_the_cookie_box_and_place_it_on_the_plate",
+        "pick_up_the_black_bowl_in_the_top_drawer_of_the_wooden_cabinet_and_place_it_on_the_plate",
+        "pick_up_the_black_bowl_on_the_ramekin_and_place_it_on_the_plate",
+        "pick_up_the_black_bowl_next_to_the_cookie_box_and_place_it_on_the_plate",
+        "pick_up_the_black_bowl_on_the_stove_and_place_it_on_the_plate",
+        "pick_up_the_black_bowl_next_to_the_plate_and_place_it_on_the_plate",
+        "pick_up_the_black_bowl_on_the_wooden_cabinet_and_place_it_on_the_plate",
+    ],
+    "libero_object": [f"pick_up_the_{o}_and_place_it_in_the_basket" for o in (
+        "alphabet_soup", "cream_cheese", "salad_dressing", "bbq_sauce", "ketchup", "tomato_sauce", "butter", "milk",
+        "chocolate_pudding", "orange_juice")],
+    "libero_goal": [
+        "open_the_middle_drawer_of_the_cabinet", "put_the_bowl_on_the_stove", "put_the_wine_bottle_on_top_of_the_cabinet",
+        "open_the_top_drawer_and_put_the_bowl_inside", "put_the_bowl_on_top_of_the_cabinet",
+        "push_the_plate_to_the_front_of_the_stove", "put_the_cream_cheese_in_the_bowl", "turn_on_the_stove",
+        "put_the_bowl_on_the_plate", "put_the_wine_bottle_on_the_rack",
+    ],
+    "libero_10": [
+        "LIVING_ROOM_SCENE2_put_both_the_alphabet_soup_and_the_tomato_sauce_in_the_basket",
+        "LIVING_ROOM_SCENE2_put_both_the_cream_cheese_box_and_the_butter_in_the_basket",
+        "KITCHEN_SCENE3_turn_on_the_stove_and_put_the_moka_pot_on_it",
+        "KITCHEN_SCENE4_put_the_black_bowl_in_the_bottom_drawer_of_the_cabinet_and_close_it",
+        "LIVING_ROOM_SCENE5_put_the_white_mug_on_the_left_plate_and_put_the_yellow_and_white_mug_on_the_right_plate",
+        "STUDY_SCENE1_pick_up_the_book_and_place_it_in_the_back_compartment_of_the_caddy",
+        "LIVING_ROOM_SCENE6_put_the_white_mug_on_the_plate_and_put_the_chocolate_pudding_to_the_right_of_the_plate",
+        "LIVING_ROOM_SCENE1_put_both_the_alphabet_soup_and_the_cream_cheese_box_in_the_basket",
+        "KITCHEN_SCENE8_put_both_moka_pots_on_the_stove",
+        "KITCHEN_SCENE6_put_the_yellow_and_white_mug_in_the_microwave_and_close_it",
+    ],
+}
+_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+_ENV_KEY_RE = re.compile(r"^[A-Z_][A-Z0-9_]*$")
+_REL_PATH_RE = re.compile(r"^(?!.*(^|/)\.{1,2}(/|$))[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)*$")  # no . / .. segments
+
+
+def libero_own_tasks(config: dict, vla: str) -> list:
+    """Validated `tasks:` of a libero-own model yaml (suite, task_id, env_name = the LIBERO task name at that id,
+    n_episodes, action_type). Raises ValueError."""
+    tasks = config.get("tasks") or []
+    if not isinstance(tasks, list) or not tasks:
+        raise ValueError(f"models/{vla}.yaml has no tasks entry")
+    out, seen = [], set()
+    for i, t in enumerate(tasks):
+        where = f"models/{vla}.yaml tasks[{i}]"
+        if not isinstance(t, dict):
+            raise ValueError(f"{where}: not a mapping")
+        suite = t.get("suite")
+        if suite not in LIBERO_TASKS:
+            raise ValueError(f"{where}: suite must be one of {', '.join(LIBERO_TASKS)}, got {suite!r}")
+        tid = t.get("task_id")
+        if not isinstance(tid, int) or isinstance(tid, bool) or not 0 <= tid < len(LIBERO_TASKS[suite]):
+            raise ValueError(f"{where}: task_id must be an integer 0-{len(LIBERO_TASKS[suite]) - 1}, got {tid!r}")
+        name = LIBERO_TASKS[suite][tid]
+        if t.get("env_name", name) != name:
+            raise ValueError(f"{where}: env_name {t.get('env_name')!r} is not task {tid} of {suite} ({name})")
+        if (suite, tid) in seen:
+            raise ValueError(f"{where}: {suite} task {tid} is listed twice")
+        seen.add((suite, tid))
+        n = t.get("n_episodes")
+        if not isinstance(n, int) or isinstance(n, bool) or not 1 <= n <= 50:
+            raise ValueError(f"{where}: n_episodes must be an integer 1-50 (LIBERO has 50 init states), got {n!r}")
+        desc = str(t.get("description") or f"{suite} task {tid}: {name}")
+        out.append(dict(suite=suite, task_id=tid, env_name=name, n_episodes=n, description=desc,
+                        action_type=task_sets.action_type(dict(t, env_name=name))))
+    return out
+
+
+def libero_own_runs(tasks: list) -> list:
+    """Consecutive tasks with the same suite and episode count -> one runner call each (the authors' loops run one
+    episode count for every task of a suite)."""
+    runs = []
+    for i, t in enumerate(tasks):
+        if runs and runs[-1]["suite"] == t["suite"] and runs[-1]["n_episodes"] == t["n_episodes"]:
+            runs[-1]["tasks"].append(i)
+        else:
+            runs.append(dict(suite=t["suite"], n_episodes=t["n_episodes"], tasks=[i]))
+    for k, r in enumerate(runs):
+        r["run"] = k
+        r["task_ids"] = ",".join(str(tasks[i]["task_id"]) for i in r["tasks"])
+        r["expect_names"] = ",".join(tasks[i]["env_name"] for i in r["tasks"])
+    return runs
+
+
+def generate_libero_own(config: dict, dry_run: bool, vla: str) -> str:
+    """A VLA's own LIBERO evaluation loop, in-process on one GPU (assets/libero/own_eval_runner.py adapters)."""
+    model = config.get("model", {})
+    instance = config.get("instance", {})
+
+    def fail(msg):
+        print(f"[error] models/{vla}.yaml: {msg}", file=sys.stderr)
+        sys.exit(1)
+
+    for key in ("checkpoint", "revision", "code_repo", "code_commit", "libero_commit", "adapter",
+                "python_version", "requirements", "downloads"):
+        if not model.get(key):
+            fail(f"model.{key} is required")
+    if not _HF_REPO_RE.match(str(model["checkpoint"])):
+        fail(f"model.checkpoint {model['checkpoint']!r} is not <org>/<name>")
+    for key in ("revision", "code_commit", "libero_commit"):
+        if not _COMMIT_RE.match(str(model[key])):
+            fail(f"model.{key} must be a 40-hex commit")
+    if model["adapter"] not in LIBERO_OWN_ADAPTERS:
+        fail(f"model.adapter must be one of {', '.join(LIBERO_OWN_ADAPTERS)}")
+    req = BASE_DIR / str(model["requirements"])
+    if not req.is_file():
+        fail(f"model.requirements {model['requirements']} not found")
+    try:
+        tasks = libero_own_tasks(config, vla)
+    except ValueError as e:
+        print(f"[error] {e}", file=sys.stderr)
+        sys.exit(1)
+    runs = libero_own_runs(tasks)
+    suites = {r["suite"] for r in runs}
+    downloads = []
+    for d in model["downloads"]:
+        if not isinstance(d, dict) or not _REL_PATH_RE.match(str(d.get("dir") or d.get("file") or "")):
+            fail(f"model.downloads entries need a relative `dir` (Hub) or `file` (URL) of [A-Za-z0-9_.-/], got {d}")
+        if d.get("suite") and d["suite"] not in LIBERO_TASKS:
+            fail(f"model.downloads suite {d['suite']!r} is not a LIBERO suite")
+        if d.get("suite") and d["suite"] not in suites:
+            continue  # a per-suite file no task of this run needs
+        if d.get("repo"):
+            if not _HF_REPO_RE.match(str(d["repo"])) or not _COMMIT_RE.match(str(d.get("revision", ""))):
+                fail(f"model.downloads Hub entries need repo <org>/<name> and a 40-hex revision, got {d}")
+            pats = [str(p) for p in d.get("allow_patterns") or []]
+            if any(not re.fullmatch(r"[A-Za-z0-9_.*/-]+", p) for p in pats):
+                fail(f"model.downloads allow_patterns must be plain glob patterns: {pats}")
+            downloads.append(dict(kind="hub", repo=d["repo"], revision=d["revision"], dir=d["dir"],
+                                  allow_patterns_py=repr(pats) if pats else "None"))
+        elif d.get("url"):
+            if not re.fullmatch(r"https://[A-Za-z0-9_.:/?&=%-]+", str(d["url"])) \
+                    or not _SHA256_RE.match(str(d.get("sha256", ""))):
+                fail(f"model.downloads URL entries need an https url (no quotes) and a sha256, got {d}")
+            downloads.append(dict(kind="url", url=d["url"], sha256=d["sha256"], file=d["file"],
+                                  size=int(d.get("size") or 0)))
+        else:
+            fail(f"model.downloads entries need `repo` or `url`, got {d}")
+    root = f"/home/ubuntu/{vla}"
+    for r in runs:
+        args = []
+        for a in [str(x) for x in model.get("runner_args") or []]:
+            a = a.replace("{assets}", f"{root}/assets").replace("{code}", f"{root}/code").replace("{suite}", r["suite"])
+            if not _SIMPLER_TOKEN_RE.match(a):
+                fail(f"model.runner_args has an unsafe token: {a!r}")
+            args.append(a)
+        sargs = [str(x) for x in (model.get("suite_args") or {}).get(r["suite"], [])]
+        if any(not _SIMPLER_TOKEN_RE.match(x) for x in sargs):
+            fail(f"model.suite_args.{r['suite']} has unsafe tokens: {sargs}")
+        r["args"] = args + sargs
+    env_vars = {}
+    for k, v in (model.get("env") or {}).items():
+        if not _ENV_KEY_RE.match(str(k)) or not _SIMPLER_TOKEN_RE.match(str(v)):
+            fail(f"model.env {k}={v!r}: names [A-Z0-9_], values plain tokens")
+        env_vars[str(k)] = str(v)
+    imports = [str(x) for x in model.get("import_check") or []]
+    if any(not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_.]*", m) for m in imports):
+        fail(f"model.import_check entries must be module names: {imports}")
+    pypath = [str(x) for x in model.get("pythonpath") or []]
+    if any(not _REL_PATH_RE.match(p) for p in pypath):
+        fail(f"model.pythonpath entries must be paths relative to the checkout: {pypath}")
+    ctx = {
+        "vla": vla,
+        "task_set": config.get("task_set") or "",
+        "tasks_json": _tasks_json_for_bash(tasks),
+        "runs_json": _tasks_json_for_bash(runs),
+        "tasks": tasks,
+        "runs": runs,
+        "n_episodes_total": sum(t["n_episodes"] for t in tasks),
+        "display_name": _shell_safe(model.get("display_name", vla), "display_name"),
+        "policy_desc": _shell_safe(model.get("policy_desc", vla), "policy_desc"),
+        "license": _shell_safe(model.get("license", "see model card"), "license"),
+        "hf_repo": model["checkpoint"],
+        "hf_model_revision": model["revision"],
+        "code_repo": _shell_safe(model["code_repo"], "code_repo"),
+        "code_commit": model["code_commit"],
+        "libero_commit": model["libero_commit"],
+        "adapter": model["adapter"],
+        "downloads": downloads,
+        "env_vars": env_vars,
+        "pythonpath": pypath,
+        "python_version": _shell_safe(model["python_version"], "python_version"),
+        "requirements_name": req.name,
+        "requirements_b64": base64.encodebytes(req.read_bytes()).decode(),
+        "runner_b64": base64.encodebytes(LIBERO_OWN_RUNNER.read_bytes()).decode(),
+        "import_check_json": json.dumps(imports),
+        "eval_label": _shell_safe(model.get("eval_label", "authors LIBERO loop"), "eval_label"),
+        "min_gpu_mib": int(instance.get("min_gpu_mib", 15000)),
+        "min_host_mib": int(instance.get("min_host_mib", 15000)),
+    }
+    card = {"start_states": "LIBERO fixed init states (episode k = init state k of the task, k < n_episodes)",
+            "checkpoints": [dict(repo=d["repo"], revision=d["revision"]) for d in downloads if d["kind"] == "hub"]}
+    env = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)), keep_trailing_newline=True)  # nosec B701 - shell script template
+    return env.get_template("libero-own-userdata.sh.j2").render(**_with_protocol(ctx, config, card))
+
+
 # Targets that run an upstream-LeRobot policy through `lerobot-eval --env.type=robotwin` (RoboTwin 2.0,
 # SAPIEN + CuRobo) with the shared lerobot-robotwin template. Adding one = models/<id>.yaml + the name maps.
 LEROBOT_ROBOTWIN_TARGETS = ("smolvla-robotwin", "lingbot-vla2")
@@ -1912,6 +2346,10 @@ def main():
         rendered = generate_lerobot_libero(config, args.dry_run, vla=args.vla, plus=plus)
     elif args.vla == "lerobot-gym":
         rendered = generate_lerobot_gym(config, args.dry_run, vla=args.vla)
+    elif args.vla in SIMPLER_TARGETS:
+        rendered = generate_simpler(config, args.dry_run, vla=args.vla)
+    elif args.vla in LIBERO_OWN_TARGETS:
+        rendered = generate_libero_own(config, args.dry_run, vla=args.vla)
     elif args.vla in LEROBOT_ROBOTWIN_TARGETS:
         rendered = generate_lerobot_robotwin(config, args.dry_run, vla=args.vla,
                                              protocol=args.robotwin_protocol, shard=args.robotwin_shard)

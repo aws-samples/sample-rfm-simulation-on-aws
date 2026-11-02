@@ -72,6 +72,20 @@ SEED_CONTROL: dict[str, dict] = {
     "rlinf-oft-libero": dict(where=None, env="no", policy="no",
                              reason="the template passes no seed to RLinf evaluations/run_eval.sh (the eval config's "
                                     "own seed applies)"),
+    # SimplerEnv main_inference has no seed flag; start states are the fixed robot-pose x object grids / episode ids
+    "spatialvla": dict(where=None, env=_LIBERO_FIXED, policy="no",
+                       reason="SimplerEnv main_inference.py has no seed flag (start states are the fixed grids / episode "
+                              "ids of each task); the policy decodes greedily (do_sample=False)"),
+    "magma": dict(where=None, env=_LIBERO_FIXED, policy="no",
+                  reason="SimplerEnv main_inference_magma.py has no seed flag (start states are the fixed grids / "
+                         "episode ids of each task); MagmaInference samples action tokens (temperature 0.7) unseeded"),
+    # libero-own (authors' LIBERO loop via assets/libero/own_eval_runner.py): fixed init states, env.seed(0) inside
+    "univla": dict(where=None, env=_LIBERO_FIXED, policy="no",
+                   reason="the runner seeds python / numpy / torch with 0 as the authors' parser_args does and the "
+                          "policy decodes greedily (do_sample=False); there is no seed flag to vary"),
+    "ge-act": dict(where=None, env=_LIBERO_FIXED, policy="no",
+                   reason="the authors' pipeline call fixes noise_seed=42 for every action chunk; there is no seed "
+                          "flag to vary"),
     **{t: dict(where=None, env="no", policy="no", reason="the template passes no seed to the RLDX evaluation entry point")
        for t in ("rldx", "rldx-simpler", "rldx-bridge", "rldx-gr1", "rldx-kitchen")},
 }

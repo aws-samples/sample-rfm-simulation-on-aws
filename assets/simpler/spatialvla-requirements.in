@@ -1,0 +1,35 @@
+# SpatialVLA x SimplerEnv (DelinQu/SimplerEnv-OpenVLA) venv, Python 3.10, x86_64 Linux.
+# Compile (no install needed): uv pip compile assets/simpler/spatialvla-requirements.in \
+#   --python-version 3.10 --python-platform x86_64-manylinux_2_28 -o assets/simpler/spatialvla-requirements.txt
+# The template installs the lock, then the harness and its ManiSkill2_real2sim submodule with --no-deps.
+# Model stack (SpatialVLA README: transformers >= 4.47.0; requirements.txt @18fd74b2 pins these versions)
+torch==2.5.1
+torchvision==0.20.1
+transformers==4.47.0
+tokenizers==0.21.0
+accelerate==1.0.1
+scipy==1.14.1
+# SimplerEnv README: numpy<2 (pinocchio IK) and tensorflow==2.15.0 (main_inference.py imports it)
+numpy==1.26.4
+tensorflow==2.15.0
+mediapy==1.2.0
+matplotlib
+huggingface_hub
+# ManiSkill2_real2sim requirements.txt @cd45dd27 (the harness submodule). gymnasium is capped below 1.0 as in
+# upstream ManiSkill2_real2sim ef7a4d4 "fix gym version <1.0"; cd45dd27 still says gymnasium>=0.28.1.
+gymnasium==0.29.1
+sapien==2.2.2
+opencv-python==4.10.0.84
+h5py
+pyyaml
+tqdm
+GitPython
+tabulate
+gdown>=4.6.0
+transforms3d
+imageio[ffmpeg]
+trimesh
+rtree
+ruckig
+# sapien 2.2.2 imports pkg_resources, removed from setuptools >= 81
+setuptools<81

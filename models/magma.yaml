@@ -1,0 +1,171 @@
+# Magma-8B (Microsoft Research) x SimplerEnv — the authors' own SimplerEnv evaluation.
+# Paper: "Magma: A Foundation Model for Multimodal AI Agents", CVPR 2025, arXiv:2502.13130
+# Repo:  https://github.com/microsoft/Magma (README "Evaluation with SimplerEnv": copy tools/simplerenv-magma/
+#        simpler_env into SimplerEnv/simpler_env, then `sh scripts/evaluation/simplerenv/bridge.sh`)
+# Template: templates/simpler-userdata.sh.j2 (shared with `spatialvla`; one main_inference_magma.py call per task
+#        variant, success / failure read from the video file names SimplerEnv writes).
+#
+# CLI:   python deploy.py --vla magma [--task-set actions]
+#
+# Checkpoint: microsoft/Magma-8B (pretrained, zero-shot on SimplerEnv: the model card's "SE-Google Robot 52.3,
+#   SE-Bridge 35.4"). Llama-3-8B-Instruct LLM + CLIP-ConvNeXt-XXLarge vision tower; 17.8 GB of bf16 safetensors.
+#   Loading also fetches laion/CLIP-convnext_xxlarge-laion2B-s34B-b82K-augreg (4.8 GB, MIT, not gated) because
+#   image_tower_magma.py builds the tower with open_clip `hf-hub:` (see prefetch below).
+# Policy wrapper (Magma repo, tools/simplerenv-magma/simpler_env/policies/magma/magma_model.py): samples the action
+#   tokens (do_sample=True, temperature 0.7) and has no seed argument, so two runs of the same episode can differ.
+# License: MIT (Magma code, Magma-8B model card). The LLM is fine-tuned from Meta Llama 3; see docs/licenses.md.
+
+model:
+  id: magma
+  display_name: "Magma-8B"
+  policy_desc: "Magma-8B (Llama-3-8B + CLIP-ConvNeXt-XXL, Set-of-Mark / Trace-of-Mark pretraining), zero-shot"
+  license: "MIT (Magma code + Magma-8B model card); harness simpler-env/SimplerEnv MIT, ManiSkill2_real2sim Apache-2.0"
+  hf_repo: "microsoft/Magma-8B"
+  hf_model_revision: "4159b1dedade8f88b5bbaaae7810299dee5228f5"   # main 2025-12-10 (model card edits after 2025-05-13 weights)
+  # Downloaded into the HF cache before the first load (open_clip asks for the hub's main; this is its sha today).
+  prefetch:
+    - repo: "laion/CLIP-convnext_xxlarge-laion2B-s34B-b82K-augreg"
+      revision: "51633fd7e056b2fbac1f83e5579a916baa88b90f"
+  # Harness = upstream SimplerEnv, which Magma's tools/simplerenv-magma/README.md installs. Pinned to the last code
+  # commit before Magma's release (2025-02): d55e191 2024-10-30 (later commits change README / requirements / make()).
+  harness_repo: "https://github.com/simpler-env/SimplerEnv.git"
+  harness_commit: "d55e19162be86794875839725fd484b768e25873"
+  maniskill_commit: "ef7a4d4fdf4b69f2c2154db5b15b9ac8dfe10682"   # ManiSkill2_real2sim gitlink at d55e191
+  # Magma's plugin: copied over the harness simpler_env/ (adds main_inference_magma.py + policies/magma).
+  plugin_repo: "https://github.com/microsoft/Magma.git"
+  plugin_commit: "e373780359f99d09344a8399afe8a818d81ac4e0"   # main 2025-10-03
+  plugin_src: "tools/simplerenv-magma/simpler_env"
+  plugin_visualize_shim: "policies/magma/magma_model.py:MagmaInference"   # harness calls visualize_epoch()
+  entry: "simpler_env/main_inference_magma.py"
+  policy_model: magma
+  policy_args: []
+  python_version: "3.10"
+  requirements: "assets/simpler/magma-requirements.txt"
+  # main_inference_magma.py imports tensorflow and the Octo server wrapper at the top, so both are checked too.
+  import_check: ["simpler_env.policies.magma.magma_model", "simpler_env.policies.octo.octo_server_model", "flash_attn",
+                 "open_clip", "tensorflow", "mani_skill2_real2sim", "sapien.core"]
+  robot_label: "WidowX (Bridge) and Google Robot (Fractal), SimplerEnv"
+  sim_label: "SimplerEnv (ManiSkill2_real2sim + SAPIEN 2.2, Vulkan headless)"
+
+instance:
+  # 17.8 GB bf16 weights (flash-attention 2) + the 4.8 GB fp32 open_clip tower read on the host during load + SAPIEN:
+  # fits one 24 GB L4 / A10G; .2xlarge (32 GB host RAM) because the weights alone exceed the 16 GB of an xlarge.
+  # L40S (g6e) as capacity fallback.
+  preferred: [g6.2xlarge, g5.2xlarge, g6e.xlarge, g6.4xlarge]
+  ebs_gb: 150            # DLAMI + venv (~12 GB) + 17.8 GB checkpoint + 4.8 GB open_clip tower + harness assets + videos
+  creationpolicy_timeout: PT180M   # setup ~30-40 min + 68 episodes of token-by-token decoding (estimate; not measured yet)
+  min_gpu_mib: 22000
+  min_host_mib: 30000
+
+# Tasks: the arguments are copied from microsoft/Magma scripts/evaluation/simplerenv/ at e3737803 (named in `source`).
+# The only change is the overlay path: the scripts use ./SimplerEnv/ManiSkill2_real2sim/... (run from the parent of
+# the SimplerEnv checkout); the template runs from the checkout, so the paths start with ./ManiSkill2_real2sim/.
+# The template adds --policy-model / --ckpt-path / --policy-setup / --env-name / --logging-dir.
+tasks:
+  - name: widowx_carrot_on_plate
+    suite: simpler_bridge
+    env_name: PutCarrotOnPlateInScene-v0
+    policy_setup: widowx_bridge
+    description: "WidowX Bridge: put the carrot on the plate (24 episodes)"
+    source: "scripts/evaluation/simplerenv/bridge.sh (PutCarrotOnPlateInScene-v0, full)"
+    args: &bridge_table_1 ["--robot", "widowx", "--control-freq", "5", "--sim-freq", "500", "--max-episode-steps", "60",
+           "--scene-name", "bridge_table_1_v1",
+           "--rgb-overlay-path", "./ManiSkill2_real2sim/data/real_inpainting/bridge_real_eval_1.png",
+           "--robot-init-x", "0.147", "0.147", "1", "--robot-init-y", "0.028", "0.028", "1",
+           "--obj-variation-mode", "episode", "--obj-episode-range", "0", "24",
+           "--robot-init-rot-quat-center", "0", "0", "0", "1",
+           "--robot-init-rot-rpy-range", "0", "0", "1", "0", "0", "1", "0", "0", "1"]
+  - name: widowx_put_eggplant_in_basket
+    suite: simpler_bridge
+    env_name: PutEggplantInBasketScene-v0
+    policy_setup: widowx_bridge
+    description: "WidowX Bridge: put the eggplant in the yellow basket (sink scene, 24 episodes)"
+    source: "scripts/evaluation/simplerenv/bridge.sh (PutEggplantInBasketScene-v0, full)"
+    args: &bridge_sink ["--robot", "widowx_sink_camera_setup", "--control-freq", "5", "--sim-freq", "500",
+           "--max-episode-steps", "120", "--scene-name", "bridge_table_1_v2",
+           "--rgb-overlay-path", "./ManiSkill2_real2sim/data/real_inpainting/bridge_sink.png",
+           "--robot-init-x", "0.127", "0.127", "1", "--robot-init-y", "0.06", "0.06", "1",
+           "--obj-variation-mode", "episode", "--obj-episode-range", "0", "24",
+           "--robot-init-rot-quat-center", "0", "0", "0", "1",
+           "--robot-init-rot-rpy-range", "0", "0", "1", "0", "0", "1", "0", "0", "1"]
+  - name: google_robot_move_near
+    suite: simpler_google_vm
+    env_name: MoveNearGoogleBakedTexInScene-v0
+    policy_setup: google_robot
+    description: "Google Robot visual matching: move an object near another one (episodes 0-19)"
+    source: "scripts/evaluation/simplerenv/move_near_visual_matching.sh (urdf_version=recolor_cabinet_visual_matching_1; episodes 0-19 of 0-59)"
+    args: ["--robot", "google_robot_static", "--control-freq", "3", "--sim-freq", "513", "--max-episode-steps", "80",
+           "--scene-name", "google_pick_coke_can_1_v4",
+           "--rgb-overlay-path", "./ManiSkill2_real2sim/data/real_inpainting/google_move_near_real_eval_1.png",
+           "--robot-init-x", "0.35", "0.35", "1", "--robot-init-y", "0.21", "0.21", "1",
+           "--obj-variation-mode", "episode", "--obj-episode-range", "0", "20",
+           "--robot-init-rot-quat-center", "0", "0", "0", "1",
+           "--robot-init-rot-rpy-range", "0", "0", "1", "0", "0", "1", "-0.09", "-0.09", "1",
+           "--additional-env-build-kwargs", "urdf_version=recolor_cabinet_visual_matching_1",
+           "--additional-env-save-tags", "baked_except_bpb_orange"]
+
+task_sets:
+  # All four WidowX tasks of scripts/evaluation/simplerenv/bridge.sh.
+  bridge:
+    description: "WidowX Bridge: all four tasks of Magma's bridge.sh (4 x 24 episodes)"
+    tasks:
+      - name: widowx_carrot_on_plate
+        suite: simpler_bridge
+        env_name: PutCarrotOnPlateInScene-v0
+        policy_setup: widowx_bridge
+        description: "WidowX Bridge: put the carrot on the plate (24 episodes)"
+        source: "scripts/evaluation/simplerenv/bridge.sh (PutCarrotOnPlateInScene-v0, full)"
+        args: *bridge_table_1
+      - name: widowx_stack_green_on_yellow_block
+        suite: simpler_bridge
+        env_name: StackGreenCubeOnYellowCubeBakedTexInScene-v0
+        policy_setup: widowx_bridge
+        description: "WidowX Bridge: stack the green block on the yellow block (24 episodes)"
+        source: "scripts/evaluation/simplerenv/bridge.sh (StackGreenCubeOnYellowCubeBakedTexInScene-v0, full)"
+        args: *bridge_table_1
+      - name: widowx_spoon_on_towel
+        suite: simpler_bridge
+        env_name: PutSpoonOnTableClothInScene-v0
+        policy_setup: widowx_bridge
+        description: "WidowX Bridge: put the spoon on the towel (24 episodes)"
+        source: "scripts/evaluation/simplerenv/bridge.sh (PutSpoonOnTableClothInScene-v0, full)"
+        args: *bridge_table_1
+      - name: widowx_put_eggplant_in_basket
+        suite: simpler_bridge
+        env_name: PutEggplantInBasketScene-v0
+        policy_setup: widowx_bridge
+        description: "WidowX Bridge: put the eggplant in the yellow basket (sink scene, 24 episodes)"
+        source: "scripts/evaluation/simplerenv/bridge.sh (PutEggplantInBasketScene-v0, full)"
+        args: *bridge_sink
+  # `actions` = Magma's drawer task: open the closed top drawer and place the apple into it
+  # (scripts/evaluation/simplerenv/put_drawer_visual_matching.sh: its first URDF variant, positions A0 / B0 / C0,
+  # 3 x 3 apple positions each = 27 episodes). Tagged articulated: the drawer has to be opened first.
+  actions:
+    description: "Google Robot visual matching: open the top drawer and put the apple in (3 positions x 9 apple spots)"
+    tasks:
+      - name: google_robot_put_apple_in_top_drawer
+        suite: simpler_google_vm
+        env_name: PlaceIntoClosedTopDrawerCustomInScene-v0
+        policy_setup: google_robot
+        action_type: articulated
+        description: "Google Robot visual matching: open the top drawer and place the apple into it (27 episodes)"
+        source: "scripts/evaluation/simplerenv/put_drawer_visual_matching.sh (urdf_version=recolor_cabinet_visual_matching_1, A0 / B0 / C0)"
+        args: ["--robot", "google_robot_static", "--control-freq", "3", "--sim-freq", "513", "--max-episode-steps", "200",
+               "--scene-name", "dummy_drawer", "--robot-init-rot-quat-center", "0", "0", "0", "1",
+               "--obj-init-x-range", "-0.08", "-0.02", "3", "--obj-init-y-range", "-0.02", "0.08", "3",
+               "--enable-raytracing", "--additional-env-build-kwargs", "station_name=mk_station_recolor",
+               "light_mode=simple", "disable_bad_material=True", "urdf_version=recolor_cabinet_visual_matching_1",
+               "model_ids=baked_apple_v2"]
+        variants:
+          - ["--robot-init-x", "0.644", "0.644", "1", "--robot-init-y", "-0.179", "-0.179", "1",
+             "--robot-init-rot-rpy-range", "0", "0", "1", "0", "0", "1", "-0.03", "-0.03", "1",
+             "--rgb-overlay-path", "./ManiSkill2_real2sim/data/real_inpainting/open_drawer_a0.png"]
+          - ["--robot-init-x", "0.652", "0.652", "1", "--robot-init-y", "0.009", "0.009", "1",
+             "--robot-init-rot-rpy-range", "0", "0", "1", "0", "0", "1", "0", "0", "1",
+             "--rgb-overlay-path", "./ManiSkill2_real2sim/data/real_inpainting/open_drawer_b0.png"]
+          - ["--robot-init-x", "0.665", "0.665", "1", "--robot-init-y", "0.224", "0.224", "1",
+             "--robot-init-rot-rpy-range", "0", "0", "1", "0", "0", "1", "0", "0", "1",
+             "--rgb-overlay-path", "./ManiSkill2_real2sim/data/real_inpainting/open_drawer_c0.png"]
+
+bridge:
+  enabled: false

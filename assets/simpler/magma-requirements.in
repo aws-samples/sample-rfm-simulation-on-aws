@@ -1,0 +1,40 @@
+# Magma-8B x SimplerEnv (simpler-env/SimplerEnv + Magma's tools/simplerenv-magma plugin) venv, Python 3.10, x86_64.
+# Compile (no install needed): uv pip compile assets/simpler/magma-requirements.in \
+#   --python-version 3.10 --python-platform x86_64-manylinux_2_28 -o assets/simpler/magma-requirements.txt
+# The template installs the lock, then SimplerEnv and its ManiSkill2_real2sim submodule with --no-deps.
+# Model stack: microsoft/Magma pyproject.toml @e3737803 (torch 2.3.1, accelerate 0.34.2, timm 0.9.12, einops 0.6.1,
+# flash-attn: magma_model.py loads with attn_implementation="flash_attention_2"). The Magma-8B model card says the
+# customised transformers fork is required (ConvNeXt `gamma` keys); dev/jwyang-v4.48.2 = 1708d3ca.
+torch==2.3.1
+torchvision==0.18.1
+transformers @ git+https://github.com/jwyang/transformers.git@1708d3ca3608b3c229d7ce6f0351e652436d7d33
+flash-attn @ https://github.com/Dao-AILab/flash-attention/releases/download/v2.6.3/flash_attn-2.6.3+cu123torch2.3cxx11abiFALSE-cp310-cp310-linux_x86_64.whl
+open_clip_torch==2.30.0
+timm==0.9.12
+accelerate==0.34.2
+einops==0.6.1
+huggingface_hub
+# SimplerEnv README: numpy<2 and tensorflow==2.15.0 (main_inference_magma.py imports it)
+numpy==1.26.4
+tensorflow==2.15.0
+mediapy==1.2.0
+matplotlib
+requests
+# ManiSkill2_real2sim requirements.txt @ef7a4d4f (the SimplerEnv submodule)
+gymnasium==0.29.1
+sapien==2.2.2
+opencv-python==4.10.0.84
+scipy
+h5py
+pyyaml
+tqdm
+GitPython
+tabulate
+gdown>=4.6.0
+transforms3d
+imageio[ffmpeg]
+trimesh
+rtree
+ruckig
+# sapien 2.2.2 imports pkg_resources, removed from setuptools >= 81
+setuptools<81

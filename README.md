@@ -21,7 +21,7 @@ More clips, failure cases and full-quality MP4s: [docs/showcase.md](docs/showcas
 
 - **20 `--vla` targets** (23 stacks counting the four OpenVLA-OFT suites): VLAs, world action models, an LLM-agent policy and two Isaac Lab OpenArm targets ([full list](docs/targets.md)), plus **1 post-run judge target**, `flora-judge` (NVIDIA Flora-Rewarder, **NC**), which scores the videos of a finished run ([judge](docs/targets.md#post-run-judge-flora-rewarder)).
 - **One CLI** (`vlasim.py`): `doctor` preflight, `init`, `deploy`, `destroy`, `results`, `gallery` and `judge`. It runs on the Python standard library, so `doctor` works before anything is installed.
-- **More than pick-and-place**: `--task-set actions` runs the doors, drawers, knobs, buttons, bimanual handover and tool-use tasks the pinned checkpoints of `rldx-kitchen`, `rldx-simpler`, `gr00t` and the two RoboTwin targets were trained on, and `--vla lerobot-gym` runs LeRobot's ACT (ALOHA bimanual insertion and cube transfer) and Diffusion Policy (Push-T) checkpoints; every task carries an `action_type` tag in `summary.txt` and `vlasim results` ([task sets](docs/targets.md#task-sets-and-action-types), [showcase by action type](docs/showcase.md)).
+- **More than pick-and-place**: `--task-set actions` runs the doors, drawers, knobs, buttons, bimanual handover and tool-use tasks the pinned checkpoints of `rldx-kitchen`, `rldx-simpler`, `gr00t`, the two RoboTwin targets, `spatialvla` / `magma` (SimplerEnv drawers) and `univla` / `ge-act` (LIBERO-Goal drawer, stove, push plate) were trained or evaluated on, and `--vla lerobot-gym` runs LeRobot's ACT (ALOHA bimanual insertion and cube transfer) and Diffusion Policy (Push-T) checkpoints; every task carries an `action_type` tag in `summary.txt` and `vlasim results` ([task sets](docs/targets.md#task-sets-and-action-types), [showcase by action type](docs/showcase.md)).
 - **Reproducible stacks**: model checkpoints, upstream repos and simulator dependencies are pinned per target; each `summary.txt` records a stack fingerprint.
 - **AWS CDK v2** stack per target: VPC, retained S3 results bucket, SNS email, IAM role and an AZ / instance-type fallback Lambda for GPU capacity.
 - **Results you can compare**: `vlasim results` prints k/n, rate and a 95% Wilson interval for every run in the account; `--compare A B` gives a per-suite verdict (A>B / B>A / tie, Fisher + Benjamini-Hochberg, paired McNemar on the same start states), and every task writes a protocol card (`protocol.yaml`: checkpoint revision, seed, start states, chunk rule, step cap, GPU) next to its result ([results](docs/results.md)).
@@ -150,6 +150,10 @@ Instance = first choice in `models/<target>.yaml`; the deploy falls back to othe
 | `rlinf-oft-libero` | OpenVLA-OFT-7B one-demo SFT, **improved with RL** (RLinf GRPO): eval → train → re-eval | LIBERO-Goal (also 10 / Object) | `g6e.8xlarge` (`smoke`, 1 GPU) / `p5.48xlarge` or `g6e.48xlarge` (`--rl-profile full`, 8 GPU) |
 | `lerobot-gym` | ACT (ALOHA insertion, cube transfer) + Diffusion Policy (Push-T), LeRobot reference checkpoints | gym-aloha bimanual (MuJoCo) + gym-pusht | `g6.xlarge` |
 | `multitask-dit` | LBM-style Multi-task DiT (LeRobot port, community checkpoint; not TRI weights) | LIBERO-10 | `g6.xlarge` |
+| `spatialvla` | SpatialVLA-4B zero-shot (MIT), the authors' SimplerEnv eval | SimplerEnv Google Robot + WidowX (visual matching) | `g6.xlarge` |
+| `magma` | Magma-8B zero-shot (MIT), the authors' SimplerEnv eval | SimplerEnv WidowX + Google Robot | `g6.2xlarge` |
+| `univla` | UniVLA (BAAI Emu3-8.5B world model, Apache-2.0 weights), the authors' LIBERO loop | LIBERO-Goal | `g6e.xlarge` |
+| `ge-act` | GE-Act (AgiBot Genie Envisioner, non-commercial), the authors' LIBERO loop | LIBERO-Goal | `g6.2xlarge` |
 
 Stack names, robots, per-target notes, deploy and cleanup commands: [docs/targets.md](docs/targets.md). Measured success rates: [docs/results.md](docs/results.md).
 

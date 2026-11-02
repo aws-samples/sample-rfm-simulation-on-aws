@@ -25,6 +25,7 @@ Usage:
     python generate.py --vla real2sim    [--config simulator-config.yaml] [--dry-run]
     python generate.py --vla robolab-cosmos3 [--dry-run]   # model.variant in the yaml: edge | nano | edge-full
     python generate.py --vla smolvla-robotwin [--robotwin-protocol subset|clean|randomized|full] [--robotwin-shard K/N]
+    python generate.py --vla spatialvla  [--task-set bridge|actions]   # also: magma (SimplerEnv, authors' eval)
     python generate.py --vla rlinf-oft-libero [--rl-profile smoke|full] [--rl-steps N] [--rl-eval-run RUN_ID]
     python generate.py --judge-target flora-judge [--dry-run]   # post-run judge (deploy.py --judge)
 """
@@ -1023,6 +1024,221 @@ def generate_lerobot_gym(config: dict, dry_run: bool, vla: str = "lerobot-gym") 
     return env.get_template("lerobot-gym-userdata.sh.j2").render(**_with_protocol(ctx, config, card))
 
 
+# ── SimplerEnv targets: the authors' own SimplerEnv evaluation (shared templates/simpler-userdata.sh.j2) ──────────
+# Each target pins a SimplerEnv harness (upstream or the authors' fork) and its ManiSkill2_real2sim submodule, an
+# optional policy plugin copied over the harness simpler_env/ (Magma), one venv from a lock file in assets/simpler/,
+# and a checkpoint. A task is one SimplerEnv environment run through the harness' main_inference script with the
+# arguments of the authors' eval script; `variants` adds one call per robot position / overlay.
+SIMPLER_TARGETS = ("spatialvla", "magma")
+SIMPLER_POLICY_SETUPS = ("google_robot", "widowx_bridge")
+# simpler_env/evaluation/argparse.py flags (upstream SimplerEnv d55e191; forks add their own via harness_extra_flags).
+SIMPLER_FLAGS = (
+    "--policy-model", "--policy-setup", "--ckpt-path", "--env-name", "--additional-env-save-tags", "--scene-name",
+    "--enable-raytracing", "--robot", "--obs-camera-name", "--action-scale", "--control-freq", "--sim-freq",
+    "--max-episode-steps", "--rgb-overlay-path", "--robot-init-x-range", "--robot-init-y-range",
+    "--robot-init-rot-quat-center", "--robot-init-rot-rpy-range", "--obj-variation-mode", "--obj-episode-range",
+    "--obj-init-x-range", "--obj-init-y-range", "--additional-env-build-kwargs", "--logging-dir", "--tf-memory-limit",
+    "--octo-init-rng",
+)
+# Set by the template from the yaml (model + task fields), never in a task's args.
+SIMPLER_TEMPLATE_FLAGS = ("--policy-model", "--ckpt-path", "--policy-setup", "--env-name", "--logging-dir")
+_SIMPLER_TOKEN_RE = re.compile(r"^[A-Za-z0-9_./=:,+-]+$")
+_SIMPLER_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
+_COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
+
+
+def simpler_flag(token: str, flags=SIMPLER_FLAGS) -> str | None:
+    """The argparse option a `--` token selects: an exact flag, else the one flag it is a prefix of (argparse
+    allow_abbrev, e.g. the scripts' --robot-init-x = --robot-init-x-range). None for an unknown or ambiguous token."""
+    if token in flags:
+        return token
+    hits = [f for f in flags if f.startswith(token)]
+    return hits[0] if len(hits) == 1 else None
+
+
+def simpler_parse_args(argv: list, flags=SIMPLER_FLAGS) -> dict:
+    """{flag: [values]} of a main_inference.py argv (later occurrences win, as in argparse). ValueError on a token
+    that is not a known flag or an option value."""
+    out, cur = {}, None
+    for tok in argv:
+        tok = str(tok)
+        if tok.startswith("--"):
+            cur = simpler_flag(tok, flags)
+            if cur is None:
+                raise ValueError(f"{tok!r} is not a SimplerEnv main_inference flag (or is ambiguous)")
+            out[cur] = []
+        elif cur is None:
+            raise ValueError(f"{tok!r} comes before any flag")
+        else:
+            out[cur].append(tok)
+    return out
+
+
+def simpler_episode_count(argv: list, flags=SIMPLER_FLAGS) -> int:
+    """Episodes one main_inference.py call runs (simpler_env/evaluation/maniskill2_evaluator.py): robot x positions
+    x robot y positions x (roll x pitch x yaw) x objects, where objects = end - start of --obj-episode-range in
+    `episode` mode and the --obj-init-x-range count x --obj-init-y-range count in `xy` mode. Defaults are those of
+    simpler_env/evaluation/argparse.py (1 robot pose; xy mode, 5 x 5 objects; episodes 0-60)."""
+    a = simpler_parse_args(argv, flags)
+
+    def num(flag, idx, default):
+        vals = a.get(flag)
+        if vals is None:
+            return default
+        try:
+            return int(float(vals[idx]))
+        except (IndexError, ValueError):
+            raise ValueError(f"{flag} needs a value at position {idx + 1}, got {vals}") from None
+
+    for flag, n in (("--robot-init-x-range", 3), ("--robot-init-y-range", 3), ("--robot-init-rot-rpy-range", 9),
+                    ("--obj-episode-range", 2), ("--obj-init-x-range", 3), ("--obj-init-y-range", 3)):
+        if flag in a and len(a[flag]) != n:
+            raise ValueError(f"{flag} takes {n} values, got {len(a[flag])}")
+    robot = num("--robot-init-x-range", 2, 1) * num("--robot-init-y-range", 2, 1)
+    robot *= num("--robot-init-rot-rpy-range", 2, 1) * num("--robot-init-rot-rpy-range", 5, 1) \
+        * num("--robot-init-rot-rpy-range", 8, 1)
+    mode = (a.get("--obj-variation-mode") or ["xy"])[0]
+    if mode == "episode":
+        objects = num("--obj-episode-range", 1, 60) - num("--obj-episode-range", 0, 0)
+    elif mode == "xy":
+        objects = num("--obj-init-x-range", 2, 5) * num("--obj-init-y-range", 2, 5)
+    else:
+        raise ValueError(f"--obj-variation-mode must be xy or episode, got {mode!r}")
+    if robot < 1 or objects < 1:
+        raise ValueError(f"no episodes: {robot} robot poses x {objects} objects")
+    return robot * objects
+
+
+def simpler_tasks(config: dict, vla: str) -> list:
+    """Validated `tasks:` of a SimplerEnv model yaml, each with `action_type`, `variants` (at least one, possibly
+    empty, argv list), per-variant `episodes` and the total `n_episodes` filled in. Raises ValueError."""
+    model = config.get("model") or {}
+    flags = SIMPLER_FLAGS + tuple(model.get("harness_extra_flags") or ())
+    tasks = config.get("tasks") or []
+    if not isinstance(tasks, list) or not tasks:
+        raise ValueError(f"models/{vla}.yaml has no tasks entry")
+    out, names = [], set()
+    for i, t in enumerate(tasks):
+        where = f"models/{vla}.yaml tasks[{i}]"
+        if not isinstance(t, dict):
+            raise ValueError(f"{where}: not a mapping")
+        for key in ("name", "env_name", "policy_setup", "args"):
+            if not t.get(key):
+                raise ValueError(f"{where}: {key} is required")
+        for key in ("name", "env_name"):
+            if not _SIMPLER_NAME_RE.match(str(t[key])):
+                raise ValueError(f"{where}: {key} {t[key]!r} has characters outside [A-Za-z0-9_.-]")
+        if t["name"] in names:
+            raise ValueError(f"{where}: duplicate task name {t['name']!r}")
+        names.add(t["name"])
+        if t["policy_setup"] not in SIMPLER_POLICY_SETUPS:
+            raise ValueError(f"{where}: policy_setup must be one of {', '.join(SIMPLER_POLICY_SETUPS)}")
+        variants = t.get("variants") or [[]]
+        if not isinstance(t["args"], list) or not isinstance(variants, list) \
+                or not all(isinstance(v, list) for v in variants):
+            raise ValueError(f"{where}: args and every variants entry must be lists of strings")
+        episodes = []
+        for v in variants:
+            argv = [str(x) for x in list(t["args"]) + list(v)]
+            bad = [x for x in argv if not _SIMPLER_TOKEN_RE.match(x)]
+            if bad:
+                raise ValueError(f"{where}: unsafe argument tokens {bad}")
+            try:
+                parsed = simpler_parse_args(argv, flags)
+                episodes.append(simpler_episode_count(argv, flags))
+            except ValueError as e:
+                raise ValueError(f"{where}: {e}") from None
+            set_here = sorted(set(parsed) & set(SIMPLER_TEMPLATE_FLAGS))
+            if set_here:
+                raise ValueError(f"{where}: {', '.join(set_here)} is set by the template")
+        out.append(dict(t, args=[str(x) for x in t["args"]], variants=[[str(x) for x in v] for v in variants],
+                        episodes=episodes, n_episodes=sum(episodes), action_type=task_sets.action_type(t),
+                        suite=str(t.get("suite") or "simplerenv")))
+    return out
+
+
+def generate_simpler(config: dict, dry_run: bool, vla: str) -> str:
+    """A VLA's own SimplerEnv evaluation (Google Robot / WidowX visual matching), in-process on one GPU.
+
+    The harness (a SimplerEnv checkout at a pinned commit, plus the plugin of the model repo where the authors ship
+    one) runs main_inference per task variant; success per episode comes from the `success_` / `failure_` prefix of
+    the videos SimplerEnv writes (models/spatialvla.yaml, models/magma.yaml)."""
+    model = config.get("model", {})
+    instance = config.get("instance", {})
+
+    def fail(msg):
+        print(f"[error] models/{vla}.yaml: {msg}", file=sys.stderr)
+        sys.exit(1)
+
+    for key in ("hf_repo", "hf_model_revision", "harness_repo", "harness_commit", "maniskill_commit", "entry",
+                "policy_model", "python_version", "requirements"):
+        if not model.get(key):
+            fail(f"model.{key} is required")
+    for key in ("hf_model_revision", "harness_commit", "maniskill_commit"):
+        if not _COMMIT_RE.match(str(model[key])):
+            fail(f"model.{key} must be a 40-hex commit")
+    if not _HF_REPO_RE.match(str(model["hf_repo"])):
+        fail(f"model.hf_repo {model['hf_repo']!r} is not <org>/<name>")
+    plugin = {}
+    if model.get("plugin_repo"):
+        if not _COMMIT_RE.match(str(model.get("plugin_commit", ""))) or not model.get("plugin_src"):
+            fail("model.plugin_repo needs plugin_commit (40-hex) and plugin_src")
+        plugin = {k: _shell_safe(model[k], k) for k in ("plugin_repo", "plugin_commit", "plugin_src")}
+    prefetch = []
+    for p in model.get("prefetch") or []:
+        if not _HF_REPO_RE.match(str(p.get("repo", ""))) or not _COMMIT_RE.match(str(p.get("revision", ""))):
+            fail(f"model.prefetch entries need repo <org>/<name> and a 40-hex revision, got {p}")
+        prefetch.append(dict(repo=str(p["repo"]), revision=str(p["revision"])))
+    policy_args = [str(x) for x in model.get("policy_args") or []]
+    bad = [x for x in policy_args if not _SIMPLER_TOKEN_RE.match(x)]
+    if bad:
+        fail(f"model.policy_args has unsafe tokens: {bad}")
+    imports = [str(x) for x in model.get("import_check") or []]
+    if any(not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_.]*", m) for m in imports):
+        fail(f"model.import_check entries must be module names: {imports}")
+    req = BASE_DIR / str(model["requirements"])
+    if not req.is_file():
+        fail(f"model.requirements {model['requirements']} not found")
+    try:
+        tasks = simpler_tasks(config, vla)
+    except ValueError as e:
+        print(f"[error] {e}", file=sys.stderr)
+        sys.exit(1)
+    ctx = {
+        "vla": vla,
+        "task_set": config.get("task_set") or "",
+        "tasks_json": _tasks_json_for_bash(tasks),
+        "tasks": tasks,
+        "n_episodes_total": sum(t["n_episodes"] for t in tasks),
+        "display_name": _shell_safe(model.get("display_name", vla), "display_name"),
+        "policy_desc": _shell_safe(model.get("policy_desc", vla), "policy_desc"),
+        "license": _shell_safe(model.get("license", "see model card"), "license"),
+        "hf_repo": model["hf_repo"],
+        "hf_model_revision": model["hf_model_revision"],
+        "ckpt_name": str(model["hf_repo"]).split("/")[-1],
+        "prefetch": prefetch,
+        "harness_repo": _shell_safe(model["harness_repo"], "harness_repo"),
+        "harness_commit": model["harness_commit"],
+        "maniskill_commit": model["maniskill_commit"],
+        "plugin": plugin,
+        "entry": _shell_safe(model["entry"], "entry"),
+        "policy_model": _shell_safe(model["policy_model"], "policy_model"),
+        "policy_args": policy_args,
+        "python_version": _shell_safe(model["python_version"], "python_version"),
+        "requirements_name": req.name,
+        "requirements_b64": base64.encodebytes(req.read_bytes()).decode(),
+        "import_check_json": json.dumps(imports),
+        "robot_label": _shell_safe(model.get("robot_label", "SimplerEnv"), "robot_label"),
+        "sim_label": _shell_safe(model.get("sim_label", "SimplerEnv"), "sim_label"),
+        "min_gpu_mib": int(instance.get("min_gpu_mib", 15000)),
+        "min_host_mib": int(instance.get("min_host_mib", 15000)),
+    }
+    card = {"start_states": "SimplerEnv fixed grids (robot pose x object grid / episode ids in each task's args)",
+            "checkpoints": prefetch}
+    env = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)), keep_trailing_newline=True)  # nosec B701 - shell script template
+    return env.get_template("simpler-userdata.sh.j2").render(**_with_protocol(ctx, config, card))
+
+
 # Targets that run an upstream-LeRobot policy through `lerobot-eval --env.type=robotwin` (RoboTwin 2.0,
 # SAPIEN + CuRobo) with the shared lerobot-robotwin template. Adding one = models/<id>.yaml + the name maps.
 LEROBOT_ROBOTWIN_TARGETS = ("smolvla-robotwin", "lingbot-vla2")
@@ -1912,6 +2128,8 @@ def main():
         rendered = generate_lerobot_libero(config, args.dry_run, vla=args.vla, plus=plus)
     elif args.vla == "lerobot-gym":
         rendered = generate_lerobot_gym(config, args.dry_run, vla=args.vla)
+    elif args.vla in SIMPLER_TARGETS:
+        rendered = generate_simpler(config, args.dry_run, vla=args.vla)
     elif args.vla in LEROBOT_ROBOTWIN_TARGETS:
         rendered = generate_lerobot_robotwin(config, args.dry_run, vla=args.vla,
                                              protocol=args.robotwin_protocol, shard=args.robotwin_shard)

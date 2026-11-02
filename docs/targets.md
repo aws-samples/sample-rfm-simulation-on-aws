@@ -591,7 +591,7 @@ python vlasim.py deploy --vla ge-act --email you@example.com       # GE-Act: sam
 # Latent world-model planners: goal image, not language (estimates, not measured yet; jepa-wms is non-commercial: CC BY-NC 4.0)
 python vlasim.py deploy --vla dino-wm --task-set probe --email you@example.com   # 2 ep per env, measures time per episode
 python vlasim.py deploy --vla dino-wm --email you@example.com       # DINO-WM MPC + CEM: Push-T, Wall, 20 ep each
-python vlasim.py deploy --vla jepa-wms --email you@example.com      # JEPA-WM CEM: Push-T, Wall, 20 ep each
+python vlasim.py deploy --vla jepa-wms --email you@example.com      # JEPA-WM CEM: Push-T, Wall, 10 ep each
 python vlasim.py deploy --vla jepa-wms --task-set compare --email you@example.com  # + the authors' DINO-WM baseline
 
 # Real2Sim — capture -> 3DGS -> collision meshes -> MuJoCo grasp replay (~12 min measured, not a policy)

@@ -76,7 +76,8 @@ def test_shipped_tasks(vla, task_set, labels, tags):
     assert [t["action_type"] for t in tasks] == tags
     for t in tasks:
         assert t["published"] and t["timeout_min"] >= 30 and t["path_args"][1].startswith("@ASSETS@/")
-        assert t["n_episodes"] == (2 if task_set == "probe" else 20)
+        full = 10 if vla == "jepa-wms" else 20  # jepa-wms: ~400 s per CEM episode on an L4 (probe)
+        assert t["n_episodes"] == (2 if task_set == "probe" else full)
 
 
 def test_navigation_is_an_action_type_and_wall_maps_to_it():

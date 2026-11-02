@@ -110,7 +110,8 @@ instance:
 
 # Default run = JEPA-WM on Push-T and Wall; the DINO-WM baseline entries live in task_sets (same keys).
 # Per task: env (pusht | wall), model = jepa-wm | dino-wm (selects configs/evals/simu_env_planning/<env>/<model>/),
-# ckpt = the model.downloads entry, n_episodes (meta.eval_episodes; the paper uses 96), seed (meta.seed; the released
+# ckpt = the model.downloads entry, n_episodes (meta.eval_episodes; the paper uses 96; 10 here because one CEM
+# episode measured ~400 s on an L4 (probe run), so 10 episodes ~67 min fit the 120 min task cap), seed (meta.seed; the released
 # configs use 1), set = overrides of the eval config (key.path=value), timeout_min = wall-clock cap of the runner call.
 tasks:
   - &pusht_jepa
@@ -119,7 +120,7 @@ tasks:
     ckpt: ckpt-jepa_wm_pusht
     env_name: pusht
     action_type: push
-    n_episodes: 20
+    n_episodes: 10
     seed: 1
     timeout_min: 120
     description: "Push-T to a goal image (start / goal from the validation set, 25 steps apart), CEM L2"
@@ -130,7 +131,7 @@ tasks:
     ckpt: ckpt-jepa_wm_wall
     env_name: wall
     action_type: navigation
-    n_episodes: 20
+    n_episodes: 10
     seed: 1
     timeout_min: 120
     description: "Wall: reach a goal image on the other side of a wall through its door, CEM L2"
@@ -152,7 +153,7 @@ task_sets:
         ckpt: ckpt-dino_wm_pusht
         env_name: pusht
         action_type: push
-        n_episodes: 20
+        n_episodes: 10
         seed: 1
         timeout_min: 120
         description: "Push-T, DINO-WM baseline retrained by the jepa-wms authors, same eval"
@@ -163,7 +164,7 @@ task_sets:
         ckpt: ckpt-dino_wm_wall
         env_name: wall
         action_type: navigation
-        n_episodes: 20
+        n_episodes: 10
         seed: 1
         timeout_min: 120
         description: "Wall, DINO-WM baseline retrained by the jepa-wms authors, same eval"

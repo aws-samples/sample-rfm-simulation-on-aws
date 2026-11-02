@@ -21,10 +21,11 @@ sys.path.insert(0, str(ROOT / "tests"))
 yaml = pytest.importorskip("yaml")
 pytest.importorskip("jinja2")
 
+from test_results import BUCKET, FakeS3  # noqa: E402
+
 import generate  # noqa: E402
 import results  # noqa: E402
 import task_sets  # noqa: E402
-from test_results import BUCKET, FakeS3  # noqa: E402
 
 BASH = shutil.which("bash")
 JQ = shutil.which("jq")

@@ -10,6 +10,7 @@ Clips are grouped by **action type**, the tag every task carries (`action_type` 
 - [Articulated: doors, drawers, knobs](#articulated-doors-drawers-knobs)
 - [Press: buttons and bells](#press-buttons-and-bells)
 - [Push](#push)
+- [Navigation](#navigation)
 - [Bimanual](#bimanual)
 - [Tool use](#tool-use)
 - [Locomotion: whole-body loco-manipulation](#locomotion-whole-body-loco-manipulation)
@@ -164,6 +165,16 @@ GE-Act (AgiBot Genie Envisioner) through the authors' LIBERO loop ([targets note
 | ![GE-Act — cream cheese into bowl (failure)](showcase/ge-act/libero-goal-cream-cheese-in-bowl-failure.gif) |
 | MP4: [`ge-act/libero-goal-cream-cheese-in-bowl-failure.mp4`](showcase/ge-act/libero-goal-cream-cheese-in-bowl-failure.mp4) (GIF is 7× speed) |
 | _The arm picks up the bowl instead of the cream cheese and carries it around until the step cap (1,000 frames)._ |
+
+### `vla-jepa` — VLA-JEPA on LIBERO-Goal: the default pick-and-place tasks
+
+VLA-JEPA (Qwen3-VL-2B + flow-matching action head, LeRobot port, [targets note 22](targets.md#note-22-vla-jepa-lerobot-port-on-libero)) through `lerobot-eval`, ap-northeast-2, `g6.xlarge` (one L4), run `2026-11-03-0339`, seed 7: bowl on stove **1.0 (10/10)**, cream cheese in bowl **1.0 (10/10)**, bowl on plate **1.0 (10/10)**. No failure clip: the run has no miss. Labels come from `eval_info.json` (`successes`, one per episode): `lerobot-eval` names the videos `libero_goal_<id>--eval_episode_<k>.mp4` without the outcome. The MP4s are written at 80 fps, one frame per 20 Hz control step (4× real time); the GIFs play at real time unless noted.
+
+| Success — `put the bowl on the stove` (SR 1.0, 10/10; episode 0) | Success — `put the cream cheese in the bowl` (SR 1.0, 10/10; episode 0) | Success — `put the bowl on the plate` (SR 1.0, 10/10; episode 0) |
+|---|---|---|
+| ![VLA-JEPA — bowl on stove (success)](showcase/vla-jepa/libero-goal-bowl-on-stove-success.gif) | ![VLA-JEPA — cream cheese into bowl (success)](showcase/vla-jepa/libero-goal-cream-cheese-in-bowl-success.gif) | ![VLA-JEPA — bowl on plate (success)](showcase/vla-jepa/libero-goal-bowl-on-plate-success.gif) |
+| MP4: [`vla-jepa/libero-goal-bowl-on-stove-success.mp4`](showcase/vla-jepa/libero-goal-bowl-on-stove-success.mp4) | MP4: [`vla-jepa/libero-goal-cream-cheese-in-bowl-success.mp4`](showcase/vla-jepa/libero-goal-cream-cheese-in-bowl-success.mp4) | MP4: [`vla-jepa/libero-goal-bowl-on-plate-success.mp4`](showcase/vla-jepa/libero-goal-bowl-on-plate-success.mp4) |
+| _86 control steps (4.3 s)._ | _87 steps._ | _72 steps._ |
 
 ## Articulated: doors, drawers, knobs
 
@@ -334,6 +345,16 @@ Contrast with the `gr00t` SCENE3 clip above: the same `turn on the stove and put
 | MP4: [`ge-act/libero-goal-open-middle-drawer-success.mp4`](showcase/ge-act/libero-goal-open-middle-drawer-success.mp4) | MP4: [`univla/libero-goal-turn-on-stove-success.mp4`](showcase/univla/libero-goal-turn-on-stove-success.mp4) | MP4: [`ge-act/libero-goal-turn-on-stove-success.mp4`](showcase/ge-act/libero-goal-turn-on-stove-success.mp4) |
 | | _Both models turn the knob in about 4 s (80-90 env-steps)._ | |
 
+### `vla-jepa` — LIBERO-Goal open the middle drawer, turn on the stove
+
+`--task-set actions` run `2026-11-03-0455` (ap-northeast-2, `g6.xlarge`, seed 7, init states 0-9): open the middle drawer **0.9 (9/10)**, turn on the stove **1.0 (10/10)**. The drawer miss is episode 6, below. Same tasks for `univla` / `ge-act` [above](#univla--ge-act--libero-goal-open-the-middle-drawer-turn-on-the-stove-authors-loops). Labels and frame rate as in [pick and place](#vla-jepa--vla-jepa-on-libero-goal-the-default-pick-and-place-tasks).
+
+| Success — `open the middle drawer of the cabinet` (episode 0) | Failure — `open the middle drawer of the cabinet` (1/10; episode 6) | Success — `turn on the stove` (SR 1.0, 10/10; episode 0) |
+|---|---|---|
+| ![VLA-JEPA — open middle drawer (success)](showcase/vla-jepa/libero-goal-open-middle-drawer-success.gif) | ![VLA-JEPA — open middle drawer (failure)](showcase/vla-jepa/libero-goal-open-middle-drawer-failure.gif) | ![VLA-JEPA — turn on stove (success)](showcase/vla-jepa/libero-goal-turn-on-stove-success.gif) |
+| MP4: [`vla-jepa/libero-goal-open-middle-drawer-success.mp4`](showcase/vla-jepa/libero-goal-open-middle-drawer-success.mp4) | MP4: [`vla-jepa/libero-goal-open-middle-drawer-failure.mp4`](showcase/vla-jepa/libero-goal-open-middle-drawer-failure.mp4) (GIF is 2× real time) | MP4: [`vla-jepa/libero-goal-turn-on-stove-success.mp4`](showcase/vla-jepa/libero-goal-turn-on-stove-success.mp4) |
+| _119 steps._ | _The arm reaches the cabinet but the drawer is not open when the 300-step cap ends the episode._ | _73 steps._ |
+
 ## Press: buttons and bells
 
 Press a button or bell: a short, precise contact motion with no grasp.
@@ -367,6 +388,16 @@ Same `--task-set actions` runs as in [articulated](#univla--ge-act--libero-goal-
 | MP4: [`univla/libero-goal-push-plate-success.mp4`](showcase/univla/libero-goal-push-plate-success.mp4) (GIF is 2× speed) | MP4: [`univla/libero-goal-push-plate-failure.mp4`](showcase/univla/libero-goal-push-plate-failure.mp4) (GIF is 2× speed) | MP4: [`ge-act/libero-goal-push-plate-success.mp4`](showcase/ge-act/libero-goal-push-plate-success.mp4) |
 | | _The plate moves, but not to the front of the stove before the 300-step cap._ | |
 
+### `vla-jepa` — `push the plate to the front of the stove` (LIBERO-Goal)
+
+Same `actions` run as in [articulated](#vla-jepa--libero-goal-open-the-middle-drawer-turn-on-the-stove): **0.9 (9/10)**; the miss is episode 9.
+
+| Success (episode 0) | Failure (1/10; episode 9) |
+|---|---|
+| ![VLA-JEPA — push plate (success)](showcase/vla-jepa/libero-goal-push-plate-success.gif) | ![VLA-JEPA — push plate (failure)](showcase/vla-jepa/libero-goal-push-plate-failure.gif) |
+| MP4: [`vla-jepa/libero-goal-push-plate-success.mp4`](showcase/vla-jepa/libero-goal-push-plate-success.mp4) | MP4: [`vla-jepa/libero-goal-push-plate-failure.mp4`](showcase/vla-jepa/libero-goal-push-plate-failure.mp4) (GIF is 2× real time) |
+| _137 steps._ | _The plate is not at the front of the stove when the 300-step cap ends the episode._ |
+
 ### `lerobot-gym` — Diffusion Policy on Push-T
 
 LeRobot's reference Diffusion Policy checkpoint (`lerobot/diffusion_pusht`) on gym-pusht `PushT-v0`: push the T-shaped block onto the target pose; an episode succeeds when the overlap reaches 95%. ap-northeast-2, `g6.xlarge`, 2026-11-02, run `2026-11-02-1056`: **0.8 (8/10)**, average max overlap 0.99. The model card reports 65.4% over 500 episodes; 10 episodes is a small sample (95% interval 49-94%).
@@ -375,6 +406,58 @@ LeRobot's reference Diffusion Policy checkpoint (`lerobot/diffusion_pusht`) on g
 |---|
 | ![Diffusion Policy — Push-T (success)](showcase/lerobot-gym/pusht-success.gif) |
 | MP4: [`lerobot-gym/pusht-success.mp4`](showcase/lerobot-gym/pusht-success.mp4) (GIF is 4× speed) |
+
+### `dino-wm` · `jepa-wms` — latent world-model planners on Push-T
+
+Goal-image planners, not language policies ([targets note 21](targets.md#note-21-latent-world-model-planners-dino-wm-jepa-wms)): the world model plans actions toward a goal image from the authors' validation set, and the authors' own success test decides the episode. Labels come from the video names (`<task>--ep<k>-<success|failure>.mp4`, jepa-wms `<task>--<model>--ep<k>-...`).
+
+- `dino-wm`: the original DINO-WM `pusht` checkpoint with its MPC + CEM planner, ap-northeast-2, `g6e.xlarge` (one L40S), run `2026-11-02-2225`: **1.0 (20/20)** (paper 0.90). No failure clip: the run has no miss. The video is the authors' side-by-side: simulator frames on top, the world model's decoded prediction below, the goal image on the right.
+- `jepa-wms --task-set compare`: JEPA-WM `jepa_wm_pusht` **0.6 (6/10)** and the jepa-wms authors' retrained DINO-WM baseline `dino_wm_pusht` **0.4 (4/10)**, one CEM plan per episode, ap-northeast-2, `g6.xlarge` (one L4), run `2026-11-02-2103`. Episode *k* starts from the same state for both models (seed 1; the first frames are identical). These videos are the simulator frames of the executed plan (31 frames; the target T is the green shape). The GIFs play the frames at 10 fps (MP4: 30 fps).
+
+| `dino-wm` — Success, `pusht` (SR 1.0, 20/20; episode 0) |
+|---|
+| ![DINO-WM — Push-T (success)](showcase/dino-wm/pusht-success.gif) |
+| MP4: [`dino-wm/pusht-success.mp4`](showcase/dino-wm/pusht-success.mp4) |
+
+| `jepa-wms` JEPA-WM — Success, episode 1 | DINO-WM baseline — Failure, same episode 1 |
+|---|---|
+| ![JEPA-WM — Push-T episode 1 (success)](showcase/jepa-wms/pusht-jepa-wm-ep01-success.gif) | ![DINO-WM baseline — Push-T episode 1 (failure)](showcase/jepa-wms/pusht-dino-wm-ep01-failure.gif) |
+| MP4: [`jepa-wms/pusht-jepa-wm-ep01-success.mp4`](showcase/jepa-wms/pusht-jepa-wm-ep01-success.mp4) | MP4: [`jepa-wms/pusht-dino-wm-ep01-failure.mp4`](showcase/jepa-wms/pusht-dino-wm-ep01-failure.mp4) |
+| | _The T ends next to the target but not aligned with it._ |
+
+| `jepa-wms` JEPA-WM — Failure, episode 0 (both models miss it) | DINO-WM baseline — Success, episode 3 (JEPA-WM also succeeds) |
+|---|---|
+| ![JEPA-WM — Push-T episode 0 (failure)](showcase/jepa-wms/pusht-jepa-wm-ep00-failure.gif) | ![DINO-WM baseline — Push-T episode 3 (success)](showcase/jepa-wms/pusht-dino-wm-ep03-success.gif) |
+| MP4: [`jepa-wms/pusht-jepa-wm-ep00-failure.mp4`](showcase/jepa-wms/pusht-jepa-wm-ep00-failure.mp4) | MP4: [`jepa-wms/pusht-dino-wm-ep03-success.mp4`](showcase/jepa-wms/pusht-dino-wm-ep03-success.mp4) |
+| _The T overlaps the target but is offset and rotated._ | |
+
+## Navigation
+
+Move a point agent to a goal position with no object contact (`navigation` in [targets: task sets and action types](targets.md#task-sets-and-action-types)). Same runs and labels as the [Push-T clips](#dino-wm--jepa-wms--latent-world-model-planners-on-push-t).
+
+### `dino-wm` · `jepa-wms` — Wall: through the door to the goal
+
+The agent (red dot) starts on one side of a wall and has to pass through the door to reach the goal on the other side.
+
+- `dino-wm` `wall_single`, run `2026-11-02-2225`: **0.95 (19/20)** (paper 0.96); the miss is episode 15. Side-by-side layout as on Push-T (simulator top, prediction bottom, goal right).
+- `jepa-wms --task-set compare`, run `2026-11-02-2103`: JEPA-WM `jepa_wm_wall` **0.8 (8/10)**, DINO-WM baseline `dino_wm_wall` **0.6 (6/10)**. The jepa-wms videos show the simulator only; the goal is not drawn.
+
+| `dino-wm` — Success, `wall` (SR 0.95, 19/20; episode 0) | `dino-wm` — Failure, `wall` (1/20; episode 15) |
+|---|---|
+| ![DINO-WM — Wall (success)](showcase/dino-wm/wall-success.gif) | ![DINO-WM — Wall (failure)](showcase/dino-wm/wall-failure.gif) |
+| MP4: [`dino-wm/wall-success.mp4`](showcase/dino-wm/wall-success.mp4) (GIF is 2× speed) | MP4: [`dino-wm/wall-failure.mp4`](showcase/dino-wm/wall-failure.mp4) (GIF is 2× speed) |
+| | _The agent moves to the wall next to the door but stays on the start side; the goal is on the other side._ |
+
+| `jepa-wms` JEPA-WM — Success, episode 5 | DINO-WM baseline — Failure, same episode 5 |
+|---|---|
+| ![JEPA-WM — Wall episode 5 (success)](showcase/jepa-wms/wall-jepa-wm-ep05-success.gif) | ![DINO-WM baseline — Wall episode 5 (failure)](showcase/jepa-wms/wall-dino-wm-ep05-failure.gif) |
+| MP4: [`jepa-wms/wall-jepa-wm-ep05-success.mp4`](showcase/jepa-wms/wall-jepa-wm-ep05-success.mp4) | MP4: [`jepa-wms/wall-dino-wm-ep05-failure.mp4`](showcase/jepa-wms/wall-dino-wm-ep05-failure.mp4) |
+| | _From the same start JEPA-WM passes through the door; the baseline ends on the start side of the wall._ |
+
+| `jepa-wms` JEPA-WM — Failure, episode 3 (both models miss it) | DINO-WM baseline — Success, episode 0 (JEPA-WM also succeeds) |
+|---|---|
+| ![JEPA-WM — Wall episode 3 (failure)](showcase/jepa-wms/wall-jepa-wm-ep03-failure.gif) | ![DINO-WM baseline — Wall episode 0 (success)](showcase/jepa-wms/wall-dino-wm-ep00-success.gif) |
+| MP4: [`jepa-wms/wall-jepa-wm-ep03-failure.mp4`](showcase/jepa-wms/wall-jepa-wm-ep03-failure.mp4) | MP4: [`jepa-wms/wall-dino-wm-ep00-success.mp4`](showcase/jepa-wms/wall-dino-wm-ep00-success.mp4) |
 
 ## Bimanual
 

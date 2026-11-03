@@ -768,9 +768,20 @@ Per run: `univla` default 30/30 (CI 89-100%), `actions` 27/30 (74-97%); `ge-act`
 
 The authors' numbers use 50 episodes for every task of a suite (`num_trials_per_task=50` / `--num_trails_per_task 50`); the runs here use init states 0-9 of three tasks. The first `univla` run (`2026-11-02-1355`, `g6.2xlarge`, 24 GB L4) scored 0/30 because every episode ended in a CUDA out-of-memory error; the target now runs on `g6e.xlarge` (48 GB L40S) and a LIBERO run whose episodes raised fails instead of reporting zeros. Time from run start to the last result: `univla` about 12 minutes (default) and 14 minutes (`actions`), `ge-act` about 22 and 19 minutes, 30 episodes each.
 
-### VLA-JEPA (`vla-jepa`), not run yet
+### VLA-JEPA (`vla-jepa`)
 
-No AWS run yet. Numbers to compare against once it runs (same three LIBERO-Goal tasks × 10 episodes as `univla` / `ge-act` above; `summary.txt` carries the suite number as `published:`):
+First AWS runs, ap-northeast-2, 2026-11-03, `g6.xlarge` (one NVIDIA L4), LeRobot `lerobot-eval` at `ae2b57f1`, seed 7, 10 episodes per task from LIBERO's fixed init states (same three default tasks as `univla` / `ge-act` above):
+
+| Task set | Task (LIBERO-Goal id) | Action type | Success (Wilson 95%) | Run |
+|---|---|---|---|---|
+| default | put the bowl on the stove (1) | pick-place | 1.0 (10/10), 72-100% | `2026-11-03-0339` |
+| default | put the cream cheese in the bowl (6) | pick-place | 1.0 (10/10), 72-100% | `2026-11-03-0339` |
+| default | put the bowl on the plate (8) | pick-place | 1.0 (10/10), 72-100% | `2026-11-03-0339` |
+| `actions` | open the middle drawer of the cabinet (0) | articulated | 0.9 (9/10), 60-98% | `2026-11-03-0455` |
+| `actions` | push the plate to the front of the stove (5) | push | 0.9 (9/10), 60-98% | `2026-11-03-0455` |
+| `actions` | turn on the stove (7) | articulated | 1.0 (10/10), 72-100% | `2026-11-03-0455` |
+
+Default 30/30 (89-100%), `actions` 28/30 (79-98%); the `probe` set (task 1 × 2, run `2026-11-03-0248`) was 2/2. Time from `deploy` to the last result: about 32 minutes (`probe`), 44 minutes (default) and 41 minutes (`actions`), most of it the LeRobot `uv sync` and the 11.7 GB of weights. Published numbers to compare against (`summary.txt` carries the suite number as `published:`):
 
 | Source | Spatial | Object | Goal | LIBERO-10 | Average |
 |---|---|---|---|---|---|

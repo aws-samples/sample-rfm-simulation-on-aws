@@ -1,5 +1,9 @@
 # RFM Simulation on AWS
 
+<a href="docs/showcase/intro/intro.mp4"><img src="docs/showcase/intro/intro-preview.webp" width="720" alt="Intro: robot policies running in LIBERO, SimplerEnv, RoboCasa, RoboTwin 2.0 and on the GR-1 and Unitree G1 humanoids, evaluated on AWS with one command"></a>
+
+[Watch the 80-second intro (with narration)](docs/showcase/intro/intro.mp4)
+
 [![CI](https://github.com/aws-samples/sample-rfm-simulation-on-aws/actions/workflows/ci.yml/badge.svg)](https://github.com/aws-samples/sample-rfm-simulation-on-aws/actions/workflows/ci.yml)
 [![License: MIT-0](https://img.shields.io/badge/License-MIT--0-blue.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/)

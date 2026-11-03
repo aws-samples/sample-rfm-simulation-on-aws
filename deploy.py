@@ -79,6 +79,7 @@ LEROBOT_LIBERO_STACKS = {
     "lingbot-va": "LingBot-VA-Demo",
     "fastwam": "FastWAM-Demo",
     "multitask-dit": "MultiTask-DiT-Demo",
+    "vla-jepa": "VLA-JEPA-Demo",
 }
 LEROBOT_LIBERO_TARGETS = tuple(LEROBOT_LIBERO_STACKS)
 # Local-only targets with their own template (same CLI handling as the LeRobot family).

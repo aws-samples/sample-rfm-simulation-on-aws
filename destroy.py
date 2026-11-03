@@ -77,6 +77,7 @@ STACK_NAMES = {
     "ge-act": "GE-Act-Demo",
     "dino-wm": "DINO-WM-Demo",
     "jepa-wms": "JEPA-WMs-Demo",
+    "vla-jepa": "VLA-JEPA-Demo",
 }
 
 

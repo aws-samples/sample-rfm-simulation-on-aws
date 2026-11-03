@@ -50,6 +50,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `rlinf-oft-libero`: a training or eval run that exited non-zero (including the wall-clock cap, exit 124) ended the script through the ERR trap before the checkpoint upload and the RL eval; the exit codes are now captured with `|| rc=$?`. Saved `global_step_*` checkpoints are uploaded to S3 during training (each once it has not changed for 15 minutes), so a Spot interruption or a late crash keeps them. Measured `full` run 2026-11-01 (`p5.48xlarge`, ap-northeast-1): baseline 50.4% (252/500), stopped by the cap at step 83 with no RL eval; see docs/results.md.
+
 - UserData apt on a fresh Ubuntu DLAMI: every host `apt-get` waits up to 30 minutes for the dpkg lock (`DPkg::Lock::Timeout=1800`, was 300; the outer `timeout` of `apt-get update` 600 -> 2400 s), in all 20 templates that call apt. Measured: an `unattended-upgrades` run held the lock for 16+ minutes after the UserData had stopped it, and three 5-minute waits failed the deploy (X-VLA, g6e.xlarge). `tests/test_render.py` checks every target.
 - Found in the first real `--repeats 2` run on RoboLab (pi0-FAST-DROID, two runs on one instance per condition):
   - the RoboLab protocol card said `seed: unknown`, `checkpoints: []`, `condition: unknown`, `start_states: unknown`. RoboLab takes the seed as a client flag and the checkpoint from the variant, not from `summary.txt`; the card now records the seed, the checkpoint, `condition: instruction_type=<type>` and the start-state rule (a value in `summary.txt` still wins);

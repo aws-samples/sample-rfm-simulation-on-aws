@@ -357,6 +357,23 @@ watch_dead_actor() {
     done
 }
 
+# Upload each saved global_step_* to S3 while training runs, once it has not changed for 15 minutes, so a Spot
+# interruption or a crash late in a long run still leaves the saved checkpoints in S3.
+upload_saved_checkpoints() {
+    local d n
+    while sleep 600; do
+        while IFS= read -r d; do
+            n=$(basename "${d}")
+            [ -f "${WORK}/out/uploaded_${n}" ] && continue
+            [ -z "$(find "${d}" -mmin -15 -print -quit 2>/dev/null)" ] || continue
+            if aws s3 cp --recursive "${d}" "s3://${S3_BUCKET}/${RUN_ID}/rl/checkpoints/${n}/" --region "$REGION" --only-show-errors; then
+                touch "${WORK}/out/uploaded_${n}"
+                log "  checkpoint ${n} uploaded during training -> s3://${S3_BUCKET}/${RUN_ID}/rl/checkpoints/${n}/"
+            fi
+        done < <(find "${WORK}/train" -type d -name 'global_step_*' 2>/dev/null | sort -t_ -k3 -n)
+    done
+}
+
 # One eval with the shared protocol. $1 = phase (baseline|rl), $2 = task dir, $3 = extra overrides.
 run_eval() {
     local phase=$1 task=$2 extra=$3
@@ -367,10 +384,12 @@ run_eval() {
     : > "${WORK}/logs/eval_${phase}.log"
     watch_dead_actor "${WORK}/logs/eval_${phase}.log" &
     local watcher=$!
+    local rc=0
     set +e
+    # `|| rc=$?`, not a bare `rc=$?` on the next line: the ERR trap fires on a failing command even under
+    # `set +e`, so a bare non-zero exit would end the script here before the log and videos are uploaded.
     IN_ENV_TIMEOUT=10800 in_env "ray stop --force >/dev/null 2>&1; bash evaluations/run_eval.sh libero {{ eval_config }} rollout.model.model_path=${SFT_DIR} ${EVAL_OVERRIDES} ${extra}" \
-        < /dev/null > "${WORK}/logs/eval_${phase}.log" 2>&1
-    local rc=$?
+        < /dev/null > "${WORK}/logs/eval_${phase}.log" 2>&1 || rc=$?
     kill "${watcher}" 2>/dev/null || true; wait "${watcher}" 2>/dev/null || true
     set -e
     log "  eval ${phase} exit ${rc}"
@@ -421,10 +440,16 @@ if [ -z "${EVAL_RUN}" ]; then
     : > "${WORK}/logs/train.log"
     watch_dead_actor "${WORK}/logs/train.log" &
     TRAIN_WATCHER=$!
+    upload_saved_checkpoints &
+    CKPT_UPLOADER=$!
+    TRAIN_RC=0
     set +e
+    # `|| TRAIN_RC=$?`: the ERR trap fires on a failing command even under `set +e`. With a bare `TRAIN_RC=$?`
+    # the wall-clock cap (exit 124) ended the script here, before the latest checkpoint was uploaded and evaluated
+    # (measured: a 100-step full-profile run stopped by the cap at step 83 lost all saved checkpoints).
     IN_ENV_TIMEOUT="${TRAIN_CAP}" in_env "ray stop --force >/dev/null 2>&1; python examples/embodiment/train_embodied_agent.py --config-path /workspace/RLinf/examples/embodiment/config/ --config-name {{ train_config }} ${TRAIN_OVERRIDES}" \
-        < /dev/null > "${WORK}/logs/train.log" 2>&1
-    TRAIN_RC=$?
+        < /dev/null > "${WORK}/logs/train.log" 2>&1 || TRAIN_RC=$?
+    kill "${CKPT_UPLOADER}" 2>/dev/null || true; wait "${CKPT_UPLOADER}" 2>/dev/null || true
     # `wait` returns 143 for the killed watcher; the ERR trap fires at top level even under set +e.
     kill "${TRAIN_WATCHER}" 2>/dev/null || true; wait "${TRAIN_WATCHER}" 2>/dev/null || true
     set -e
@@ -443,8 +468,12 @@ if [ -z "${EVAL_RUN}" ]; then
     [ -n "${STEP_DIR}" ] || die "training saved no checkpoint (exit ${TRAIN_RC}, see s3://${S3_BUCKET}/${RUN_ID}/rl/train.log)"
     STEP_NAME=$(basename "${STEP_DIR}")
     log "  checkpoint ${STEP_NAME} ($(du -sh "${STEP_DIR}" | cut -f1)) -> s3://${S3_BUCKET}/${RUN_ID}/rl/checkpoints/${STEP_NAME}/"
-    aws s3 cp --recursive "${STEP_DIR}" "s3://${S3_BUCKET}/${RUN_ID}/rl/checkpoints/${STEP_NAME}/" --region "$REGION" \
-        --only-show-errors || die "checkpoint upload failed"
+    if [ -f "${WORK}/out/uploaded_${STEP_NAME}" ]; then
+        log "  ${STEP_NAME} was already uploaded during training"
+    else
+        aws s3 cp --recursive "${STEP_DIR}" "s3://${S3_BUCKET}/${RUN_ID}/rl/checkpoints/${STEP_NAME}/" --region "$REGION" \
+            --only-show-errors || die "checkpoint upload failed"
+    fi
     jq -n --arg run "${RUN_ID}" --arg step "${STEP_NAME}" --arg sft "{{ hf_repo }}@{{ hf_model_revision }}" --argjson rc "${TRAIN_RC}" \
         '{run_id: $run, step: $step, prefix: ("rl/checkpoints/" + $step + "/"), sft: $sft, train_exit: $rc, profile: "{{ profile }}", rlinf_commit: "{{ rlinf_commit }}"}' \
         > "${WORK}/out/checkpoint.json"

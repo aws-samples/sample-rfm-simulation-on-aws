@@ -39,6 +39,7 @@ ACTION_TYPES = {
     "bimanual": "two arms on one object (handover, two-handed lift)",
     "tool-use": "grasp a tool and act on another object with it (hammer, stamp)",
     "locomotion": "the robot walks or drives as part of the task",
+    "navigation": "move a point agent / mobile base to a goal position, no object contact (2D mazes, Wall)",
     "other": "none of the above / not recognised",
 }
 
@@ -67,6 +68,9 @@ KNOWN = {
     "alohainsertion-v0": "bimanual",
     "alohatransfercube-v0": "bimanual",
     "pusht-v0": "push",
+    # Latent world-model planners (dino-wm, jepa-wms): Push-T and the Wall point-agent environment
+    "pusht": "push",
+    "wall": "navigation",
     # SimplerEnv (spatialvla, magma): the Google pick task is named "grasp"; the drawer-placement task opens the
     # closed drawer first (articulated sub-goal, as PnPCupToDrawerClose)
     "graspsingleopenedcokecaninscene-v0": "pick-place",

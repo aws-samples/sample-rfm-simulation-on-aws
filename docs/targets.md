@@ -43,6 +43,8 @@ Each target is one `--vla <target>` value for `python vlasim.py deploy` / `destr
 | `magma` | — | Magma-8B zero-shot (`microsoft/Magma-8B`, MIT), the authors' SimplerEnv eval[¹⁹](#note-19-simplerenv-with-the-authors-own-eval-spatialvla-magma) | SimplerEnv: WidowX carrot on plate, eggplant in basket; Google move near (`--task-set actions`: open the drawer and put the apple in) | WidowX 250 / Google Robot (Fractal) | `Magma-Demo` |
 | `univla` | — | UniVLA (BAAI, Emu3-8.5B world model + FAST action tokens; `Yuqi1997/UniVLA` LIBERO img-sft checkpoint, Apache-2.0), the authors' LIBERO loop[²⁰](#note-20-libero-with-the-authors-own-loop-univla-ge-act) | LIBERO-Goal: bowl on stove, cream cheese in bowl, bowl on plate (`--task-set actions`: open drawer, push plate, turn on stove) | Franka Panda (7-DOF) | `UniVLA-Demo` |
 | `ge-act` | — | GE-Act (AgiBot Genie Envisioner: LTX-Video 2B world model + action expert; per-suite LIBERO checkpoints, **CC BY-NC-SA 4.0, non-commercial**), the authors' LIBERO loop[²⁰](#note-20-libero-with-the-authors-own-loop-univla-ge-act) | same LIBERO-Goal tasks as `univla` | Franka Panda (7-DOF) | `GE-Act-Demo` |
+| `dino-wm` | — | DINO-WM (NYU / Meta, frozen DINOv2 ViT-S/14 features + ViT predictor, MIT): **world-model planner, goal-image conditioned, not language** — MPC + CEM toward a goal image, the authors' `plan.py` eval[²¹](#note-21-latent-world-model-planners-dino-wm-jepa-wms) | Push-T (push the T block to a goal pose) and Wall (go through a door to a goal position) | 2D pusher / point agent | `DINO-WM-Demo` |
+| `jepa-wms` | — | JEPA-WM (Meta FAIR, DINOv2 ViT-S/14 + AdaLN predictor; **CC BY-NC 4.0, non-commercial**): **world-model planner, goal-image conditioned, not language** — CEM toward a goal image, the authors' `evals.main` eval; `--task-set dino-wm-baseline` / `compare` add their DINO-WM baseline[²¹](#note-21-latent-world-model-planners-dino-wm-jepa-wms) | same Push-T and Wall | 2D pusher / point agent | `JEPA-WMs-Demo` |
 
 ## Notes
 
@@ -329,6 +331,34 @@ Both targets run the LIBERO evaluation loop the model authors publish, through o
 - **Dropped: AgiBot GO-1.** `agibot-world/GO-1` and `GO-1-Air` are public (CC BY-NC-SA 4.0) but are pre-trained on AgiBot World only; the repository's LIBERO track (`evaluate/libero`, GO-1 94.8% avg) evaluates a checkpoint the authors fine-tuned themselves ("fine-tuned jointly on four task suites for 50k steps") and did not publish (the `agibot-world` Hub org has no LIBERO checkpoint). Adding it would mean a 50k-step fine-tune first.
 - **Dropped for now: CogACT.** See [Note 19](#note-19-simplerenv-with-the-authors-own-eval-spatialvla-magma): its backbone config / tokenizer come from the gated `meta-llama/Llama-2-7b-hf`.
 
+### Note 21: latent world-model planners (dino-wm, jepa-wms)
+
+These two targets are **not VLAs**. An action-conditioned world model predicts the next frame's frozen DINOv2 ViT-S/14 patch features from the current ones and an action; a planner (CEM, inside MPC for DINO-WM) samples action sequences, rolls them out in the world model and keeps the ones whose predicted final features are closest to the encoding of a **goal image**. There is no language instruction: `summary.txt` says `model_kind: world-model planner, goal-image conditioned, not language` and `instruction: none (goal image)`. Success is the simulator's own state test written by the authors (Push-T: agent and block within 20 px and block angle within π/9 of the goal state; Wall: agent within 4.5 of the goal position).
+
+Both run the authors' planning evaluation through one shared template (`templates/latent-wm-userdata.sh.j2`) and one runner ([`assets/latent-wm/wm_plan_runner.py`](../assets/latent-wm/wm_plan_runner.py)): the repository and the DINOv2 torch.hub code at pinned commits (checked after the clone; `torch.hub.load("facebookresearch/dinov2", ...)` in the authors' code would otherwise fetch the moving `main`), one venv from a lock file in [`assets/latent-wm/`](../assets/latent-wm/), and every checkpoint and dataset from a pinned URL, sha256-checked. The datasets are needed even though nothing is trained: the planners read the action / state normalisation and (Push-T) the start / goal states from the authors' validation split. The runner leaves the planning loop unchanged; it sets the paths, episode count and seed, records the per-episode outcome the authors' evaluator returns, and renames the rollout videos to `<task>--ep<k>-<success|failure>.mp4` (jepa-wms: `<task>--<model>--ep<k>-...`).
+
+| | `dino-wm` | `jepa-wms` |
+|---|---|---|
+| Code | [`gaoyuezhou/dino_wm`](https://github.com/gaoyuezhou/dino_wm) @`0a9492fa` (MIT); `plan.py` `planning_main()` with `conf/plan_<env>.yaml` | [`facebookresearch/jepa-wms`](https://github.com/facebookresearch/jepa-wms) @`13cf1d9c` (CC BY-NC 4.0); `evals.main` (`simu_env_planning`) with the released `configs/evals/simu_env_planning/<env>/<model>/*.yaml` |
+| Checkpoints | OSF project `bmw48` `checkpoints/outputs.zip` (953 MB, sha256 `425b0d8c…`): `outputs/pusht`, `outputs/wall_single` (+ `point_maze`, not run) | Hugging Face `facebook/jepa-wms` @`9b9c41ef` (not gated): `jepa_wm_{pusht,wall}.pth.tar`; baseline `dino_wm_{pusht,wall}.pth.tar` |
+| Datasets | OSF `datasets/pusht_noise.zip` (2.8 GB) and `wall_single.zip` (1.7 GB, **59 GB unpacked**) | the same two files (the README says the Hugging Face copies are DINO-WM's "without modification"; the HF dataset is gated, OSF is not) |
+| Planner | MPC + CEM: horizon 5, 300 samples, top 30, 30 (Push-T) / 10 (Wall) iterations, 5 actions per replan, frameskip 5 | CEM L2: horizon 6, 300 samples, 10 elites, 30 iterations, 6 actions stepped (one plan per episode), frameskip 5 |
+| Goals | Push-T: a validation-set state 25 steps ahead; Wall: random states | same |
+| Episodes | 20 per environment, seed 99 (config default; episode i = seed · i + 1) | 20 per task, `meta.seed` 1 (config default) |
+| Video | the authors' 2 × 2 layout: top row the simulator rollout, bottom row the world model's decoded prediction, goal image in the right column | simulator frames of the executed plan |
+| Python / torch | 3.9 / torch 2.3.0 (the authors' `environment.yaml` pins) | 3.10 / torch 2.7.0 (`pyproject.toml`; no upstream lock, resolved `--exclude-newer 2026-04-12`) |
+| Published (paper) | Table 1, MPC CEM, 50 pairs: Push-T **0.90**, Wall **0.96** (PointMaze 0.98) | Table 2, CEM L2, mean (std) over 3 seeds × 96 ep: Push-T JEPA-WM **70.2 (2.8)** / DINO-WM 66.0 (4.7); Wall JEPA-WM **78.8 (3.9)** / DINO-WM 64.1 (4.6) |
+
+- **Changes to the authors' runs.** `dino-wm`: 20 instead of 50 pairs, and MPC capped at `planner.max_iter=5` replans (125 simulator steps; Push-T goals are 25 steps away). The released configs set `max_iter: null`, which replans until every episode has succeeded (`planning/mpc.py`) and so never ends while one keeps failing. `jepa-wms`: 20 instead of 96 episodes; two config entries point at files that are not released and are changed — the state-readout head (`heads_cfg.pretrain_dec_path.state_head` = `${JEPAWM_LOGS}/...`, optional plots only) is dropped and the 3.6 GB VM2M image decoder (decodes the planner's imagined frames) is off, so `decode_each_iteration` and `optional_plots` are false. The planning loop and its success test are unchanged.
+- **PointMaze is not run.** Its env needs `d4rl` + `mujoco-py` (MuJoCo 2.1 binaries and a Cython build). dino_wm's `env/__init__.py` imports it for every environment, so the runner registers two empty modules under those names when they are not installed; Push-T and Wall never touch them. Metaworld, RoboCasa and DROID (jepa-wms) need `metaworld` from git master, the authors' robosuite / robocasa forks with 20 GB of kitchen assets, or the 5.6 TB DROID set; the V-JEPA-2-AC baseline exists only for DROID / RoboCasa.
+- **The DINO-WM baseline twice.** `dino-wm` runs the original authors' checkpoints with their own planner (MPC); `jepa-wms --task-set dino-wm-baseline` runs the jepa-wms authors' **retrained** DINO-WM with their CEM planner, which is the comparison their Table 2 makes. The two DINO-WM numbers are not the same measurement.
+- **Third-party reproduction.** [jepa-wms issue #25](https://github.com/facebookresearch/jepa-wms/issues/25) (2026-03) ran the released checkpoints with the released configs: Push-T 62.5-65.6 %, Wall 75.0 %, below the paper's means.
+- **Cost.** Both are fp32 and compute-bound. DINO-WM Push-T plans every MPC step for all 20 episodes at once: 30 CEM iterations × 300 samples × 5-step rollouts of a 588-token ViT predictor, about 60 TFLOP per episode-iteration, so `dino-wm` prefers the L40S of a `g6e.xlarge` (about 3× an L4 in fp32); `jepa-wms` plans once per episode and takes a `g6.xlarge`. Both need 200 GB of EBS for the unpacked Wall dataset. `--task-set probe` (2 episodes per environment) measures the time per episode before a full run.
+- **Measured on AWS (ap-northeast-2, 2026-11-02).** `dino-wm` (L40S): Push-T 20/20, Wall 19/20 (run `2026-11-02-2225`; ~200 s and ~71 s per episode); `jepa-wms --task-set compare` (L4): JEPA-WM Push-T 6/10, Wall 8/10, the jepa-wms DINO-WM baseline Push-T 4/10, Wall 6/10 (run `2026-11-02-2103`; ~400 s per CEM episode). On the L40S, CUDA has to be initialised before `decord` and the env packages are imported: the first two `dino-wm` probes died with SIGSEGV inside `torch.cuda._lazy_init` when `plan.py` loaded the checkpoint (faulthandler stack), and the runner now creates the CUDA context first. See [results](results.md#latent-world-model-planners-dino-wm-jepa-wms).
+- **Checked locally (CPU, aarch64, 2026-11-02).** Both checkpoint zips / files and both datasets match their sha256; the jepa-wms `jepa_wm_pusht` and `dino_wm_pusht` checkpoints load with "All keys matched successfully" (epoch 50) and the Push-T dataset loads (18,685 train / 21 validation trajectories); the dino_wm planning loop runs end to end on CPU through the runner for Push-T and Wall (2 episodes each with the planner cut to 4 samples, 1 CEM iteration, 1 MPC step: results.json, renamed videos, about 13-15 minutes each; the success rates of such a cut planner mean nothing). The jepa-wms episode loop is CUDA-only (`planning/gc_agent.py` builds a `cuda:0` generator), so it runs first on AWS.
+- **Licenses.** `jepa-wms` is **non-commercial** (CC BY-NC 4.0 for the code, the checkpoints and the re-hosted data). `dino-wm` is MIT; DINOv2 code and weights are Apache-2.0. See [licenses](licenses.md).
+- **VLA-JEPA** (`ginwind/VLA-JEPA`, a LIBERO / SimplerEnv VLA with a JEPA objective) is a VLA, not a planner, and is not part of these targets.
+
 ## Task sets and action types
 
 Most benchmarks default to pick-and-place, but several pinned checkpoints were trained (and are evaluated upstream) on other motions too. `--task-set NAME` runs `task_sets.NAME` of `models/<target>.yaml` instead of its `tasks:` list, on the same stack, results bucket, template and checkpoint revision; `actions` is the set of those non-pick-and-place tasks:
@@ -361,6 +391,7 @@ python vlasim.py deploy --vla ge-act --task-set actions             # same three
 | `bimanual` | two arms on one object (handover, two-handed lift) |
 | `tool-use` | grasp a tool and act on another object with it (hammer, stamp) |
 | `locomotion` | the robot walks or drives as part of the task |
+| `navigation` | move a point agent / mobile base to a goal position, no object contact (2D mazes, Wall) |
 
 | Target | `actions` task | Tag | Why it is in the checkpoint's training / eval set |
 |---|---|---|---|
@@ -379,6 +410,8 @@ python vlasim.py deploy --vla ge-act --task-set actions             # same three
 | `magma` | `PlaceIntoClosedTopDrawerCustomInScene-v0` | articulated | Magma's own `put_drawer_visual_matching.sh` (the drawer is opened before the apple goes in) |
 | `univla`, `ge-act` | `open_the_middle_drawer_of_the_cabinet`, `turn_on_the_stove` | articulated | LIBERO-Goal tasks 0 and 7; both checkpoints are trained on all of LIBERO-Goal ([Note 20](#note-20-libero-with-the-authors-own-loop-univla-ge-act)) |
 | | `push_the_plate_to_the_front_of_the_stove` | push | LIBERO-Goal task 5 |
+| `dino-wm`, `jepa-wms` (default run) | `pusht` | push | goal-image planning, not language ([Note 21](#note-21-latent-world-model-planners-dino-wm-jepa-wms)); task sets `pusht`, `wall`, `probe` (+ `dino-wm-baseline`, `compare` for `jepa-wms`) |
+| | `wall` | navigation | same |
 
 The default `gr00t` LIBERO-10 tasks (stove + moka pot, bowl into drawer + close) and the `rldx` / `rldx-gr1` microwave and drawer tasks are tagged `articulated` too: the [showcase](showcase.md) groups its clips by these tags.
 
@@ -491,6 +524,8 @@ does not have to exist any more (its bucket is retained); the gallery score badg
 | `magma` | `g6.2xlarge` → `g5.2xlarge` → `g6e.xlarge` → `g6.4xlarge` | 150 |
 | `univla` | `g6e.xlarge` → `g6e.2xlarge` (24 GB L4 ran out of memory, measured) | 150 |
 | `ge-act` | `g6.2xlarge` → `g5.2xlarge` → `g6e.xlarge` → `g6.4xlarge` | 150 |
+| `dino-wm` | `g6e.xlarge` → `g6.2xlarge` → `g5.2xlarge` → `g6e.2xlarge` (fp32 CEM / MPC; 32 GB host for 20 env subprocesses) | 200 |
+| `jepa-wms` | `g6.xlarge` → `g5.xlarge` → `g6.2xlarge` → `g6e.xlarge` | 200 |
 | `rlinf-oft-libero` | `smoke` (default, 1 GPU): `g6e.8xlarge` → `g6e.4xlarge` → `g6e.16xlarge` → `p5.4xlarge`; `full` (8 GPU): `p5.48xlarge` → `p4de.24xlarge` → `p5en.48xlarge` | 500 / 1500 |
 | `flora-judge` ([post-run judge](#post-run-judge-flora-rewarder)) | `g7e.2xlarge` → `g7e.4xlarge` → `g6e.12xlarge` → `p5.4xlarge` | 250 |
 
@@ -553,6 +588,12 @@ python vlasim.py deploy --vla magma --email you@example.com        # Magma-8B ze
 # LIBERO with the authors' own loop (times measured 2026-11-02, ap-northeast-2; ge-act is non-commercial: CC BY-NC-SA 4.0)
 python vlasim.py deploy --vla univla --email you@example.com       # UniVLA img sft: 3 LIBERO-Goal tasks x 10 ep (~12 min, g6e.xlarge)
 python vlasim.py deploy --vla ge-act --email you@example.com       # GE-Act: same tasks (~22 min)
+
+# Latent world-model planners: goal image, not language (measured 2026-11-02; jepa-wms is non-commercial: CC BY-NC 4.0)
+python vlasim.py deploy --vla dino-wm --task-set probe --email you@example.com   # 2 ep per env, measures time per episode
+python vlasim.py deploy --vla dino-wm --email you@example.com       # DINO-WM MPC + CEM: Push-T, Wall, 20 ep each
+python vlasim.py deploy --vla jepa-wms --email you@example.com      # JEPA-WM CEM: Push-T, Wall, 10 ep each
+python vlasim.py deploy --vla jepa-wms --task-set compare --email you@example.com  # + the authors' DINO-WM baseline
 
 # Real2Sim — capture -> 3DGS -> collision meshes -> MuJoCo grasp replay (~12 min measured, not a policy)
 # Default input HOPE-Video is CC BY-NC-SA 4.0 (non-commercial); your own capture: input.* in models/real2sim.yaml

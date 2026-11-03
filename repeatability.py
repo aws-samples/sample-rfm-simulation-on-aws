@@ -41,6 +41,8 @@ SIMULATORS: dict[str, dict] = {
     "robotwin": dict(label="RoboTwin 2.0 (SAPIEN)", repeatable="unmeasured", evidence=""),
     "mujoco": dict(label="MuJoCo (other scenes)", repeatable="unmeasured", evidence=""),
     "lerobot-gym": dict(label="LeRobot gym (gym-aloha MuJoCo, gym-pusht pymunk)", repeatable="unmeasured", evidence=""),
+    "latent-wm": dict(label="Push-T (pymunk) / Wall, the world-model authors' env packages", repeatable="unmeasured",
+                      evidence=""),
 }
 
 TARGET_SIMULATOR: dict[str, str] = {
@@ -54,6 +56,7 @@ TARGET_SIMULATOR: dict[str, str] = {
     **{t: "robotwin" for t in ("smolvla-robotwin", "lingbot-vla2")},
     **{t: "mujoco" for t in ("gr00t-g1", "real2sim")},
     "lerobot-gym": "lerobot-gym",
+    **{t: "latent-wm" for t in ("dino-wm", "jepa-wms")},
 }
 
 _ORDER = {"no": 0, "unmeasured": 1, "yes": 2}

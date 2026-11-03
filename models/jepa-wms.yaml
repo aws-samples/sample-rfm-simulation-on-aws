@@ -1,0 +1,182 @@
+# JEPA-WMs (Terver, Yang, Ponce, Bardes, LeCun, "What Drives Success in Physical Planning with Joint-Embedding
+# Predictive World Models?", arXiv:2512.24497) — the authors' planning eval (evals.main, simu_env_planning) on Push-T
+# and Wall, with their released JEPA-WM checkpoints and (task set dino-wm-baseline / compare) their retrained DINO-WM
+# baseline checkpoints on the same eval code.
+#
+# NOT a VLA: a world-model planner, goal-image conditioned, not language. Frozen DINOv2 ViT-S/14 encoder, a 6-layer
+# AdaLN predictor (JEPA-WM) or the DINO-WM predictor (baseline), CEM over the L2 distance between the predicted and
+# the goal embedding (configs/evals/simu_env_planning/<env>/<model>/*.yaml: horizon 6, 300 samples, 30 iterations,
+# 10 elites, 6 actions stepped per plan). Success = the simulator's own test (env `success` flag).
+#
+# Repo:     https://github.com/facebookresearch/jepa-wms (README "Running Evaluations": python -m evals.main --fname
+#           <config.yaml> --debug). Template: templates/latent-wm-userdata.sh.j2 (shared with dino-wm) +
+#           assets/latent-wm/wm_plan_runner.py --adapter jepa-wms, which loads the released eval config of the model,
+#           sets the checkpoint / dataset paths, episode count and seed, and runs evals.scaffold.main in one process.
+#           Two config entries are changed because they point at files that are not released: the state-readout head
+#           (heads_cfg.pretrain_dec_path.state_head = ${JEPAWM_LOGS}/... — optional plots only) is dropped, and the
+#           image decoder head (3.6 GB VM2M decoder, only for decoding the planner's imagined frames) is off, so
+#           planner.decode_each_iteration = false and logging.optional_plots = false. The planning loop is unchanged.
+# CLI:      python deploy.py --vla jepa-wms [--task-set pusht|wall|dino-wm-baseline|compare]
+#
+# Checkpoints: Hugging Face facebook/jepa-wms (model repo, not gated), revision 9b9c41ef (2026-02-06):
+#   jepa_wm_{pusht,wall}.pth.tar (212 MB each), dino_wm_{pusht,wall}.pth.tar (275 / 269 MB); sha256 = the LFS oids of
+#   that revision. "All keys matched" for predictor / action / proprio encoders (local CPU load, 2026-11-02).
+# Datasets: the README says the pusht / wall datasets are DINO-WM's, re-hosted "without modification" in the gated
+#   Hugging Face dataset facebook/jepa-wms (zip sizes identical: 2,785,304,515 / 1,668,205,895 B). They are taken
+#   from the public DINO-WM OSF project instead (no Hugging Face login), sha256-checked.
+# Published (paper Table 2, CEM L2, mean (std) over 3 training seeds, e = 96 episodes): Push-T JEPA-WM 70.2 (2.8),
+#   DINO-WM 66.0 (4.7); Wall JEPA-WM 78.8 (3.9), DINO-WM 64.1 (4.6). Third-party reproduction with the released
+#   checkpoints (GitHub issue #25, 2026-03): Push-T 62.5-65.6 %, Wall 75.0 %.
+# Not run here: PointMaze (d4rl + mujoco-py, not in the lock), Metaworld (metaworld from git master + expert policies),
+#   RoboCasa / DROID (manual robosuite / robocasa forks, 20 GB kitchen assets; DROID is offline only), and the
+#   V-JEPA-2-AC baseline (DROID / RoboCasa only, ViT-g 3.7 GB checkpoint).
+# License: CC BY-NC 4.0 (NON-COMMERCIAL) for the jepa-wms code, checkpoints and re-hosted data (HF model card,
+#   LICENSE). DINO-WM datasets: MIT (dino_wm). DINOv2: Apache-2.0.
+
+model:
+  id: jepa-wms
+  display_name: "JEPA-WMs"
+  policy_desc: "JEPA-WM latent world model (frozen DINOv2 ViT-S/14 + AdaLN predictor, Meta FAIR) with CEM planning to a goal image"
+  model_kind: "world-model planner, goal-image conditioned, not language"
+  license: "CC BY-NC 4.0 (non-commercial; jepa-wms code and checkpoints); DINO-WM data MIT; DINOv2 Apache-2.0"
+  adapter: jepa-wms
+  code_repo: "https://github.com/facebookresearch/jepa-wms.git"
+  code_commit: "13cf1d9c7e476f53c17714d2e0f1dc239a883ce0"     # main 2026-04-11 (Merge pull request #28)
+  # app/plan_common/models/dino.py: torch.hub.load("facebookresearch/dinov2", name), the moving main branch. Pinned to
+  # main as of the checkpoint release (2025-12-22, HF upload 2026-02); the ViT-S/14 code path is unchanged since 2024.
+  dinov2_commit: "b194f00db6136677fc8a4cc2ef2168f7699dfba2"   # 2025-12-22
+  dinov2_weights: dinov2-vits14
+  python_version: "3.10"                                      # pyproject.toml: requires-python >=3.10,<3.11
+  requirements: "assets/latent-wm/jepa-wms-requirements.txt"
+  checkpoint_repo: "facebook/jepa-wms"
+  checkpoint_revision: "9b9c41ef249466630dbf1a20e78391865d07b3b9"
+  eval_label: "jepa-wms evals.main simu_env_planning (released eval config, CEM L2)"
+  simulator_label: "Push-T (pymunk 2D) / Wall (2D point agent), the authors env package, headless"
+  video_label: "simulator frames of the executed plan"
+  import_check: ["evals.simu_env_planning.eval", "evals.simu_env_planning.envs.pusht_gym_wrap",
+                 "evals.simu_env_planning.envs.wall_gym_wrap", "app.vjepa_wm.modelcustom.simu_env_planning.vit_enc_preds",
+                 "decord", "torchcodec"]
+  downloads:
+    - name: ckpt-jepa_wm_pusht
+      url: "https://huggingface.co/facebook/jepa-wms/resolve/9b9c41ef249466630dbf1a20e78391865d07b3b9/jepa_wm_pusht.pth.tar"
+      sha256: "9beca3eafe0739c3b3adb5d734fa435ccbda0fea8a65d53d4cccec176aaaa0eb"
+      size: 211639615
+      file: jepa-wms/jepa_wm_pusht.pth.tar
+    - name: ckpt-jepa_wm_wall
+      url: "https://huggingface.co/facebook/jepa-wms/resolve/9b9c41ef249466630dbf1a20e78391865d07b3b9/jepa_wm_wall.pth.tar"
+      sha256: "8efb0623cfba1cb3ca210de26f7579c83dd24936635f11989c515afcb23bea1e"
+      size: 211639231
+      file: jepa-wms/jepa_wm_wall.pth.tar
+    - name: ckpt-dino_wm_pusht
+      url: "https://huggingface.co/facebook/jepa-wms/resolve/9b9c41ef249466630dbf1a20e78391865d07b3b9/dino_wm_pusht.pth.tar"
+      sha256: "8ec9cb05f22812d7f12e3c216b0637f41641055c0653e503e2746edb981b550f"
+      size: 274877419
+      file: jepa-wms/dino_wm_pusht.pth.tar
+    - name: ckpt-dino_wm_wall
+      url: "https://huggingface.co/facebook/jepa-wms/resolve/9b9c41ef249466630dbf1a20e78391865d07b3b9/dino_wm_wall.pth.tar"
+      sha256: "ff170be5aec9249768be4a220d600b8f00a8589b2a78982ecf9273809f2767df"
+      size: 268848363
+      file: jepa-wms/dino_wm_wall.pth.tar
+    - env: pusht
+      url: "https://osf.io/download/k2d8w/?view_only=a56a296ce3b24cceaf408383a175ce28"
+      sha256: "442f5dee246edf670964ed7bdecd248683cd6d00580fa0e4d458abb53f92da08"
+      size: 2785304515
+      file: pusht_noise.zip
+      unzip_to: data
+      unzip_exclude: ["pusht_noise/train/obses/*", "pusht_noise/train/tokens.pth"]
+    - env: wall
+      url: "https://osf.io/download/49rnx/?view_only=a56a296ce3b24cceaf408383a175ce28"
+      sha256: "2b4ae4ed0ad03b337efac637f17752e7e7e27f864fec39dc25b51fef490c980d"
+      size: 1668205895
+      file: wall_single.zip
+      unzip_to: data
+    - name: dinov2-vits14
+      url: "https://dl.fbaipublicfiles.com/dinov2/dinov2_vits14/dinov2_vits14_pretrain.pth"
+      sha256: "b938bf1bc15cd2ec0feacfe3a1bb553fe8ea9ca46a7e1d8d00217f29aef60cd9"
+      size: 88283115
+      file: torch/dinov2_vits14_pretrain.pth
+  env:
+    OMP_NUM_THREADS: "4"
+    MPLCONFIGDIR: "/tmp/mplconfig"
+
+instance:
+  # ViT-S/14 encoder + 6-layer predictor, CEM batch of 300: a few GB of GPU memory; one L4 is enough. The eval code is
+  # CUDA-only (gc_agent.py builds a cuda:0 generator). EBS: Wall unpacks to 59 GB.
+  preferred: [g6.xlarge, g5.xlarge, g6.2xlarge, g6e.xlarge]
+  ebs_gb: 200
+  creationpolicy_timeout: PT540M   # setup ~25-35 min + up to four tasks (--task-set compare) capped at 120 min each
+  min_gpu_mib: 15000
+  min_host_mib: 15000
+
+# Default run = JEPA-WM on Push-T and Wall; the DINO-WM baseline entries live in task_sets (same keys).
+# Per task: env (pusht | wall), model = jepa-wm | dino-wm (selects configs/evals/simu_env_planning/<env>/<model>/),
+# ckpt = the model.downloads entry, n_episodes (meta.eval_episodes; the paper uses 96; 10 here because one CEM
+# episode measured ~400 s on an L4 (probe run), so 10 episodes ~67 min fit the 120 min task cap), seed (meta.seed; the released
+# configs use 1), set = overrides of the eval config (key.path=value), timeout_min = wall-clock cap of the runner call.
+tasks:
+  - &pusht_jepa
+    env: pusht
+    model: jepa-wm
+    ckpt: ckpt-jepa_wm_pusht
+    env_name: pusht
+    action_type: push
+    n_episodes: 10
+    seed: 1
+    timeout_min: 120
+    description: "Push-T to a goal image (start / goal from the validation set, 25 steps apart), CEM L2"
+    published: "70.2 (2.8) % (JEPA-WMs paper Table 2, 96 ep x 3 seeds)"
+  - &wall_jepa
+    env: wall
+    model: jepa-wm
+    ckpt: ckpt-jepa_wm_wall
+    env_name: wall
+    action_type: navigation
+    n_episodes: 10
+    seed: 1
+    timeout_min: 120
+    description: "Wall: reach a goal image on the other side of a wall through its door, CEM L2"
+    published: "78.8 (3.9) % (JEPA-WMs paper Table 2, 96 ep x 3 seeds)"
+
+task_sets:
+  pusht:
+    description: "JEPA-WM on Push-T only"
+    tasks: [*pusht_jepa]
+  wall:
+    description: "JEPA-WM on Wall only"
+    tasks: [*wall_jepa]
+  dino-wm-baseline:
+    description: "the authors' DINO-WM baseline checkpoints on the same eval"
+    tasks:
+      - &pusht_dino
+        env: pusht
+        model: dino-wm
+        ckpt: ckpt-dino_wm_pusht
+        env_name: pusht
+        action_type: push
+        n_episodes: 10
+        seed: 1
+        timeout_min: 120
+        description: "Push-T, DINO-WM baseline retrained by the jepa-wms authors, same eval"
+        published: "66.0 (4.7) % (JEPA-WMs paper Table 2, DINO-WM baseline)"
+      - &wall_dino
+        env: wall
+        model: dino-wm
+        ckpt: ckpt-dino_wm_wall
+        env_name: wall
+        action_type: navigation
+        n_episodes: 10
+        seed: 1
+        timeout_min: 120
+        description: "Wall, DINO-WM baseline retrained by the jepa-wms authors, same eval"
+        published: "64.1 (4.6) % (JEPA-WMs paper Table 2, DINO-WM baseline)"
+  probe:
+    description: "JEPA-WM, 2 episodes per environment, to measure time per episode before a full run"
+    tasks:
+      - {<<: *pusht_jepa, n_episodes: 2, timeout_min: 45}
+      - {<<: *wall_jepa, n_episodes: 2, timeout_min: 45}
+  compare:
+    description: "JEPA-WM and the DINO-WM baseline, Push-T and Wall (4 tasks)"
+    tasks: [*pusht_jepa, *pusht_dino, *wall_jepa, *wall_dino]
+
+bridge:
+  enabled: false

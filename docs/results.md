@@ -768,6 +768,26 @@ Per run: `univla` default 30/30 (CI 89-100%), `actions` 27/30 (74-97%); `ge-act`
 
 The authors' numbers use 50 episodes for every task of a suite (`num_trials_per_task=50` / `--num_trails_per_task 50`); the runs here use init states 0-9 of three tasks. The first `univla` run (`2026-11-02-1355`, `g6.2xlarge`, 24 GB L4) scored 0/30 because every episode ended in a CUDA out-of-memory error; the target now runs on `g6e.xlarge` (48 GB L40S) and a LIBERO run whose episodes raised fails instead of reporting zeros. Time from run start to the last result: `univla` about 12 minutes (default) and 14 minutes (`actions`), `ge-act` about 22 and 19 minutes, 30 episodes each.
 
+### Latent world-model planners (`dino-wm`, `jepa-wms`)
+
+First AWS runs, ap-northeast-2, 2026-11-02 (`dino-wm` on `g6e.xlarge`, one NVIDIA L40S; `jepa-wms` on `g6.xlarge`, one NVIDIA L4). These are goal-image planners, not language policies: an episode succeeds when the authors' own success test passes after planning toward a goal image from the validation set. Success is `success_rate` / `n_success` from each task's `summary.txt`.
+
+| `--vla` | World model | Env | `action_type` | Success, 95% CI | Published | Run id |
+|---|---|---|---|---|---|---|
+| `dino-wm` | DINO-WM `pusht` (MPC + CEM) | Push-T | push | 1.0 (20/20), 84-100% | 0.90 | `2026-11-02-2225` |
+| `dino-wm` | DINO-WM `wall_single` (MPC + CEM) | Wall | navigation | 0.95 (19/20), 76-99% | 0.96 | `2026-11-02-2225` |
+| `jepa-wms` | JEPA-WM `jepa_wm_pusht` (CEM) | Push-T | push | 0.6 (6/10), 31-83% | 70.2% (± 2.8) | `2026-11-02-2103` |
+| `jepa-wms` | JEPA-WM `jepa_wm_wall` (CEM) | Wall | navigation | 0.8 (8/10), 49-94% | 78.8% (± 3.9) | `2026-11-02-2103` |
+| `jepa-wms` (`compare`) | DINO-WM baseline `dino_wm_pusht` (CEM) | Push-T | push | 0.4 (4/10), 17-69% | 66.0% (± 4.7) | `2026-11-02-2103` |
+| `jepa-wms` (`compare`) | DINO-WM baseline `dino_wm_wall` (CEM) | Wall | navigation | 0.6 (6/10), 31-83% | 64.1% (± 4.6) | `2026-11-02-2103` |
+
+| Source | |
+|---|---|
+| `dino-wm` | DINO-WM paper Table 1 (MPC with CEM, 50 start / goal pairs) |
+| `jepa-wms` | JEPA-WMs paper Table 2 (96 episodes × 3 seeds, mean and standard error); the DINO-WM rows are the jepa-wms authors' retrained baseline |
+
+The two DINO-WM rows are different measurements: `dino-wm` runs the original checkpoints with their MPC planner (5 replans), `jepa-wms --task-set compare` runs the jepa-wms authors' retrained DINO-WM with one CEM plan per episode, as their Table 2 does. With 10 episodes per task every `jepa-wms` interval covers the published mean; a third-party run of the released checkpoints (jepa-wms issue #25) also landed below the paper (Push-T 62.5-65.6%, Wall 75.0%). Time per episode: ~200 s (Push-T) and ~71 s (Wall) for `dino-wm` on the L40S, ~400 s per CEM episode for `jepa-wms` on the L4. The first two `dino-wm` probes (`2026-11-02-2002`, `2026-11-02-2058`) died with a SIGSEGV inside `torch.cuda._lazy_init`; the runner now initialises CUDA before importing `decord` and the env packages (see [Note 21](targets.md#note-21-latent-world-model-planners-dino-wm-jepa-wms)).
+
 ### RoboLab (`robolab-cosmos3`, `robolab-pi05`)
 
 Reference numbers are from the public [RoboLab leaderboard](https://research.nvidia.com/labs/srl/projects/robolab/leaderboard.html) (`static/data/leaderboard.json` v76, generated 2026-10-23): RoboLab-120, 10 episodes per task, default instructions, success rate with a 95% Clopper-Pearson interval, Isaac Lab 2.2.0 / Isaac Sim 5.0.0. The measured column is filled by the first AWS run (STEP B). The default 12-task subset is **not** comparable to these rows; only the `edge-full` / `full` variants run the same protocol.

@@ -366,3 +366,31 @@ def test_full_profile_bucket_weight_sync_and_oom_watch(tmp_path):
     text = path.read_text()
     assert "weight_syncer.type=bucket +weight_syncer.bucket.bucket_size=536870912" in text
     assert "torch\\.OutOfMemoryError" in text
+
+
+def test_train_and_eval_exit_codes_cannot_trip_the_err_trap():
+    # Full run 2026-11-01: the 40 h cap stopped training at step 83 (timeout exit 124); a bare `TRAIN_RC=$?`
+    # after the command let the ERR trap end the script first, so no checkpoint reached S3 and no RL eval ran.
+    text = (ROOT / "templates" / "rlinf-userdata.sh.j2").read_text()
+    lines = [ln.strip() for ln in text.splitlines()]
+    assert "TRAIN_RC=$?" not in lines and "local rc=$?" not in lines
+    assert any(ln.endswith('2>&1 || TRAIN_RC=$?') for ln in lines)
+    assert any(ln.endswith('2>&1 || rc=$?') for ln in lines)
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="needs bash")
+def test_or_capture_keeps_the_exit_code_under_an_err_trap():
+    def run(body):
+        script = 'trap "echo TRAPPED; exit 1" ERR\nset +e\nrc=0\n' + body + '\necho "rc=$rc"\n'
+        return subprocess.run(["bash", "-c", script], capture_output=True, text=True).stdout
+    assert run("(exit 124) || rc=$?") == "rc=124\n"
+    assert run("(exit 124)\nrc=$?").startswith("TRAPPED")  # the old form
+
+
+def test_saved_checkpoints_are_uploaded_while_training():
+    text = (ROOT / "templates" / "rlinf-userdata.sh.j2").read_text()
+    assert "upload_saved_checkpoints() {" in text
+    start = text.index("upload_saved_checkpoints &")
+    assert start < text.index("< /dev/null > \"${WORK}/logs/train.log\" 2>&1 || TRAIN_RC=$?")
+    assert 'kill "${CKPT_UPLOADER}" 2>/dev/null || true; wait "${CKPT_UPLOADER}" 2>/dev/null || true' in text
+    assert '[ -f "${WORK}/out/uploaded_${STEP_NAME}" ]' in text

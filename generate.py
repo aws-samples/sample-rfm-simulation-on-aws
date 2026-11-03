@@ -863,7 +863,67 @@ def generate_molmoact2(config: dict, dry_run: bool, plus: tuple = None) -> str:
 
 # Targets that run an upstream-LeRobot policy through `lerobot-eval --env.type=libero` with the shared
 # lerobot-libero template. Adding one = a models/<id>.yaml + the CDK/CLI name maps; no new template.
-LEROBOT_LIBERO_TARGETS = ("xvla", "smolvla", "lingbot-va", "fastwam", "multitask-dit")
+LEROBOT_LIBERO_TARGETS = ("xvla", "smolvla", "lingbot-va", "fastwam", "multitask-dit", "vla-jepa")
+
+
+_HF_REPO_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*$")
+_GIT_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
+_POLICY_FIELD_RE = re.compile(r"^[a-z][a-z0-9_]*$")
+_HF_PATTERN_RE = re.compile(r"^[A-Za-z0-9_.*/-]+$")
+
+
+def lerobot_libero_named_tasks(tasks: list, vla: str) -> list:
+    """`tasks:` of a lerobot-libero yaml with the per-task entries checked and tagged.
+
+    An entry that names its task (`env_name`) must run exactly one LIBERO task (`task_ids: [id]`) and the name must
+    be the LIBERO task at that id (LIBERO_TASKS; checked again on the instance); it gets an `action_type`, which the
+    template writes into summary.txt. Entries without `env_name` (a suite or a task-id subset) pass unchanged.
+    Raises ValueError.
+    """
+    out = []
+    for i, t in enumerate(tasks):
+        if not isinstance(t, dict) or "env_name" not in t:
+            out.append(t)
+            continue
+        where = f"models/{vla}.yaml tasks[{i}]"
+        suite = t.get("suite")
+        if suite not in LIBERO_TASKS:
+            raise ValueError(f"{where}: suite must be one of {', '.join(LIBERO_TASKS)}, got {suite!r}")
+        ids = t.get("task_ids")
+        if not (isinstance(ids, list) and len(ids) == 1 and isinstance(ids[0], int) and not isinstance(ids[0], bool)
+                and 0 <= ids[0] < len(LIBERO_TASKS[suite])):
+            raise ValueError(f"{where}: an entry with env_name needs task_ids: [one id 0-{len(LIBERO_TASKS[suite]) - 1}], "
+                             f"got {ids!r}")
+        name = LIBERO_TASKS[suite][ids[0]]
+        if t["env_name"] != name:
+            raise ValueError(f"{where}: env_name {t['env_name']!r} is not task {ids[0]} of {suite} ({name})")
+        out.append(dict(t, action_type=task_sets.action_type(t)))
+    return out
+
+
+def lerobot_extra_downloads(model: dict, vla: str) -> list:
+    """`model.extra_downloads` of a lerobot-libero yaml: Hub repos the policy constructor loads by name (a VLM
+    backbone, a vision encoder). Each is downloaded at a pinned revision and passed to lerobot-eval as a local path
+    through `--policy.<policy_arg>`, so the run does not resolve a moving Hub branch. Raises ValueError."""
+    out = []
+    for i, d in enumerate(model.get("extra_downloads") or []):
+        where = f"models/{vla}.yaml model.extra_downloads[{i}]"
+        if not isinstance(d, dict):
+            raise ValueError(f"{where}: not a mapping")
+        repo, rev, arg = str(d.get("repo") or ""), str(d.get("revision") or ""), str(d.get("policy_arg") or "")
+        if not _HF_REPO_RE.match(repo):
+            raise ValueError(f"{where}: repo must be <org>/<name>, got {repo!r}")
+        if not _GIT_SHA_RE.match(rev):
+            raise ValueError(f"{where}: revision must be a 40-hex commit, got {rev!r}")
+        if not _POLICY_FIELD_RE.match(arg):
+            raise ValueError(f"{where}: policy_arg must be a policy config field name, got {arg!r}")
+        pats = d.get("allow_patterns") or []
+        if not isinstance(pats, list) or not all(isinstance(p, str) and _HF_PATTERN_RE.match(p) for p in pats):
+            raise ValueError(f"{where}: allow_patterns must be a list of plain glob patterns, got {pats!r}")
+        out.append(dict(repo=repo, revision=rev, policy_arg=arg, allow_patterns_py=repr(list(pats)) if pats else ""))
+    if len({d["policy_arg"] for d in out}) != len(out):
+        raise ValueError(f"models/{vla}.yaml model.extra_downloads: one download per policy_arg")
+    return out
 
 
 def generate_lerobot_libero(config: dict, dry_run: bool, vla: str, plus: tuple = None) -> str:
@@ -884,6 +944,12 @@ def generate_lerobot_libero(config: dict, dry_run: bool, vla: str, plus: tuple =
         if not model.get(key):
             print(f"[error] models/{vla}.yaml: model.{key} is required", file=sys.stderr)
             sys.exit(1)
+    try:
+        tasks = lerobot_libero_named_tasks(tasks, vla)
+        extra_downloads = lerobot_extra_downloads(model, vla)
+    except ValueError as e:
+        print(f"[error] {e}", file=sys.stderr)
+        sys.exit(1)
     lp_ctx = None
     if plus is not None:
         # --libero-variant plus: one task entry per perturbation dimension; the variant ids are picked on
@@ -913,6 +979,7 @@ def generate_lerobot_libero(config: dict, dry_run: bool, vla: str, plus: tuple =
         "min_gpu_mib": int(instance.get("min_gpu_mib", 20000)),
         "min_host_mib": int(instance.get("min_host_mib", 15000)),
         "libero_plus": lp_ctx,
+        "extra_downloads": extra_downloads,
     }
     for a in ctx["policy_args"] + ctx["env_args"]:
         if "'" in a:

@@ -357,6 +357,24 @@ path = snapshot_download('{{ hf_repo }}')
 print('checkpoint downloaded to:', path)
 " || die "HF checkpoint download failed (see /tmp/{{ vla }}_hf_download.log)"
 {% endif %}
+{%- if extra_downloads %}
+# Hub repos the policy constructor loads by name (backbones): pinned snapshots, passed as local paths below.
+EXTRA_POLICY_ARGS=()
+{%- for d in extra_downloads %}
+log "[5/7] Pre-downloading {{ d.repo }} (rev {{ d.revision[:8] }}) for --policy.{{ d.policy_arg }}..."
+hf_dl_guard "{{ d.repo }} download" /tmp/{{ vla }}_hf_download.log \
+    -- uv run --active --no-sync python -c "
+from huggingface_hub import snapshot_download
+path = snapshot_download('{{ d.repo }}', revision='{{ d.revision }}'{{ ', allow_patterns=' ~ d.allow_patterns_py if d.allow_patterns_py else '' }})
+open('/tmp/{{ vla }}_extra{{ loop.index0 }}.path', 'w').write(path)
+print('{{ d.repo }} downloaded to:', path)
+" || die "HF download of {{ d.repo }} failed (see /tmp/{{ vla }}_hf_download.log)"
+_EXTRA_PATH=$(cat /tmp/{{ vla }}_extra{{ loop.index0 }}.path)
+[ -d "${_EXTRA_PATH}" ] || die "{{ d.repo }} snapshot path missing: ${_EXTRA_PATH}"
+EXTRA_POLICY_ARGS+=( --policy.{{ d.policy_arg }}="${_EXTRA_PATH}" )
+{%- endfor %}
+log "  backbone args: ${EXTRA_POLICY_ARGS[*]}"
+{%- endif %}
 {%- if libero_plus %}
 {% with lp=libero_plus, lp_step="5.5/7", lp_log=vla, lp_venv_mode="uv", lp_python="${LEROBOT_DIR}/.venv/bin/python",
         lp_pip='uv pip install --python "${LEROBOT_DIR}/.venv/bin/python"' %}{% include "_libero-plus-setup.sh.j2" %}{% endwith %}
@@ -383,6 +401,10 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
     # task_ids: optional JSON array restricting which suite tasks to run (pipe-proof cap).
     # Empty/absent → omit the flag → lerobot-eval runs ALL tasks in the suite.
     TASK_IDS_ARR=$(echo "$TASK" | jq -c '.task_ids // empty')
+    # env_name / action_type: set on per-task entries (one task id, name checked at render time and below).
+    ENV_NAME=$(echo "$TASK" | jq -r '.env_name // empty')
+    ACTION_TYPE=$(echo "$TASK" | jq -r '.action_type // empty')
+    PUBLISHED=$(echo "$TASK" | jq -r '.published // empty')
 
     OUT_DIR="${EVAL_BASE_DIR}/task-${TASK_IDX}"
     rm -rf "${OUT_DIR}"
@@ -399,6 +421,19 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
 {%- endif %}
 
     log "[6/7] Task $((TASK_IDX+1))/${TASK_COUNT}: suite=${SUITE}, n_episodes=${N_EPISODES}/task, task_ids=${TASK_IDS_ARR:-ALL}"
+    if [ -n "${ENV_NAME}" ]; then
+        # The installed LIBERO must have this task at this id (the yaml was checked against LIBERO @8f1084e3).
+        TASK_ID0=$(echo "$TASK" | jq -r '.task_ids[0]')
+        GOT_NAME=$("${LEROBOT_DIR}/.venv/bin/python" -c "
+import builtins
+builtins.input = lambda *a, **k: 'N'
+from libero.libero import benchmark
+print(benchmark.get_benchmark_dict()['${SUITE}']().get_task(${TASK_ID0}).name)
+" 2>/dev/null | tail -1 || true)
+        [ "${GOT_NAME}" = "${ENV_NAME}" ] \
+            || die "Task ${TASK_IDX}: LIBERO ${SUITE} task ${TASK_IDS_ARR} is '${GOT_NAME}', models/{{ vla }}.yaml says '${ENV_NAME}'"
+        log "  env_name: ${ENV_NAME} (action_type ${ACTION_TYPE})"
+    fi
     touch /tmp/{{ vla }}_task${TASK_IDX}_start.marker
 
     # lerobot-eval: policy.path = HF repo id (policy.type comes from its config.json) + per-model
@@ -409,6 +444,9 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
 {%- for a in policy_args %}
         '{{ a }}'
 {%- endfor %}
+{%- if extra_downloads %}
+        "${EXTRA_POLICY_ARGS[@]}"
+{%- endif %}
         --env.type=libero{{ '_plus' if libero_plus else '' }}
         --env.task="${SUITE}"
 {%- for a in env_args %}
@@ -477,6 +515,9 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
         echo "lerobot: {{ lerobot_repo }}@{{ lerobot_commit[:8] if lerobot_commit else 'HEAD' }}"
         echo "suite: ${SUITE}"
         echo "task_ids: ${TASK_IDS_ARR:-ALL}"
+        [ -z "${ENV_NAME}" ] || echo "env_name: ${ENV_NAME}"
+        [ -z "${ACTION_TYPE}" ] || echo "action_type: ${ACTION_TYPE}"
+        [ -z "${PUBLISHED}" ] || echo "published: ${PUBLISHED}"
         echo "n_episodes_per_task: ${N_EPISODES}"
         echo "success_rate: ${SR}"
         echo "n_success: $(jq -r '.overall.n_success // empty' "${INFO_JSON}" 2>/dev/null)"
@@ -488,6 +529,9 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
         echo "stack_lerobot_commit: ${ACTUAL_COMMIT}"
         echo "stack_mujoco: $("${LEROBOT_DIR}/.venv/bin/python" -c 'import mujoco; print(mujoco.__version__)' 2>/dev/null || echo unknown)"
         echo "stack_eval_args: ${EVAL_ARGS[*]}"
+{%- for d in extra_downloads %}
+        echo "stack_{{ d.policy_arg }}: {{ d.repo }}@{{ d.revision }}"
+{%- endfor %}
         echo "description: ${DESCRIPTION}"
 {%- if libero_plus %}
         echo "benchmark: libero_plus"
@@ -516,11 +560,15 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
             echo ""
             echo "--- Environment ---"
             printf "Suite:      %s\n"  "${SUITE}"
+            [ -z "${ENV_NAME}" ] || printf "Task:       %s\n"  "${ENV_NAME}"
             printf "Robot:      Franka Panda 7-DOF (LIBERO)\n"
             echo ""
             echo "--- Model ---"
             printf "Checkpoint: %s (rev %s)\n" "{{ hf_repo }}" "{{ hf_model_revision[:8] if hf_model_revision else 'unpinned' }}"
             printf "LeRobot:    %s@%s\n" "{{ lerobot_repo }}" "{{ lerobot_commit[:8] if lerobot_commit else 'HEAD' }}"
+{%- for d in extra_downloads %}
+            printf "Backbone:   %s (rev %s)\n" "{{ d.repo }}" "{{ d.revision[:8] }}"
+{%- endfor %}
             printf "Policy:     %s\n" "{{ policy_desc }}"
             printf "License:    %s\n" "{{ license }}"
             echo ""

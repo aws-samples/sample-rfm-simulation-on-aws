@@ -1,0 +1,447 @@
+{
+  "size": [
+    1280,
+    720
+  ],
+  "fps": 25,
+  "voice": {
+    "id": "Matthew",
+    "engine": "neural",
+    "region": "us-east-1"
+  },
+  "output": "docs/showcase/intro/intro.mp4",
+  "preview": {
+    "output": "docs/showcase/intro/intro-preview.webp",
+    "width": 720,
+    "fps": 12,
+    "quality": 55,
+    "scene": "preview"
+  },
+  "scenes": [
+    {
+      "id": "title",
+      "type": "title",
+      "min_s": 5.0,
+      "title": "RFM Simulation on AWS",
+      "subtitle": "Evaluate robot foundation models in simulation with one command",
+      "narration": "RFM Simulation on AWS evaluates robot foundation models in simulation, with one command.",
+      "clips": [
+        {
+          "src": "pi/libero-spatial-between-plate-ramekin-success.mp4"
+        },
+        {
+          "src": "gr00t-gr1/posttrain-pnp-plate-to-bowl-success.mp4"
+        },
+        {
+          "src": "rldx-simpler/simpler-google-move-near-success.mp4"
+        },
+        {
+          "src": "gr00t-g1/n17-loco-manip-apple-to-plate-success.mp4",
+          "speed": 2.0,
+          "crop": [
+            0,
+            0,
+            1280,
+            436
+          ]
+        },
+        {
+          "src": "lingbot-vla2/robotwin-stamp-seal-success.mp4"
+        },
+        {
+          "src": "lerobot-gym/pusht-success.mp4",
+          "speed": 3.0
+        }
+      ]
+    },
+    {
+      "id": "problem",
+      "type": "grid",
+      "min_s": 8.0,
+      "headline": "Different simulator, dependencies and GPU for every policy",
+      "narration": "Each policy needs its own simulator, dependencies and GPU. Setting them up by hand takes days, and small stack differences change the score.",
+      "clips": [
+        {
+          "src": "openvla-oft/libero-10-soup-and-sauce-success.mp4",
+          "label": "LIBERO"
+        },
+        {
+          "src": "spatialvla/simpler-google-open-top-drawer-success.mp4",
+          "label": "SimplerEnv",
+          "speed": 2.5
+        },
+        {
+          "src": "rldx-kitchen/kitchen-turn-on-sink-faucet-success.mp4",
+          "label": "RoboCasa",
+          "crop": [
+            0,
+            0,
+            512,
+            176
+          ]
+        },
+        {
+          "src": "lingbot-vla2/robotwin-beat-block-hammer-success.mp4",
+          "label": "RoboTwin 2.0"
+        },
+        {
+          "src": "openarm-lift-act/lift-cube-table-success.mp4",
+          "label": "Isaac Lab",
+          "speed": 1.5
+        },
+        {
+          "src": "lerobot-gym/aloha-transfer-cube-success.mp4",
+          "label": "gym-aloha"
+        }
+      ]
+    },
+    {
+      "id": "pipeline",
+      "type": "pipeline",
+      "min_s": 12.0,
+      "command": "python vlasim.py deploy --vla gr00t-g1",
+      "narration": "Run vlasim deploy with a target name. A CDK stack launches a GPU instance, installs the model and simulator at pinned commits, runs the benchmark, saves videos and success rates to S3, emails you, and shuts down.",
+      "nodes": [
+        {
+          "title": "CDK stack",
+          "lines": [
+            "VPC, S3 bucket",
+            "SNS, IAM role"
+          ],
+          "cue": "cdk"
+        },
+        {
+          "title": "AzSelector",
+          "lines": [
+            "finds G5 / G6 / G6e",
+            "capacity across AZs"
+          ],
+          "cue": "launches"
+        },
+        {
+          "title": "Install",
+          "lines": [
+            "model + simulator",
+            "at pinned commits"
+          ],
+          "cue": "installs"
+        },
+        {
+          "title": "Benchmark",
+          "lines": [
+            "episodes recorded",
+            "on the GPU"
+          ],
+          "cue": "runs",
+          "clip": "gr00t-g1/loco-manip-apple-to-plate-success.mp4",
+          "crop": [
+            0,
+            0,
+            1280,
+            436
+          ]
+        },
+        {
+          "title": "Amazon S3",
+          "lines": [
+            "videos, summary.txt",
+            "protocol.yaml"
+          ],
+          "cue": "saves"
+        },
+        {
+          "title": "Email",
+          "lines": [
+            "SNS notification",
+            "with the results"
+          ],
+          "cue": "emails"
+        },
+        {
+          "title": "Terminate",
+          "lines": [
+            "instance terminates",
+            "results stay in S3"
+          ],
+          "cue": "shuts"
+        }
+      ]
+    },
+    {
+      "id": "montage",
+      "type": "montage",
+      "min_s": 16.0,
+      "narration": "The same harness covers LIBERO, SimplerEnv, RoboCasa, RoboTwin and world-model planners: tabletop arms, two-armed robots and humanoids. Every clip here is a real rollout recorded by the tool.",
+      "clips": [
+        {
+          "src": "openvla-oft/libero-10-stove-moka-pot-success.mp4",
+          "label": "OpenVLA-OFT  ·  LIBERO-10, Franka arm",
+          "speed": 2.0
+        },
+        {
+          "src": "rldx-simpler/simpler-google-open-drawer-success.mp4",
+          "label": "RLDX-1  ·  SimplerEnv, Google robot"
+        },
+        {
+          "src": "rldx-kitchen/kitchen-open-single-door-success.mp4",
+          "label": "RLDX-1  ·  RoboCasa kitchen, open the door",
+          "speed": 2.0,
+          "crop": [
+            0,
+            0,
+            512,
+            176
+          ]
+        },
+        {
+          "src": "lingbot-vla2/robotwin-handover-block-success.mp4",
+          "label": "LingBot-VLA2  ·  RoboTwin 2.0 bimanual handover",
+          "speed": 3.0
+        },
+        {
+          "src": "rldx-gr1/gr1-milk-microwave-success.mp4",
+          "label": "RLDX-1  ·  GR-1 humanoid, milk into microwave",
+          "speed": 2.5,
+          "crop": [
+            0,
+            44,
+            512,
+            170
+          ]
+        },
+        {
+          "src": "gr00t-g1/loco-manip-apple-to-plate-success.mp4",
+          "label": "GR00T N1.6  ·  Unitree G1 walks and places",
+          "speed": 4.0,
+          "crop": [
+            0,
+            0,
+            1280,
+            436
+          ]
+        },
+        {
+          "src": "lerobot-gym/aloha-insertion-success.mp4",
+          "label": "ACT  ·  ALOHA bimanual peg insertion",
+          "speed": 1.5
+        },
+        {
+          "src": "dino-wm/wall-success.mp4",
+          "label": "DINO-WM world-model planner  ·  Wall",
+          "speed": 2.5
+        }
+      ]
+    },
+    {
+      "id": "failures",
+      "type": "compare",
+      "min_s": 6.0,
+      "headline": "Failures are recorded too",
+      "narration": "Failures are recorded too, so you see how a policy misses, not just how often.",
+      "clips": [
+        {
+          "src": "univla/libero-goal-push-plate-success.mp4",
+          "label": "UniVLA  ·  push the plate  ·  success",
+          "ok": true,
+          "speed": 1.6
+        },
+        {
+          "src": "univla/libero-goal-push-plate-failure.mp4",
+          "label": "UniVLA  ·  push the plate  ·  failure",
+          "ok": false,
+          "speed": 2.6
+        }
+      ]
+    },
+    {
+      "id": "results",
+      "type": "bars",
+      "min_s": 12.0,
+      "headline": "LIBERO-10, same stack, 50 episodes each",
+      "source": "docs/results.md",
+      "narration": "Each result comes with k out of n and a 95 percent Wilson interval. On the same stack, LIBERO-10 scores sit close together. Change just the chunk rule, and FastWAM falls from 0.96 to 0.54.",
+      "bars": [
+        {
+          "label": "OpenVLA-OFT",
+          "k": 49,
+          "n": 50,
+          "lo": 0.9,
+          "hi": 1.0
+        },
+        {
+          "label": "LingBot-VA",
+          "k": 49,
+          "n": 50,
+          "lo": 0.9,
+          "hi": 1.0
+        },
+        {
+          "label": "Cosmos Policy",
+          "k": 48,
+          "n": 50,
+          "lo": 0.87,
+          "hi": 0.99
+        },
+        {
+          "label": "FastWAM",
+          "k": 48,
+          "n": 50,
+          "lo": 0.87,
+          "hi": 0.99
+        },
+        {
+          "label": "π0.5",
+          "k": 47,
+          "n": 50,
+          "lo": 0.84,
+          "hi": 0.98
+        },
+        {
+          "label": "GR00T N1.7",
+          "k": 46,
+          "n": 50,
+          "lo": 0.81,
+          "hi": 0.97
+        }
+      ],
+      "change": {
+        "label": "FastWAM, 1 action/chunk",
+        "rate": 0.54,
+        "was": 0.96,
+        "cue": "chunk"
+      }
+    },
+    {
+      "id": "cost",
+      "type": "cost",
+      "min_s": 8.0,
+      "headline": "The GPU runs only for the benchmark",
+      "range": "US$0.20 - US$9 of EC2 time per typical run",
+      "narration": "The GPU instance runs only for the benchmark: typically twenty cents to nine dollars of EC2 time. One destroy command removes the rest of the stack.",
+      "phases": [
+        {
+          "label": "deploy",
+          "w": 0.15
+        },
+        {
+          "label": "install + benchmark on the GPU",
+          "w": 0.6,
+          "gpu": true
+        },
+        {
+          "label": "terminated",
+          "w": 0.25
+        }
+      ],
+      "clip": "rldx-simpler/simpler-google-pick-coke-can-success.mp4"
+    },
+    {
+      "id": "end",
+      "type": "end",
+      "min_s": 5.0,
+      "url": "github.com/aws-samples/sample-rfm-simulation-on-aws",
+      "commands": [
+        "python vlasim.py doctor",
+        "python vlasim.py deploy --vla <target>"
+      ],
+      "narration": "Clone the repository, run vlasim doctor, and deploy your first model.",
+      "clips": [
+        {
+          "src": "gr00t/libero-goal-turn-on-stove-success.mp4"
+        },
+        {
+          "src": "magma/simpler-widowx-eggplant-in-basket-success.mp4",
+          "speed": 3.0
+        },
+        {
+          "src": "rldx-gr1/gr1-cup-drawer-success.mp4",
+          "crop": [
+            0,
+            44,
+            512,
+            170
+          ]
+        },
+        {
+          "src": "xvla/libero-spatial-5ep.mp4"
+        },
+        {
+          "src": "lingbot-vla2/robotwin-lift-pot-success.mp4"
+        },
+        {
+          "src": "jepa-wms/pusht-jepa-wm-ep01-success.mp4",
+          "speed": 0.5
+        }
+      ]
+    }
+  ],
+  "preview_scene": {
+    "id": "preview",
+    "type": "preview",
+    "duration_s": 8.0,
+    "title": "RFM Simulation on AWS",
+    "subtitle": "One command: GPU instance, model + simulator, benchmark, videos, results",
+    "clips": [
+      {
+        "src": "openvla-oft/libero-10-stove-moka-pot-success.mp4",
+        "label": "LIBERO",
+        "speed": 1.5
+      },
+      {
+        "src": "rldx-simpler/simpler-google-open-drawer-success.mp4",
+        "label": "SimplerEnv"
+      },
+      {
+        "src": "rldx-kitchen/kitchen-open-single-door-success.mp4",
+        "label": "RoboCasa",
+        "crop": [
+          0,
+          0,
+          512,
+          176
+        ]
+      },
+      {
+        "src": "lingbot-vla2/robotwin-handover-block-success.mp4",
+        "label": "RoboTwin 2.0",
+        "speed": 1.6
+      },
+      {
+        "src": "rldx-gr1/gr1-milk-microwave-success.mp4",
+        "label": "GR-1 humanoid",
+        "speed": 1.3,
+        "crop": [
+          0,
+          44,
+          512,
+          170
+        ]
+      },
+      {
+        "src": "gr00t-g1/loco-manip-apple-to-plate-success.mp4",
+        "label": "Unitree G1",
+        "speed": 2.4,
+        "crop": [
+          0,
+          0,
+          1280,
+          436
+        ]
+      },
+      {
+        "src": "lerobot-gym/aloha-insertion-success.mp4",
+        "label": "ALOHA"
+      },
+      {
+        "src": "openarm-lift-act/lift-cube-table-success.mp4",
+        "label": "Isaac Lab",
+        "speed": 1.4
+      },
+      {
+        "src": "dino-wm/wall-success.mp4",
+        "label": "World-model planner",
+        "speed": 1.4
+      }
+    ]
+  }
+}

@@ -28,7 +28,8 @@
 #   one episode keeps failing (planning/mpc.py). One MPC step executes goal_H=5 planned actions x frameskip 5 = 25
 #   simulator steps, so 5 replans = 125 steps (Push-T goals are 25 steps away in the dataset). Cost: every MPC step
 #   runs CEM (30 iterations x 300 samples x 5-step rollouts of a 588-token ViT for Push-T) for all 20 episodes, about
-#   60 TFLOP per episode-iteration in fp32 — the GPU sets the pace (estimate; measure with --task-set probe first).
+#   60 TFLOP per episode-iteration in fp32 — the GPU sets the pace (measured 2026-11-02 on an L40S: ~200 s per
+#   Push-T episode, ~71 s per Wall episode).
 # PointMaze is not run: env/pointmaze needs d4rl + mujoco-py (MuJoCo 2.1 binaries); the runner stubs those two module
 #   names only so that `import env` registers Push-T and Wall.
 # License: MIT (dino_wm code; the checkpoints are released with it). DINOv2 code and weights: Apache-2.0.

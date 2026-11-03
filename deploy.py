@@ -928,13 +928,12 @@ def main():
             print("  Estimated time: ~75-110 min (venv from the lock ~10-20 min + 18 GB of weights + 3 LIBERO-Goal tasks, "
                   "30 episodes of token-by-token decoding; estimate, not measured yet)")
         elif args.vla == "dino-wm":
-            print("  Estimated time: ~2-5 h (venv ~5-10 min + 5.4 GB of downloads + 59 GB Wall unzip + MPC/CEM planning, "
-                  "20 episodes per environment, capped at 150 min per task; estimate, not measured yet — "
-                  "--task-set probe measures 2 episodes per environment)")
+            print("  Estimated time: ~1 h 50 min (setup ~15 min incl. 5.4 GB of downloads and the 59 GB Wall unzip, then "
+                  "MPC/CEM planning: Push-T ~67 min + Wall ~24 min for 20 episodes each on an L40S; measured 2026-11-02)")
         elif args.vla == "jepa-wms":
-            print("  Estimated time: ~1-3 h (venv ~5-10 min + 5 GB of downloads + 59 GB Wall unzip + CEM planning, "
-                  "20 episodes per task, capped at 120 min per task; estimate, not measured yet — "
-                  "--task-set probe measures 2 episodes per environment)")
+            print("  Estimated time: ~2 h 30 min (setup ~15 min incl. 5 GB of downloads and the 59 GB Wall unzip, then "
+                  "~67-72 min per task of 10 CEM episodes on an L4; --task-set compare = 4 tasks, ~4 h 50 min; "
+                  "measured 2026-11-02)")
         elif args.vla == "ge-act":
             print("  Estimated time: ~60-100 min (venv from the lock ~10-20 min + 21 GB LTX-Video parts + 4.2 GB GE-Act "
                   "checkpoint + 3 LIBERO-Goal tasks, 30 episodes; estimate, not measured yet)")

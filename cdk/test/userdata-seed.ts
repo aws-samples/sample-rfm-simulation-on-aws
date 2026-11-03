@@ -9,7 +9,7 @@ import * as path from 'path';
 const USERDATA_DIR = path.resolve(__dirname, '../../assets/userdata');
 export const SEED_VLAS = ['gr00t', 'pi', 'openarm-lift-act', 'xvla', 'real2sim', 'gr00t-bridge', 'rldx-bridge', 'smolvla',
   'openvla-oft', 'robolab-cosmos3', 'smolvla-robotwin', 'rlinf-oft-libero', 'lerobot-gym',
-  'spatialvla', 'magma', 'univla', 'ge-act', 'dino-wm', 'jepa-wms'];
+  'spatialvla', 'magma', 'univla', 'ge-act', 'dino-wm', 'jepa-wms', 'vla-jepa'];
 const LEDGER = path.join(os.tmpdir(), `vla-sim-jest-seeded-${process.pid}-${path.basename(path.resolve(__dirname, '../..'))}.json`);
 
 export function setup(): void {

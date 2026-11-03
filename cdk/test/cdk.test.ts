@@ -94,6 +94,8 @@ test.each([
   // JEPA-WM; 200 GB EBS because the Wall dataset unpacks to 59 GB.
   ['dino-wm', 'DINO-WM-Demo', 'g6e.xlarge,g6.2xlarge,g5.2xlarge,g6e.2xlarge', '200', 360],
   ['jepa-wms', 'JEPA-WMs-Demo', 'g6.xlarge,g5.xlarge,g6.2xlarge,g6e.xlarge', '200', 540],
+  // VLA-JEPA LeRobot port (lerobot-libero template): Qwen3-VL-2B + V-JEPA 2 ViT-L + DiT-B in bf16 on one L4.
+  ['vla-jepa', 'VLA-JEPA-Demo', 'g6.xlarge,g5.xlarge,g6.2xlarge,g5.2xlarge', '150', 180],
 ])('%s launches its yaml instance list, EBS size and timeout', (vla, stackName, types, ebs, minutes) => {
   const app = new cdk.App({ context: { region: 'ap-northeast-2', vla, notify_email: 'test@example.com' } });
   const stack = new VlaSimulatorStack(app, stackName, {

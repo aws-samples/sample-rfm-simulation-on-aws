@@ -52,6 +52,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `results --compare` looked the re-run rule up by target id only, so a side with a new id printed "unknown simulator — unmeasured" although its runs were RoboLab runs; it now falls back to the simulator of the side's suite labels (`repeatability.for_side`).
 - Shared LeRobot x LIBERO template: videos are uploaded as `<suite>_<task_id>--eval_episode_N.mp4`. A task entry with several `task_ids` used to upload only the last task id's videos, because every task id restarts at `eval_episode_0.mp4`.
 
+### Security
+
+- [SECURITY.md](SECURITY.md#pinned-evaluation-stacks-and-dependabot-alerts) explains the Dependabot alerts on the pinned evaluation locks under `assets/` (the patched `pillow` and `filelock` need Python 3.11; the `torch`, `transformers`, `keras` and `protobuf` fixes are major versions the upstream code does not run on) and why they are dismissed as tolerable risk: the packages only run on the outbound-only, short-lived evaluation instance.
+
 ## [1.0.0] - 2026-10-22
 
 First tagged release. One-click AWS CDK deployment that launches a GPU instance, runs a robot

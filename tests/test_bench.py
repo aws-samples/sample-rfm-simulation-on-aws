@@ -348,3 +348,10 @@ def test_plan_file_is_plain_yaml_with_schema(tmp_path):
     bad.write_text("schema: other\n")
     with pytest.raises(ValueError):
         bench.load_plan(bad)
+
+
+def test_child_env_gives_each_parallel_deploy_its_own_npm_cache(tmp_path):
+    a = bench.child_env(tmp_path, "smolvla")
+    b = bench.child_env(tmp_path, "xvla")
+    assert a["npm_config_cache"] != b["npm_config_cache"]
+    assert a["npm_config_cache"].startswith(str(tmp_path))

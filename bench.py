@@ -25,6 +25,7 @@ import argparse
 import datetime as dt
 import html
 import json
+import os
 import re
 import secrets
 import shlex
@@ -531,6 +532,14 @@ def deploy_commands(plan: dict, plan_path, catalog: dict, email: str = "", no_ga
     return out
 
 
+def child_env(d: Path, target: str) -> dict:
+    """Environment for one parallel deploy.py: its own npm cache, because concurrent `npx cdk` calls sharing
+    one cache race on the same _npx entry (EEXIST: file already exists, symlink ...)."""
+    env = dict(os.environ)
+    env["npm_config_cache"] = str(d / f"npm-cache-{target}")
+    return env
+
+
 def write_tasks_files(plan: dict, plan_path, catalog: dict) -> list:
     import yaml  # noqa: PLC0415
     d = run_dir(plan_path)
@@ -584,7 +593,8 @@ def cmd_run(args, out=None) -> int:
     procs = []
     for t, _, argv in cmds:
         log = open(d / f"deploy-{t}.log", "w")  # noqa: SIM115 - closed after wait()
-        procs.append((t, log, subprocess.Popen(argv, cwd=str(BASE_DIR), stdout=log, stderr=subprocess.STDOUT)))  # nosec B603
+        procs.append((t, log, subprocess.Popen(argv, cwd=str(BASE_DIR), stdout=log, stderr=subprocess.STDOUT,  # nosec B603
+                                               env=child_env(d, t))))
         print(f"[bench] started {t} (log {d}/deploy-{t}.log)", file=out)
     rcs = {}
     for t, log, p in procs:

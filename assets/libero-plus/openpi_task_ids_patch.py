@@ -10,6 +10,9 @@ upstream names it after the instruction only, so the variants of one dimension t
 instruction (camera, light, layout, ...) would overwrite each other's video. The bddl path is passed as a
 str: LIBERO-Plus does substring tests on it.
 
+pi also uses it for a plain LIBERO task-id subset (per-task `task_ids`, e.g. from `vlasim bench`); there
+the ids are the suite's task ids 0-9 and the str() bddl path is equally valid for stock LIBERO.
+
 Run after stackpatch.py (which restores the upstream file first); fails loudly if a site is missing.
 """
 import re

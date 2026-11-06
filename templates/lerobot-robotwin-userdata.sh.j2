@@ -760,7 +760,7 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
         echo "success_rate: ${SR}"
         echo "n_success: $(jq -r '.overall.n_success // empty' "${INFO_JSON}" 2>/dev/null)"
         echo "n_episodes: $(jq -r '.overall.n_episodes // empty' "${INFO_JSON}" 2>/dev/null)"
-        echo "condition: {{ protocol }}"
+        echo "condition: $(echo "$TASK" | jq -r '.condition // "{{ protocol }}"')"   # a per-task label (bench-<id>) wins
         echo "episode_length: ${EPISODE_LENGTH}"
         echo "seed: ${SEED}"
         echo "unstable_seeds_skipped: ${UNSTABLE_SEEDS}"

@@ -464,6 +464,12 @@ grep -q 'LIBERO-PLUS VERIFY OK' /tmp/pi_lp_verify.log || die "LIBERO-Plus check 
 # step_scale / random_init / replan_head, and fails loudly if a patch site is missing.
 cat > /tmp/stackpatch.py <<'STACKPATCH_EOF'
 {{ stackpatch_py }}STACKPATCH_EOF
+{%- if pi_task_ids %}
+# Per-task `task_ids` (models/pi.yaml or a --tasks-file, e.g. `vlasim bench`): restrict main.py's task loop to those
+# LIBERO task ids (same patch as LIBERO-Plus; run after stackpatch.py, which restores the upstream file first).
+cat > /tmp/pi_task_ids_patch.py <<'TIDPATCH_EOF'
+{{ pi_task_ids_patch_py }}TIDPATCH_EOF
+{%- endif %}
 
 FAILED_SUITES=""
 for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
@@ -479,6 +485,14 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
     K_REPLAN_HEAD=false
     python3 /tmp/stackpatch.py "${OPENPI_DIR}/examples/libero/main.py" "${K_STEP_SCALE}" "${K_RANDOM_INIT}" "${K_REPLAN_HEAD}" \
         || die "stack patch failed (task ${TASK_IDX} ${K_COND})"
+{%- if pi_task_ids %}
+    K_TASK_IDS=$(echo "$TASK" | jq -r '(.task_ids // []) | map(tostring) | join(",")')
+    if [ -n "${K_TASK_IDS}" ]; then
+        python3 /tmp/pi_task_ids_patch.py "${OPENPI_DIR}/examples/libero/main.py" "${K_TASK_IDS}" \
+            || die "task_ids patch failed (task ${TASK_IDX})"
+        log "  task_ids ${K_TASK_IDS} of ${SUITE}"
+    fi
+{%- endif %}
 {%- if libero_plus %}
     # LIBERO-Plus: this entry's perturbation dimension → the variant ids picked above; main.py's task loop is
     # rewritten to run exactly those (num_trials_per_task trials each).
@@ -570,6 +584,15 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
     N_SUCCESS=$(grep -oE '# successes:[[:space:]]+[0-9]+' /tmp/pi_task${TASK_IDX}.log 2>/dev/null | tail -1 | awk '{print $NF}' || true)
 {%- else %}
     N_SUCCESS=$(awk "BEGIN { printf \"%d\", ${NUM_EPISODES} * 10 * ${SR:-0} }" 2>/dev/null || echo "?")
+{%- if pi_task_ids %}
+    N_TASKS=10
+    if [ -n "${K_TASK_IDS}" ]; then
+        # A task-id subset: k/n from the client's own counters (its final block prints the totals it ran).
+        N_TASKS=$(echo "${K_TASK_IDS}" | tr ',' '\n' | grep -c .)
+        N_EP=$(grep -oE 'Total episodes:[[:space:]]+[0-9]+' /tmp/pi_task${TASK_IDX}.log 2>/dev/null | tail -1 | awk '{print $NF}' || true)
+        N_SUCCESS=$(grep -oE '# successes:[[:space:]]+[0-9]+' /tmp/pi_task${TASK_IDX}.log 2>/dev/null | tail -1 | awk '{print $NF}' || true)
+    fi
+{%- endif %}
 {%- endif %}
     log "  success_rate=${SR}"
     [ "${SR}" = "unknown" ] && FAILED_SUITES="${FAILED_SUITES} ${SUITE}"
@@ -579,7 +602,14 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
         echo "suite: ${SUITE}"
         echo "success_rate: ${SR}"
         echo "num_episodes_per_task: ${NUM_EPISODES}"
-        echo "n_tasks: {{ '${LP_COUNT}' if libero_plus else '10' }}"
+        echo "n_tasks: {{ '${LP_COUNT}' if libero_plus else ('${N_TASKS}' if pi_task_ids else '10') }}"
+{%- if pi_task_ids %}
+        if [ -n "${K_TASK_IDS}" ]; then
+            echo "task_ids: ${K_TASK_IDS}"
+            echo "n_episodes: ${N_EP}"
+            echo "n_success: ${N_SUCCESS}"
+        fi
+{%- endif %}
         echo "condition: ${K_COND}"
         echo "replan: ${K_REPLAN:-default}"
         echo "seed: ${K_SEED:-default}"

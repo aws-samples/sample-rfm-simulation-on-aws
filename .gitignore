@@ -19,3 +19,8 @@ cdk/cdk.context.json
 .pytest_cache/
 .ruff_cache/
 MUJOCO_LOG.TXT
+
+# vlasim bench (plan, per-target tasks files, report)
+bench-plan*.yaml
+bench-plan*.d/
+bench-report-*.html

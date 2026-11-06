@@ -2411,6 +2411,18 @@ def generate_pi(config: dict, resolved_vpc: str, resolved_nlb: str, dry_run: boo
         r2s_ctx, r2s_tasks = _libero_r2s_ctx(config, "pi", r2s, r2s_suite or r2s_default_suite(config, "pi"))
         tasks = [dict(t, num_episodes=r2s_ctx["trials_per_task"]) for t in r2s_tasks]
 
+    pi_task_ids = False
+    if lp_ctx is None and r2s_ctx is None:
+        for i, t in enumerate(tasks):
+            ids = t.get("task_ids") if isinstance(t, dict) else None
+            if ids in (None, []):
+                continue
+            if not (isinstance(ids, list) and all(isinstance(x, int) and not isinstance(x, bool) and 0 <= x <= 9
+                                                  for x in ids) and len(set(ids)) == len(ids)):
+                print(f"[error] models/pi.yaml tasks[{i}].task_ids must be distinct LIBERO task ids 0-9, got {ids!r}",
+                      file=sys.stderr)
+                sys.exit(1)
+            pi_task_ids = True
     tasks_json = _tasks_json_for_bash(tasks)
     deployment = config.get("deployment", {})
     model = config.get("model", {})
@@ -2429,10 +2441,18 @@ def generate_pi(config: dict, resolved_vpc: str, resolved_nlb: str, dry_run: boo
         "mujoco_pin": str(model.get("mujoco_pin", "") or "").strip(),
         "libero_plus": lp_ctx,
         "libero_r2s": r2s_ctx,
+        "pi_task_ids": pi_task_ids,
+        "pi_task_ids_patch_py": (BASE_DIR / "assets" / "libero-plus" / "openpi_task_ids_patch.py").read_text()
+        if pi_task_ids else "",
     }
 
     env = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)), keep_trailing_newline=True)  # nosec B701 - shell script template, autoescape not applicable
     return env.get_template("pi-userdata.sh.j2").render(**_with_protocol(ctx, config))
+
+
+def _read_tasks_file(path: str) -> dict:
+    """Parsed --tasks-file (task_sets.apply_file validates the shape)."""
+    return yaml.safe_load(Path(path).read_text())
 
 
 def main():
@@ -2504,6 +2524,10 @@ def main():
     parser.add_argument("--task-set", default="", metavar="NAME",
                         help="Run models/<vla>.yaml task_sets.NAME instead of its tasks: list (same stack; e.g. "
                              "`actions` = the non-pick-and-place tasks of the pinned checkpoint, see task_sets.py)")
+    parser.add_argument("--tasks-file", default="", metavar="PATH",
+                        help="Run the tasks: list of this YAML file instead of the model yaml's (same stack; the shape "
+                             "of one task_sets entry, task_sets.apply_file). bench.py writes one per target so several "
+                             "targets run the same tasks, episodes, seed and condition")
     parser.add_argument("--collect", action="store_true",
                         help="gr00t-g1: trajectory COLLECTION mode (success-only obs/action HDF5 for "
                              "N1.7 G1 adapter FT) instead of the default rollout/video mode.")
@@ -2527,9 +2551,19 @@ def main():
                 or args.robotwin_protocol != "subset":
             parser.error("--task-set replaces the yaml tasks: list and cannot be combined with --judge-target, "
                          "--collect, --libero-variant plus, --libero-objects real2sim or --robotwin-protocol")
+    if args.tasks_file:
+        if args.task_set:
+            parser.error("--tasks-file and --task-set both replace the tasks: list; give one")
+        if args.judge_target or args.collect or args.libero_variant != "libero" or args.libero_objects != "libero" \
+                or args.robotwin_protocol != "subset":
+            parser.error("--tasks-file replaces the yaml tasks: list and cannot be combined with --judge-target, "
+                         "--collect, --libero-variant plus, --libero-objects real2sim or --robotwin-protocol")
     try:
-        config = task_sets.apply(config, args.task_set, name)
-    except ValueError as e:
+        if args.tasks_file:
+            config = task_sets.apply_file(config, _read_tasks_file(args.tasks_file), args.tasks_file)
+        else:
+            config = task_sets.apply(config, args.task_set, name)
+    except (OSError, ValueError, yaml.YAMLError) as e:
         parser.error(str(e))
     if name in ACTION_TAG_TARGETS:
         try:

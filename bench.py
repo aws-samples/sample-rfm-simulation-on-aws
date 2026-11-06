@@ -777,7 +777,8 @@ def rank(rows: list) -> dict:
     if len(tie) > 1:
         tie.sort(key=lambda r: (0 if r["commercial_ok"] is True else 1, cost(r), r["target"]))
         pick = tie[0]
-        text = (f"Tie: the 95% intervals of {', '.join(r['target'] for r in tie)} overlap, so these runs do not "
+        text = (f"Highest observed: {lead['target']} {lead['k']}/{lead['n']}. "
+                f"Tie: the 95% intervals of {', '.join(r['target'] for r in tie)} overlap, so these runs do not "
                 f"separate them. Pick by cost and license: {pick['target']} "
                 f"({'commercial use OK' if pick['commercial_ok'] is True else 'review the license'}, "
                 f"{'$%.2f' % cost(pick) if cost(pick) < 1e9 else 'cost unknown'}). More episodes narrow the intervals.")
@@ -786,7 +787,7 @@ def rank(rows: list) -> dict:
         text = (f"{pick['target']} leads: {pick['k']}/{pick['n']} with a 95% interval "
                 f"{pick['lo']:.2f}-{pick['hi']:.2f} that does not overlap the others.")
     rest = [r for r in rows if r not in have]
-    order = [pick] + [r for r in tie if r is not pick] + [r for r in have if r not in tie] + rest
+    order = have + rest  # the table stays in success-rate order; the recommendation is in `pick` / `text`
     return dict(order=order, tie=[r["target"] for r in tie] if len(tie) > 1 else [], pick=pick["target"], text=text)
 
 

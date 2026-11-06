@@ -355,3 +355,22 @@ def test_child_env_gives_each_parallel_deploy_its_own_npm_cache(tmp_path):
     b = bench.child_env(tmp_path, "xvla")
     assert a["npm_config_cache"] != b["npm_config_cache"]
     assert a["npm_config_cache"].startswith(str(tmp_path))
+
+
+def test_rank_tie_keeps_rate_order_and_names_the_leader():
+    def row(t, k, n, lo, hi, ok, usd):
+        return dict(target=t, k=k, n=n, rate=k / n, lo=lo, hi=hi, commercial_ok=ok, usd=usd, est_usd=None)
+    rows = [row("smolvla", 15, 20, 0.53, 0.89, True, 0.18), row("pi", 20, 20, 0.84, 1.0, None, 0.78)]
+    r = bench.rank(rows)
+    assert [x["target"] for x in r["order"]] == ["pi", "smolvla"]
+    assert r["pick"] == "smolvla"
+    assert r["text"].startswith("Highest observed: pi 20/20.")
+
+
+def test_gallery_lookup_returns_the_bucket(monkeypatch):
+    import gallery
+    monkeypatch.setattr(gallery, "stack_outputs", lambda region, name: {
+        "DistributionDomainName": "d.example", "GalleryBucketName": "b"})
+    monkeypatch.setattr(gallery, "get_or_create_salt", lambda region, create=True: "salt")
+    monkeypatch.setattr(gallery, "get_password", lambda region, gid: "pw")
+    assert gallery.lookup("ap-northeast-2", "a@example.com")["bucket"] == "b"

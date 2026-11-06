@@ -276,7 +276,8 @@ def lookup(region: str, email: str) -> dict:
         raise LookupError(f"no gallery salt in {region} (SSM {SALT_PARAM})")
     gallery_id = email_hash(salt, email)
     return {"url": gallery_url(outputs["DistributionDomainName"], gallery_id),
-            "password": get_password(region, gallery_id), "id": gallery_id}
+            "password": get_password(region, gallery_id), "id": gallery_id,
+            "bucket": outputs["GalleryBucketName"]}
 
 
 def delete_prefix(bucket: str, prefix: str, region: str) -> int:

@@ -7,6 +7,7 @@ Back to the [README](../README.md).
 | [targets.md](targets.md) | Every `--vla` target: model, simulator, robot, stack name, per-target notes (licenses, pins, validation), the post-run judge (`flora-judge`), GPU instances, deploy / monitor / cleanup commands |
 | [showcase.md](showcase.md) | Full rollout gallery: GIF previews and MP4 links for every target with captured video |
 | [results.md](results.md) | Downloading results, `vlasim results`, Expected Results, same-stack baseline, per-target smoke results, evaluation knobs |
+| [bench.md](bench.md) | `vlasim bench`: a few questions pick 2-4 RFMs, run them on the same actions, seed and condition, one HTML report with intervals and a tie rule |
 | [gallery.md](gallery.md) | Video history page linked from the completion e-mail (CloudFront + password), `vlasim gallery`, destroy keep / delete-all |
 | [configuration.md](configuration.md) | `vlasim.py` commands, `doctor` checks, supported regions, Hugging Face token, manual setup, `simulator-config.yaml` and `models/*.yaml` keys |
 | [architecture.md](architecture.md) | Deploy flow (CDK stack, AZ selector, UserData) and the project structure |

@@ -118,6 +118,22 @@ Publishing those files with the numbers is enough for anyone to rerun the same c
 `--seed <n>`; targets the tool cannot seed are marked `not-controllable` with the reason
 ([docs/results.md](docs/results.md#shared-seed---seed)).
 
+### Which model for my task? `vlasim bench`
+
+Answer five plain questions (robot form, action type, commercial license, GPU size, edge), get 2-4 candidate
+RFMs with the reason each was chosen or left out, pick 1-3 actions valid for all of them, and run them on the
+same tasks, episodes and seed in your account. One HTML report (success rate with 95% interval, rollouts side by
+side, cost, a recommendation that calls overlapping intervals a tie) lands in the video gallery. It is a
+self-run benchmark: results depend on the stack and settings, and AWS does not certify model performance.
+
+```bash
+python vlasim.py bench plan                                   # questions -> bench-plan.yaml
+python vlasim.py bench run --plan bench-plan.yaml --dry-run   # the exact deploy commands, nothing deployed
+python vlasim.py bench run --plan bench-plan.yaml && python vlasim.py bench report --plan bench-plan.yaml
+```
+
+Details: [docs/bench.md](docs/bench.md).
+
 ## Supported targets
 
 Instance = first choice in `models/<target>.yaml`; the deploy falls back to other types and AZs when capacity is short. **NC** = non-commercial or research-only weights or tools (see [License](#license)).
@@ -187,6 +203,7 @@ Stack names, robots, per-target notes, deploy and cleanup commands: [docs/target
 | [Targets](docs/targets.md) | All targets, notes, GPU instances, deploy / monitor / cleanup |
 | [Showcase](docs/showcase.md) | Full rollout gallery |
 | [Results](docs/results.md) | Downloading results, `vlasim results`, expected results, baselines |
+| [Benchmark advisor](docs/bench.md) | `vlasim bench`: questions -> candidate RFMs -> same actions on each -> one HTML report |
 | [Video history](docs/gallery.md) | Password-protected page with all your run videos, destroy data choice |
 | [Configuration](docs/configuration.md) | `doctor`, regions, Hugging Face token, config keys |
 | [Architecture](docs/architecture.md) | Deploy flow and project structure |

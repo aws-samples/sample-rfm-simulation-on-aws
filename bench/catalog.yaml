@@ -1,0 +1,194 @@
+# Benchmark advisor catalog (`python vlasim.py bench`, bench.py, docs/bench.md).
+#
+# One entry per --vla target that `bench run` can drive on a shared benchmark with the same tasks, episodes,
+# seed and condition label (`deploy.py --tasks-file`). Values are taken from models/<target>.yaml,
+# docs/cost.md, docs/results.md, docs/targets.md and docs/licenses.md; null = not recorded there (unknown).
+# Nothing here is a performance claim: the customer runs the benchmark in their own account.
+#
+# Fields
+#   family            template family = shape of the tasks file bench.py writes (lerobot-libero, pi, robotwin)
+#   embodiment        single-arm (Franka Panda, LIBERO) | bimanual (Aloha-AgileX, RoboTwin 2.0) | humanoid
+#   benchmark         libero | robotwin
+#   suites            LIBERO suites the pinned checkpoint covers (robotwin: settings); suites_measured = run on
+#                     this harness (docs/results.md)
+#   commercial_ok     true = code and weights under permissive licenses; false = a non-commercial component;
+#                     null = a license is unstated or "per the project" (review it). Not legal advice.
+#   gated             true = the weights need a Hugging Face access request
+#   params_b          policy parameters in billions (null = not stated in the repo)
+#   gpu_tier          24gb (L4 / A10G) | 48gb (L40S) = the first instance.preferred entry's GPU memory
+#   instance          first instance.preferred entry (the AZ selector may fall back to a later one)
+#   default_run       the target's default deploy: episodes and end-to-end minutes [low, high] (docs/cost.md)
+#   sec_per_episode   wall seconds per episode where the repo records one (null = scale default_run instead)
+#   edge_friendly     true = <= ~1B parameters on the smallest 24 GB GPU tier (the rule bench.py documents);
+#                     false = larger or slower; null = unknown size
+#   strength          one line, from the repo docs
+targets:
+  smolvla:
+    family: lerobot-libero
+    embodiment: single-arm
+    benchmark: libero
+    suites: [libero_spatial, libero_object, libero_goal, libero_10]
+    suites_measured: [libero_spatial]
+    suites_source: "lerobot/smolvla_libero (LeRobot LIBERO docs evaluate all four suites); this repo measured libero_spatial"
+    license: "Apache-2.0 (code and weights)"
+    commercial_ok: true
+    gated: false
+    params_b: 0.45
+    gpu_tier: 24gb
+    instance: g6.xlarge
+    default_run: {episodes: 10, minutes: [15, 30], source: "docs/cost.md"}
+    sec_per_episode: {value: 30, source: "deploy.py estimate: ~15-30 s per episode for SmolVLA on L4 (upper bound)"}
+    edge_friendly: true
+    strength: "smallest and cheapest LIBERO policy here (450M, <4 GB VRAM); validated 8/10 on libero_spatial"
+  xvla:
+    family: lerobot-libero
+    embodiment: single-arm
+    benchmark: libero
+    suites: [libero_spatial, libero_object, libero_goal, libero_10]
+    suites_measured: [libero_spatial]
+    suites_source: "X-VLA paper 98.1% LIBERO average / LeRobot card 93% on LIBERO (models/xvla.yaml)"
+    license: "Apache-2.0 (code and weights)"
+    commercial_ok: true
+    gated: false
+    params_b: 0.9
+    gpu_tier: 24gb
+    instance: g6.2xlarge
+    default_run: {episodes: 10, minutes: [15, 30], source: "docs/cost.md"}
+    sec_per_episode: {value: 13, source: "models/xvla.yaml: ~13 s/episode measured on LIBERO"}
+    edge_friendly: true
+    strength: "cross-embodiment 0.9B VLA with the highest reported LIBERO average of the small models"
+  fastwam:
+    family: lerobot-libero
+    embodiment: single-arm
+    benchmark: libero
+    suites: [libero_spatial, libero_object, libero_goal, libero_10]
+    suites_measured: [libero_spatial, libero_object, libero_goal, libero_10]
+    suites_source: "docs/results.md same-stack baseline (50 episodes per suite)"
+    license: "code MIT / LeRobot Apache-2.0; checkpoint license unspecified (research/evaluation only)"
+    commercial_ok: null
+    gated: false
+    params_b: null
+    gpu_tier: 48gb
+    instance: g6e.2xlarge
+    default_run: {episodes: 10, minutes: [30, 40], source: "docs/cost.md"}
+    sec_per_episode: null
+    edge_friendly: false
+    strength: "world-action model; 44-49/50 per suite on the same-stack baseline"
+  lingbot-va:
+    family: lerobot-libero
+    embodiment: single-arm
+    benchmark: libero
+    suites: [libero_10]
+    suites_measured: [libero_10]
+    suites_source: "LingBot-VA publishes a LIBERO-10 checkpoint only (docs/results.md)"
+    license: "Apache-2.0 (code and weights)"
+    commercial_ok: true
+    gated: false
+    params_b: null
+    gpu_tier: 48gb
+    instance: g6e.2xlarge
+    default_run: {episodes: 6, minutes: [150, 150], source: "docs/cost.md"}
+    sec_per_episode: {value: 1200, source: "docs/results.md: ~20 min/episode on L40S"}
+    edge_friendly: false
+    strength: "long-horizon specialist: 49/50 on LIBERO-10, but ~20 min per episode"
+  multitask-dit:
+    family: lerobot-libero
+    embodiment: single-arm
+    benchmark: libero
+    suites: [libero_10]
+    suites_measured: [libero_10]
+    suites_source: "checkpoint LuigiDu/multitask-dit-libero10-all-seed1000 (models/multitask-dit.yaml)"
+    license: "Apache-2.0 per the card (community upload); fetches openai/clip-vit-base-patch16 (card states no license)"
+    commercial_ok: null
+    gated: false
+    params_b: null
+    gpu_tier: 24gb
+    instance: g6.xlarge
+    default_run: {episodes: 10, minutes: [14, 14], source: "docs/cost.md (run start to last result, stack create/delete excluded)"}
+    sec_per_episode: null
+    edge_friendly: null
+    strength: "LBM-style diffusion transformer baseline for LIBERO-10 on the smallest GPU"
+  vla-jepa:
+    family: lerobot-libero
+    embodiment: single-arm
+    benchmark: libero
+    suites: [libero_spatial, libero_object, libero_goal, libero_10]
+    suites_measured: [libero_goal]
+    suites_source: "one checkpoint trained on all four suites (docs/targets.md Note 22)"
+    license: "Apache-2.0 (VLA-JEPA code and weights, LeRobot); Qwen3-VL-2B-Instruct Apache-2.0; V-JEPA 2 MIT"
+    commercial_ok: true
+    gated: false
+    params_b: null
+    gpu_tier: 24gb
+    instance: g6.xlarge
+    default_run: {episodes: 30, minutes: [44, 44], source: "docs/cost.md (deploy to last result)"}
+    sec_per_episode: null
+    edge_friendly: null
+    strength: "latent-prediction VLA on a 2B VLM backbone; 97.2% LIBERO-Goal reported, runs on L4"
+  pi:
+    family: pi
+    embodiment: single-arm
+    benchmark: libero
+    suites: [libero_spatial, libero_object, libero_goal, libero_10]
+    suites_measured: [libero_spatial, libero_object, libero_goal, libero_10]
+    suites_source: "pi05_libero covers every suite; docs/results.md same-stack baseline 47-48/50"
+    license: "openpi Apache-2.0; weights per the openpi project"
+    commercial_ok: null
+    gated: false
+    params_b: null
+    gpu_tier: 24gb
+    instance: g5.xlarge
+    default_run: {episodes: 120, minutes: [57, 57], source: "docs/cost.md: pi --libero-objects real2sim, 120 episodes, instance boot to last upload"}
+    sec_per_episode: null
+    edge_friendly: false
+    strength: "pi0.5 generalist; 47-48/50 per suite on the same-stack baseline"
+  smolvla-robotwin:
+    family: robotwin
+    embodiment: bimanual
+    benchmark: robotwin
+    suites: [clean]
+    suites_measured: [clean]
+    suites_source: "docs/results.md RoboTwin2/clean subset"
+    license: "Apache-2.0 (weights); RoboTwin 2.0 needs NVIDIA CuRobo (NON-COMMERCIAL, research or evaluation only)"
+    commercial_ok: false
+    gated: false
+    params_b: 0.45
+    gpu_tier: 24gb
+    instance: g6.2xlarge
+    default_run: {episodes: 25, minutes: [55, 55], source: "docs/cost.md (instance time)"}
+    sec_per_episode: {value: 98, source: "docs/cost.md: ~98 s per episode measured"}
+    edge_friendly: true
+    strength: "small bimanual baseline; 12/25 on the 5-task clean subset"
+  lingbot-vla2:
+    family: robotwin
+    embodiment: bimanual
+    benchmark: robotwin
+    suites: [clean]
+    suites_measured: [clean]
+    suites_source: "docs/results.md RoboTwin2/clean subset"
+    license: "Apache-2.0 (weights); RoboTwin 2.0 needs NVIDIA CuRobo (NON-COMMERCIAL, research or evaluation only)"
+    commercial_ok: false
+    gated: false
+    params_b: 6
+    gpu_tier: 48gb
+    instance: g6e.2xlarge
+    default_run: {episodes: 25, minutes: [49, 49], source: "docs/cost.md (instance time)"}
+    sec_per_episode: {value: 59, source: "docs/cost.md: ~59 s per episode measured"}
+    edge_friendly: false
+    strength: "6B bimanual VLA; 20/25 on the 5-task clean subset, 93.5% clean reported upstream"
+
+# Targets the advisor knows but cannot put on a shared bench yet (shown as excluded, with the reason).
+not_benchable:
+  openvla-oft: {embodiment: single-arm, reason: "one stack per suite and no per-task condition/task-id override wired for bench v1"}
+  lap: {embodiment: single-arm, reason: "runs whole suites (num_trials_per_task); no task-id subset outside LIBERO-Plus"}
+  vla-adapter: {embodiment: single-arm, reason: "runs whole suites; no task-id subset outside LIBERO-Plus"}
+  cosmos-policy: {embodiment: single-arm, reason: "runs whole suites; no task-id subset"}
+  gr00t: {embodiment: single-arm, reason: "LIBERO scenes by env_name, no seed control at the pinned commit"}
+  molmoact2: {embodiment: single-arm, reason: "condition label only recorded in LIBERO-Plus mode"}
+  univla: {embodiment: single-arm, reason: "authors' own LIBERO loop, no condition label"}
+  ge-act: {embodiment: single-arm, reason: "authors' own LIBERO loop, no condition label; CC BY-NC-SA"}
+  aspire: {embodiment: single-arm, reason: "agentic, Amazon Bedrock cost per task; no seed control"}
+  gr00t-gr1: {embodiment: humanoid, reason: "GR1 tabletop tasks differ per target; no shared humanoid task list yet"}
+  rldx-gr1: {embodiment: humanoid, reason: "GR1 tabletop tasks differ per target; RLDX weights NON-COMMERCIAL"}
+  gr00t-g1: {embodiment: humanoid, reason: "single loco-manipulation task, one target only"}
+  openarm-isaac: {embodiment: bimanual, reason: "Isaac Lab OpenArm, single pipe-proof rollout, one target only"}

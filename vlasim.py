@@ -40,6 +40,10 @@ Subcommands
            license) and write judge.json + judge.txt next to that run. Runs the
            doctor for the judge's GPU instance first, then deploy.py --judge.
 
+  bench    Self-run benchmark advisor (bench.py, docs/bench.md): a few questions pick 2-4
+           RFMs, `run` deploys them on the same actions, episodes and seed, `report`
+           writes one HTML comparison (success rate, 95% CI, videos, cost).
+
   gallery  Print the video history gallery URL and password for the notification
            e-mail (all runs under that e-mail, grouped by target). Read-only;
            --reset-password issues a new password.
@@ -675,6 +679,11 @@ def run_results(rest):
     return _run(cmd, cwd=str(BASE_DIR)).returncode
 
 
+def run_bench(rest):
+    cmd = [sys.executable, str(BASE_DIR / "bench.py")] + rest
+    return _run(cmd, cwd=str(BASE_DIR)).returncode
+
+
 def run_gallery(rest):
     p = argparse.ArgumentParser(prog="vlasim gallery", add_help=True,
                                 description="Show the video history gallery URL + password for your e-mail.")
@@ -739,6 +748,7 @@ Usage:
   python vlasim.py results --matrix [--all-conditions] [--write-docs] [--csv F] [--json F]
   python vlasim.py gallery [--email A] [--region R] [--reset-password]
   python vlasim.py judge   --vla TARGET [--run RUN_ID] [--region R] [--skip-doctor]
+  python vlasim.py bench   plan | run --plan F [--dry-run] | report --plan F | destroy --plan F
 
 Three-step quick start:
   python vlasim.py doctor                         # see what's missing
@@ -766,6 +776,7 @@ def main():
         "results": run_results,
         "gallery": run_gallery,
         "judge": run_judge,
+        "bench": run_bench,
     }
     handler = dispatch.get(cmd)
     if handler is None:

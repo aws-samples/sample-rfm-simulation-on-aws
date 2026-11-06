@@ -177,20 +177,52 @@ def apply(config: dict, name: str | None, target: str = "") -> dict:
         raise ValueError(f"--task-set {name}: {where} defines no task_sets")
     if name not in sets:
         raise ValueError(f"--task-set {name}: unknown set (available in {where}: {', '.join(sorted(sets))})")
-    spec = sets[name] or {}
+    return _apply_spec(out, sets[name] or {}, name, f"task_sets.{name}", where)
+
+
+def _apply_spec(out: dict, spec: dict, name: str, label: str, where: str) -> dict:
     tasks = spec.get("tasks")
     if not isinstance(tasks, list) or not tasks or not all(isinstance(t, dict) for t in tasks):
-        raise ValueError(f"task_sets.{name}.tasks in {where} must be a non-empty list of task entries")
+        raise ValueError(f"{label}.tasks in {where} must be a non-empty list of task entries")
     for t in tasks:
         action_type(t)  # validates an explicit tag
     overrides = spec.get("model") or {}
     if not isinstance(overrides, dict) or any(isinstance(v, (dict, list)) for v in overrides.values()):
-        raise ValueError(f"task_sets.{name}.model in {where} must map model keys to plain values")
+        raise ValueError(f"{label}.model in {where} must map model keys to plain values")
     out["tasks"] = copy.deepcopy(tasks)
     if overrides:
         out["model"] = {**(out.get("model") or {}), **overrides}
     out["task_set"] = name
     return out
+
+
+# A tasks file name becomes the task_set label (protocol card, deploy banner): keep it to one safe token.
+_FILE_SET_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
+
+
+def apply_file(config: dict, spec: dict, path: str = "") -> dict:
+    """``--tasks-file``: like ``apply`` but the set comes from a separate YAML file instead of the model yaml.
+
+    ``spec`` is the parsed file, the same shape as one ``task_sets.<name>`` entry plus a ``name``::
+
+        name: bench-a1b2c3          # optional; recorded as task_set (default: tasks-file)
+        description: "one line"
+        model: {hf_subfolder: ...}  # optional, plain values only
+        tasks: [...]                # entries in the target's own tasks: format
+
+    ``bench.py`` writes one per target so several targets run the same tasks, episodes, seed and condition
+    without editing models/*.yaml. Raises ValueError.
+    """
+    where = path or "the tasks file"
+    if not isinstance(spec, dict):
+        raise ValueError(f"{where} must be a mapping with a tasks: list")
+    name = str(spec.get("name") or "tasks-file")
+    if not _FILE_SET_NAME_RE.match(name):
+        raise ValueError(f"{where}: name {name!r} must match [A-Za-z0-9][A-Za-z0-9_.-]*")
+    out = copy.deepcopy(config)
+    out.setdefault("task_sets", {})
+    out["task_sets"] = {**(out.get("task_sets") or {}), name: {"description": spec.get("description", "")}}
+    return _apply_spec(out, spec, name, "tasks file", where)
 
 
 def describe(config: dict) -> str:

@@ -133,8 +133,11 @@ def plan(yaml_tasks: list, protocol: str = "subset", shard: str = "", seed: int 
             if n < 1:
                 raise ValueError("tasks[].n_episodes must be >= 1")
             for task in _task_list(entry.get("robotwin_tasks")):
-                units.append(dict(setting=setting, task=task, n_episodes=n, seed=int(entry.get("seed", seed)),
-                                  description=entry.get("description", "")))
+                unit = dict(setting=setting, task=task, n_episodes=n, seed=int(entry.get("seed", seed)),
+                            description=entry.get("description", ""))
+                if entry.get("condition"):  # stack-condition label (e.g. bench-<id>), carried into summary.txt
+                    unit["condition"] = str(entry["condition"])
+                units.append(unit)
     else:
         settings = list(SETTINGS) if protocol == "full" else [protocol]
         for setting in settings:

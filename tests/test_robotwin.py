@@ -193,7 +193,7 @@ def test_render_randomized_shard(tmp_path):
     assert [(t["setting"], t["task"]) for t in tasks] == [(u["setting"], u["task"]) for u in want]
     assert {t["n_episodes"] for t in tasks} == {100}
     assert {t["task_config"] for t in tasks} == {rp.SETTINGS[u["setting"]] for u in want}
-    assert 'echo "condition: full"' in text
+    assert "jq -r '.condition // \"full\"'" in text  # protocol label unless a task carries its own condition
     if any(u["setting"] == "randomized" for u in want):
         assert "'background_texture.zip', repo_type='dataset'" in text
 

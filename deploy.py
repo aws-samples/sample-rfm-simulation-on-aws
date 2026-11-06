@@ -465,6 +465,10 @@ def main():
                              "and results bucket. `actions` = tasks the pinned checkpoint was trained on that are "
                              "not pick-and-place (doors, drawers, knobs, buttons, bimanual, tool use); see "
                              "docs/targets.md#task-sets-and-action-types")
+    parser.add_argument("--tasks-file", default="", metavar="PATH",
+                        help="Run the tasks: list of this YAML file instead of models/<vla>.yaml tasks: (same stack and "
+                             "results bucket; shape of one task_sets entry). Written by `vlasim bench run`; "
+                             "see docs/bench.md")
     parser.add_argument("--collect", action="store_true",
                         help="gr00t-g1 only: trajectory COLLECTION mode (success-only obs/action HDF5 + "
                              "LeRobotDataset for N1.7 G1 adapter FT) instead of rollout/video.")
@@ -526,6 +530,20 @@ def main():
         sys.exit(1)
 
     config = _load_config(args.vla)
+    if args.tasks_file:
+        if args.task_set:
+            print("[error] --tasks-file and --task-set both replace the tasks: list; give one.", file=sys.stderr)
+            sys.exit(1)
+        if args.judge or args.collect or args.bridge or plus or r2s or args.robotwin_protocol != "subset":
+            print("[error] --tasks-file replaces the tasks: list of the default run and cannot be combined with "
+                  "--judge, --collect, --bridge, --libero-variant plus, --libero-objects real2sim or "
+                  "--robotwin-protocol.", file=sys.stderr)
+            sys.exit(1)
+        try:
+            config = task_sets.apply_file(config, yaml.safe_load(Path(args.tasks_file).read_text()), args.tasks_file)
+        except (OSError, ValueError, yaml.YAMLError) as e:
+            print(f"[error] --tasks-file: {e}", file=sys.stderr)
+            sys.exit(1)
     if args.task_set:
         if args.judge or args.collect or args.bridge or plus or r2s or args.robotwin_protocol != "subset":
             print("[error] --task-set replaces the tasks: list of the default run and cannot be combined with "
@@ -755,7 +773,7 @@ def main():
         shard = f" shard {args.robotwin_shard}" if args.robotwin_shard else ""
         print(f"[deploy] RoboTwin: {args.robotwin_protocol}{shard}, {len(robotwin_units)} task run(s), "
               f"{robotwin_plan.episodes(robotwin_units)} episodes")
-    if args.task_set:
+    if args.task_set or args.tasks_file:
         print(f"[deploy] Tasks:  {task_sets.describe(config)}")
     if vpc_id:
         print(f"[deploy] VPC:    {vpc_id}")
@@ -772,6 +790,8 @@ def main():
     collect_args: list[str] = ["--collect"] if args.collect else []
     if args.task_set:
         collect_args += ["--task-set", args.task_set]
+    if args.tasks_file:
+        collect_args += ["--tasks-file", str(Path(args.tasks_file).resolve())]
     plus_args: list[str] = []
     plus_cdk_ctx: list[str] = []
     if plus:

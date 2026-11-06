@@ -330,14 +330,14 @@ def test_rank_tie_rule_prefers_commercial_then_cost():
     assert r["pick"] == "xvla" and r["tie"] == ["xvla", "pi"] and "Tie" in r["text"]
     r = bench.rank([row("pi", 20, 20, 1.0, None), row("smolvla", 2, 20, 0.1, True)])
     assert r["pick"] == "pi" and r["tie"] == [] and "leads" in r["text"]
-    assert "No finished" in bench.rank([dict(target="x", n=0)])["text"]
+    assert "No candidate has finished" in bench.rank([dict(target="x", n=0)])["text"]
 
 
 def test_report_without_results_says_so(tmp_path):
     _, path = _plan(tmp_path)
     (tmp_path / "empty").mkdir()
     page, _ = _report(tmp_path, path, tmp_path / "empty")
-    assert "No finished bench task yet" in page and "no result yet" in page
+    assert "No candidate has finished every action yet" in page and "no result yet" in page
 
 
 def test_plan_file_is_plain_yaml_with_schema(tmp_path):
@@ -374,3 +374,22 @@ def test_gallery_lookup_returns_the_bucket(monkeypatch):
     monkeypatch.setattr(gallery, "get_or_create_salt", lambda region, create=True: "salt")
     monkeypatch.setattr(gallery, "get_password", lambda region, gid: "pw")
     assert gallery.lookup("ap-northeast-2", "a@example.com")["bucket"] == "b"
+
+
+def test_load_plan_rejects_non_integer_seed(tmp_path):
+    plan, path = _plan(tmp_path)
+    text = Path(path).read_text().replace(f"seed: {plan['seed']}", "seed: '</p><script>x</script>'")
+    Path(path).write_text(text)
+    with pytest.raises(ValueError, match="seed"):
+        bench.load_plan(path)
+
+
+def test_rank_skips_a_candidate_that_has_not_finished_every_action():
+    def row(t, k, n, lo, hi, complete):
+        return dict(target=t, k=k, n=n, rate=k / n, lo=lo, hi=hi, commercial_ok=True, usd=0.2, est_usd=None,
+                    complete=complete)
+    r = bench.rank([row("a", 10, 10, 0.72, 1.0, False), row("b", 19, 20, 0.76, 0.99, True)])
+    assert r["pick"] == "b"
+    assert "Not ranked yet" in r["text"] and "a" in r["text"]
+    r = bench.rank([row("a", 10, 10, 0.72, 1.0, False)])
+    assert r["text"].startswith("Provisional")

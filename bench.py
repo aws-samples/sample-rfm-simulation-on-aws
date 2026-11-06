@@ -340,6 +340,14 @@ def load_plan(path) -> dict:
         raise ValueError(f"{path}: not a bench plan ({PLAN_SCHEMA})")
     if not re.fullmatch(r"[0-9a-f]{6}", str(plan.get("id", ""))):
         raise ValueError(f"{path}: id must be 6 hex characters")
+    for key, lo in (("episodes", 1), ("seed", 0)):
+        v = plan.get(key)
+        if not isinstance(v, int) or isinstance(v, bool) or v < lo:
+            raise ValueError(f"{path}: {key} must be an integer >= {lo}")
+    if plan.get("condition") != f"bench-{plan['id']}":
+        raise ValueError(f"{path}: condition must be bench-{plan['id']}")
+    if not re.fullmatch(r"[a-z]{2}(-[a-z]+)+-\d", str(plan.get("region", ""))):
+        raise ValueError(f"{path}: region is not an AWS region name")
     return plan
 
 
@@ -471,7 +479,7 @@ def cmd_plan(args, inp=input, out=None) -> int:
             episodes = int(raw) if raw.isdigit() and int(raw) > 0 else DEFAULT_EPISODES
     else:
         picked = parse_action_ids(raw_actions, acts)
-    seed_arg = str(args.seed or given.get("seed") or "auto")
+    seed_arg = str(next((v for v in (args.seed, given.get("seed")) if v is not None), "auto"))
     seed = seeds.resolve(seed_arg)["value"]
     if seed is None:
         raise ValueError("--seed must be auto or a number")
@@ -749,11 +757,12 @@ def summarize(plan: dict, runs_by_target: dict, catalog: dict) -> list:
                     vids = [o["Key"] for o in r["objects"] if o["Key"].startswith(task["prefix"] + "videos/")
                             and o["Key"].endswith(".mp4")]
                     pa["videos"] += [dict(bucket=r["bucket"], key=v, run=r["run"]) for v in sorted(vids)[:2]]
+        missing = sum(1 for pa in per_action.values() if pa["n"] < plan["episodes"])
         lo, hi = results.wilson(k, n)
         e = catalog["targets"].get(t, {})
         est = next((x for x in plan["estimate"]["per_target"] if x["target"] == t), {})
         rows.append(dict(target=t, k=k, n=n, rate=(k / n) if n else None, lo=lo, hi=hi, per_action=per_action,
-                         runs=[r["run"] for r in runs], pending=pending, wall_s=wall if wall_known else None,
+                         runs=[r["run"] for r in runs], pending=pending, missing=missing, complete=missing == 0, wall_s=wall if wall_known else None,
                          usd=round(usd, 2) if usd_known else None, instance=instance or e.get("instance"),
                          est_usd=est.get("usd"), est_minutes=est.get("minutes"), commercial_ok=e.get("commercial_ok"),
                          license=e.get("license")))
@@ -763,9 +772,16 @@ def summarize(plan: dict, runs_by_target: dict, catalog: dict) -> list:
 def rank(rows: list) -> dict:
     """Ranked rows + recommendation. Rank by success rate; a candidate whose 95% CI overlaps the leader's is a
     tie with it, and a tie is broken by license (commercial use OK first) then cost (measured, else estimate)."""
-    have = [r for r in rows if r["n"]]
+    started = [r for r in rows if r["n"]]
+    # Rank only candidates that finished every planned action: a partial run is not the same comparison.
+    have = [r for r in started if r.get("complete", True)]
+    partial = [r for r in started if r not in have]
+    note = (" Not ranked yet (actions still running or missing): " + ", ".join(r["target"] for r in partial) + "."
+            if partial else "")
     if not have:
-        return dict(order=rows, tie=[], text="No finished bench task yet: run the plan and wait for the e-mails.")
+        text = ("No candidate has finished every action yet: run the plan and wait for the e-mails." if not started
+                else "Provisional: no candidate has finished every action yet." + note)
+        return dict(order=rows, tie=[], text=text)
     have.sort(key=lambda r: (-(r["rate"] or 0), r["target"]))
     lead = have[0]
     tie = [r for r in have if r["hi"] >= lead["lo"]]
@@ -786,6 +802,7 @@ def rank(rows: list) -> dict:
         pick = lead
         text = (f"{pick['target']} leads: {pick['k']}/{pick['n']} with a 95% interval "
                 f"{pick['lo']:.2f}-{pick['hi']:.2f} that does not overlap the others.")
+    text += note
     rest = [r for r in rows if r not in have]
     order = have + rest  # the table stays in success-rate order; the recommendation is in `pick` / `text`
     return dict(order=order, tie=[r["target"] for r in tie] if len(tie) > 1 else [], pick=pick["target"], text=text)
@@ -867,7 +884,7 @@ def render_html(plan: dict, rows: list, ranking: dict, video_url=None, generated
         usd = "-" if r["usd"] is None else f"${r['usd']:.2f}"
         est = "-" if r["est_usd"] is None else f"${r['est_usd']:.2f} / ~{r['est_minutes']} min"
         cost_rows += (f"<tr><td>{e(r['target'])}</td><td>{e(r['instance'] or '-')}</td><td>{wall}</td><td>{usd}</td>"
-                      f"<td>{est}</td><td>{e(', '.join(r['runs']) or '-')}</td><td>{r['pending']}</td></tr>")
+                      f"<td>{est}</td><td>{e(', '.join(r['runs']) or '-')}</td><td>{max(r['pending'], r.get('missing', 0))}</td></tr>")
     rank_rows = "".join(
         f"<tr><td>{i}</td><td>{e(r['target'])}</td><td>{e(fmt_rate(r['k'], r['n']))}</td>"
         f"<td>{'yes' if r['commercial_ok'] is True else ('no' if r['commercial_ok'] is False else 'review')}</td>"
@@ -883,7 +900,7 @@ th{{background:#f3f3f3}}figure{{margin:0 0 6px}}figcaption{{font-size:11px;color
 </style></head><body>
 <h1>RFM benchmark {e(plan['id'])}</h1>
 <p class="disclaimer"><b>{e(DISCLAIMER)}</b> Condition <code>{e(plan['condition'])}</code>, region {e(plan['region'])},
-{plan['episodes']} episodes per action, seed {plan['seed']}. Generated {e(generated)} by <code>python vlasim.py bench report</code>.</p>
+{e(str(plan['episodes']))} episodes per action, seed {e(str(plan['seed']))}. Generated {e(generated)} by <code>python vlasim.py bench report</code>.</p>
 <h2>Recommendation</h2><p class="rec">{e(ranking['text'])}</p>
 <table><tr><th>#</th><th>Model</th><th>k/n = rate [95% CI]</th><th>Commercial use</th><th></th></tr>{rank_rows}</table>
 <p>Tie rule: when the 95% Wilson intervals overlap, the runs do not separate the models; choose by license, then cost.</p>
@@ -925,7 +942,10 @@ def cmd_report(args, out=None) -> int:
             try:
                 import gallery  # noqa: PLC0415
                 gallery_info = gallery.lookup(plan["region"], args.email or _config_email())
+                if not gallery_info.get("password"):  # no gallery for this e-mail: do not publish under a new id
+                    raise LookupError("no gallery password for this e-mail (use --email, the one you deployed with)")
             except Exception as ex:  # noqa: BLE001 - gallery is optional; fall back to presigned URLs
+                gallery_info = None
                 print(f"[bench] gallery not available ({ex}); writing the report locally", file=out)
         client = boto3.client("s3", region_name=plan["region"])
         prefixes = {}
@@ -938,7 +958,7 @@ def cmd_report(args, out=None) -> int:
                     outs = gallery.stack_outputs(plan["region"], STACK_NAMES[target]) or {}
                     prefixes[target] = outs.get("GalleryPrefix") or f"g/{gallery_info['id']}/{target}/"
                 rel = prefixes[target].split("/", 2)[-1] if prefixes[target].startswith("g/") else prefixes[target]
-                return f"../{rel}{key}"
+                return f"{gallery_info['url']}{rel}{key}"  # absolute: works in the local copy and the gallery
             return client.generate_presigned_url("get_object", Params={"Bucket": bucket, "Key": key},
                                                  ExpiresIn=7 * 24 * 3600)
     runs = collect_bench(plan, s3, names)

@@ -30,7 +30,11 @@ python vlasim.py deploy robolab-pi05 --robolab-variant full-shard --shards 16 --
 | `--run-dir D` | State and results directory (default `fanout/<target>-<variant>-<N>x<R>`). |
 | `--dry-run` | Print the plan, every deploy command with its region and instance type, and render + `bash -n` each shard's user data. No AWS call. |
 
-`--email` and `--seed` are passed to every shard; other unknown flags are passed through to `deploy.py`.
+| `--task-set NAME` / `--tasks-file PATH` | Split that task list instead of the model's `tasks:` (list-based targets); every shard file carries the set's model overrides. |
+
+`--email` and `--seed` are passed to every shard; other unknown flags are passed through to `deploy.py`, except
+the flags the scheduler sets per shard (`--region`, `--shard`, `--repeats`, `--tasks-file`, `--instance-types`,
+`--spot`, ...), which are rejected.
 The video history gallery is off for shard stacks unless `--gallery` is given (N parallel deploys would race on
 creating it).
 
@@ -86,18 +90,30 @@ the next type. The first region rotates with the shard index, so the shards of o
 | any other deploy failure | retry once on the next candidate, then `failed` |
 | Spot interruption (`Server.SpotInstanceTermination`) | stop that deploy, delete its stack, re-queue only that shard |
 
+A unit goes `queued -> launching -> running -> collecting -> done`. The launch intent is saved before the deploy
+process is spawned and its pid right after (the process also writes a receipt file); on resume an attempt left
+in `launching` is matched against the receipt and CloudFormation and is never launched a second time. A failed,
+interrupted or auto-destroyed stack goes through `cleanup`: it keeps its `--max-instances` slot, and no
+replacement is launched, until CloudFormation confirms the deletion (retried every step). `collecting` means the
+deploy finished but the results are not downloaded and validated yet; it is retried every step and on resume, and
+`--auto-destroy` deletes a stack only after its results were confirmed.
+
 State is written to `<run dir>/fanout-state.json` after every step (every 120 s, `--poll`). The deploys run
 detached: Ctrl-C or a lost terminal does not stop them, and running the same command again resumes from the
-state file (regions, types, M, `--spot` may change between invocations; target, N, R and variant may not).
+state file. The state carries a fingerprint of the effective task units per shard, episode protocol, seed,
+variant and benchmark-affecting flags; a resume with a different fingerprint is refused. Operational settings
+(regions, instance types, `--max-instances`, `--spot`, `--auto-destroy`, `--max-usd`, e-mail) may change.
 A file named `STOP` in the run dir stops new launches; running shards finish. `--max-usd` does the same when the
 spend reaches the cap.
 
 ## Cost per run
 
 Cost is measured, not estimated: for every instance a shard launched (retries and interrupted Spot attempts
-included), instance-hours = EC2 `LaunchTime` to the termination time in `StateTransitionReason`, times the
-On-Demand price of that type and region (`leaderboard.PRICES`, AWS Price List API, date in the file) or, for
-Spot, the mean of the EC2 Spot price history over that window. `fanout-result.json`, the merged
+included; each instance id belongs to exactly one attempt and is counted once), instance-hours = EC2
+`LaunchTime` to the termination time in `StateTransitionReason`, times the On-Demand price of that type and
+region (`leaderboard.PRICES`, AWS Price List API, date in the file) or, for Spot, the EC2 Spot price history
+integrated over the instance's lifetime (all pages, the price in effect at launch, each change weighted by how
+long it applied). `fanout-result.json`, the merged
 `robolab_results.json` / `summary.json` and the merged RoboLab `summary.txt` (`cost_usd`, `instance_hours`) carry it per run, with
 `usd_per_episode` and the wall clock from the first deploy to the last shard done. Stack create / delete, EBS,
 NAT gateway and data transfer are not included.

@@ -47,6 +47,8 @@ STATE_FILE = "fanout-state.json"
 RESULT_FILE = "fanout-result.json"
 STATE_VERSION = 1
 TERMINAL = ("done", "failed")
+ALIVE = ("launching", "running", "cleanup")  # states that hold a --max-instances slot
+COLLECT_TRIES = 10
 DEFAULT_POLL_S = 120
 CAPACITY_BACKOFF_S = 20 * 60
 CAPACITY_ROUNDS = 3
@@ -99,12 +101,14 @@ def build_plan(vla: str, config: dict, n: int, runs: int, regions: list[str], ty
                               if p["kind"] == "tasks-file" else "",
                               robotwin_shard=p.get("robotwin_shard", ""), cands=candidates(regions, types, p["k"]),
                               cand=0, state="queued", attempts=[], interruptions=0, other_failures=0, rounds=0)
+    plan = dict(vla=vla, shards=n, runs=runs, regions=regions, instance_types=types, max_instances=max_instances,
+                spot=spot, auto_destroy=auto_destroy, variant=variant, robotwin_protocol=robotwin_protocol,
+                passthrough=list(passthrough or []), max_usd=max_usd, base_stack=base)
     return dict(
-        plan=dict(vla=vla, shards=n, runs=runs, regions=regions, instance_types=types, max_instances=max_instances,
-                  spot=spot, auto_destroy=auto_destroy, variant=variant, robotwin_protocol=robotwin_protocol,
-                  passthrough=list(passthrough or []), max_usd=max_usd, base_stack=base),
+        plan=plan,
         parts=[{k: v for k, v in p.items() if k != "units"} for p in parts],
         units=units,
+        fingerprint=fingerprint(vla, config, parts, plan),
     )
 
 
@@ -153,8 +157,12 @@ def save_state(run_dir: Path, state: dict) -> None:
 # --- scheduler ------------------------------------------------------------------------------------------
 
 class Scheduler:
-    """One step = poll running units, re-queue failures, launch into free slots, save. Backend does the I/O
-    (AwsBackend below; tests pass a fake)."""
+    """One step = retry pending stack deletions, poll running units, collect finished ones, launch into free
+    slots, save. Backend does the I/O (AwsBackend below; tests pass a fake).
+
+    Unit states: queued -> launching (intent saved before the process is spawned) -> running -> collecting
+    (compute done, results not yet confirmed) -> done; a failed / interrupted attempt and --auto-destroy go
+    through cleanup (stack deletion pending; holds a slot until CloudFormation confirms the deletion)."""
 
     def __init__(self, run_dir: Path, state: dict, backend, log=print):
         self.run_dir = Path(run_dir)
@@ -164,24 +172,32 @@ class Scheduler:
         self.state.setdefault("caps", {})
         self.state.setdefault("events", [])
         self.state.setdefault("version", STATE_VERSION)
+        self.reconcile()
 
     # helpers
     @property
     def plan(self) -> dict:
         return self.state["plan"]
 
+    def save(self) -> None:
+        save_state(self.run_dir, self.state)
+
     def units(self, *states) -> list[dict]:
         us = sorted(self.state["units"].values(), key=lambda u: (u["run"], u["k"]))
         return [u for u in us if not states or u["state"] in states]
+
+    def alive(self) -> list[dict]:
+        """Units that hold a slot: a deploy in flight or a stack whose deletion is not confirmed yet."""
+        return self.units(*ALIVE)
 
     def event(self, msg: str) -> None:
         line = f"{iso(self.b.now())} {msg}"
         self.state["events"].append(line)
         self.log(f"[fanout] {msg}")
 
-    def running_on(self, region: str, itype: str) -> int:
-        return sum(1 for u in self.units("running")
-                   if u["attempts"][-1]["region"] == region and u["attempts"][-1]["instance_type"] == itype)
+    def running_on(self, region: str, itype: str, exclude: dict | None = None) -> int:
+        return sum(1 for u in self.alive() if u is not exclude
+                   and u["attempts"][-1]["region"] == region and u["attempts"][-1]["instance_type"] == itype)
 
     def stop_requested(self) -> str:
         if (self.run_dir / "STOP").exists():
@@ -197,17 +213,54 @@ class Scheduler:
             for a in u["attempts"]:
                 if a.get("cost"):
                     usd += a["cost"]["usd"]
-                elif a.get("started") and not a.get("ended"):
+                elif a.get("started") and not a.get("ended") and a.get("phase") != "not-started":
                     p, _ = self.b.price(a["instance_type"], a["region"], "on-demand")
                     h = shards.instance_hours(a["started"], iso(self.b.now()))
                     usd += (p or 0) * (h or 0)
         return round(usd, 4)
 
+    # resume
+    def reconcile(self) -> None:
+        """Resume after a crash: an attempt whose launch intent was saved but whose process identity was not is
+        matched against its receipt file and CloudFormation; it is never relaunched blindly. Units that stopped
+        at result collection are collected again."""
+        now = self.b.now()
+        changed = False
+        for u in self.units("launching"):
+            a = u["attempts"][-1]
+            pid = self.b.receipt(a)
+            if pid:
+                a.update(pid=pid, phase="launched")
+                u["state"] = "running"
+                self.event(f"{u['token']}: resume: deploy process {pid} found from its receipt")
+            elif self.b.stack_status(u["stack"], a["region"]):
+                a.update(pid=None, phase="launched")
+                u["state"] = "running"
+                self.event(f"{u['token']}: resume: no receipt but {u['stack']} exists; following CloudFormation")
+            else:
+                a.update(phase="not-started", ended=iso(now), rc=None, reason="not-started")
+                u["state"] = "queued"
+                self.event(f"{u['token']}: resume: launch intent without process or stack; re-queued")
+            changed = True
+        for u in self.units("failed"):
+            if u.get("fail_reason") == "results-missing":
+                u.update(state="collecting", collect_tries=0)
+                self.event(f"{u['token']}: resume: retrying result collection")
+                changed = True
+        if changed:
+            self.save()
+
     # step
     def step(self) -> str:
         now = self.b.now()
+        collecting = self.units("collecting")  # units that reach it in this step were collected once already
+        for u in self.units("cleanup"):
+            self._cleanup(u, now)
         for u in self.units("running"):
             self._poll(u, now)
+        for u in collecting:
+            if u["state"] == "collecting":
+                self._collect(u, now)
         stop = self.stop_requested()
         if stop and not self.state.get("stopped"):
             self.state["stopped"] = iso(now)
@@ -215,75 +268,125 @@ class Scheduler:
         if not stop:
             self.state.pop("stopped", None)
             self._launch(now)
-        save_state(self.run_dir, self.state)
+        self.save()
         if all(u["state"] in TERMINAL for u in self.units()):
             return "finished"
-        if stop and not self.units("running"):
+        if stop and not self.alive() and not self.units("collecting"):
             return "stopped"
         return "running"
 
+    # instances owned by one attempt (immutable ids; each instance belongs to exactly one attempt)
+    def _own_instances(self, u: dict, a: dict) -> None:
+        owned = {i for b in u["attempts"] if b is not a for i in b.get("instance_ids") or []}
+        t0 = shards.parse_time(a["started"]) - dt.timedelta(minutes=5)
+        mine = set(a.get("instance_ids") or [])
+        for i in self.b.instances(a["region"], stack=u["stack"]):
+            lt = shards.parse_time(i.get("launch"))
+            if i["instance_id"] not in owned and lt and lt >= t0:
+                mine.add(i["instance_id"])
+        a["instance_ids"] = sorted(mine)
+
     def _poll(self, u: dict, now: dt.datetime) -> None:
         a = u["attempts"][-1]
-        if a.get("spot"):
-            insts = self.b.instances(u["stack"], a["region"])
+        self._own_instances(u, a)
+        if a.get("spot") and a["instance_ids"]:
+            insts = self.b.instances(a["region"], ids=a["instance_ids"])
             if any(i.get("interrupted") for i in insts):
                 self.b.kill(a)
                 a.update(ended=iso(now), rc=None, reason="spot-interruption")
-                self._record_cost(a, insts, now)
-                self.b.destroy(u["stack"], a["region"])
+                self._record_cost(a, now)
                 u["interruptions"] += 1
-                u["state"] = "queued"
                 if u["interruptions"] >= SPOT_INTERRUPTIONS_BEFORE_ON_DEMAND:
                     u["no_spot"] = True
-                self.event(f"{u['token']}: Spot interruption in {a['region']} ({a['instance_type']}); re-queued"
-                           + (" On-Demand" if u.get("no_spot") else ""))
+                self._to_cleanup(u, "queued", now, f"{u['token']}: Spot interruption in {a['region']} "
+                                 f"({a['instance_type']}); re-queued" + (" On-Demand" if u.get("no_spot") else ""))
                 return
         rc = self.b.poll(a)
         if rc is None:
             return
         a.update(ended=iso(now), rc=rc)
-        self._record_cost(a, self.b.instances(u["stack"], a["region"]), now)
+        self._record_cost(a, now)
         if rc == 0:
-            u["state"] = "done"
-            got = self.b.collect(u, a, self.run_dir / "results" / u["token"])
-            u["results_dir"], u["run_id"] = (str(got[0]), got[1]) if got else ("", "")
-            self.event(f"{u['token']}: done in {a['region']} ({a['instance_type']})"
-                       + (f", results {u['run_id']}" if got else ", results NOT found"))
-            if self.plan["auto_destroy"]:
-                a["destroy_rc"] = self.b.destroy(u["stack"], a["region"])
-                self.event(f"{u['token']}: --auto-destroy deleted {u['stack']} (results bucket kept)")
+            u.update(state="collecting", collect_tries=0)
+            self.event(f"{u['token']}: compute done in {a['region']} ({a['instance_type']}); collecting results")
+            self._collect(u, now)
             return
         why = shards.classify_failure(self.b.log_tail(a))
         a["reason"] = why
-        a["destroy_rc"] = self.b.destroy(u["stack"], a["region"])
         if why in ("capacity", "quota"):
             key = f"{a['region']}|{a['instance_type']}"
             self.state["caps"][key] = min(self.state["caps"].get(key, 10 ** 6),
-                                          self.running_on(a["region"], a["instance_type"]))
+                                          self.running_on(a["region"], a["instance_type"], exclude=u))
             u["cand"] += 1
             if u["cand"] >= len(u["cands"]):
                 u["rounds"] += 1
                 if u["rounds"] >= CAPACITY_ROUNDS:
-                    u["state"] = "failed"
-                    self.event(f"{u['token']}: {why} in every region/type for {CAPACITY_ROUNDS} rounds; failed")
+                    u["fail_reason"] = why
+                    self._to_cleanup(u, "failed", now, f"{u['token']}: {why} in every region/type for "
+                                     f"{CAPACITY_ROUNDS} rounds; failed")
                     return
                 u["cand"] = 0
                 u["not_before"] = iso(now + dt.timedelta(seconds=CAPACITY_BACKOFF_S))
                 self.state["caps"] = {}  # capacity moves: start the next round without caps
-            u["state"] = "queued"
-            self.event(f"{u['token']}: {why} in {a['region']} ({a['instance_type']}); next candidate "
-                       f"{u['cands'][u['cand']]['region']} {u['cands'][u['cand']]['instance_type']}")
+            nxt = u["cands"][u["cand"]]
+            self._to_cleanup(u, "queued", now, f"{u['token']}: {why} in {a['region']} ({a['instance_type']}); "
+                             f"next candidate {nxt['region']} {nxt['instance_type']}")
             return
         u["other_failures"] += 1
         if u["other_failures"] > OTHER_RETRIES:
-            u["state"] = "failed"
-            self.event(f"{u['token']}: deploy failed (rc {rc}) twice; failed (log {a['log']})")
+            u["fail_reason"] = "deploy-failed"
+            self._to_cleanup(u, "failed", now, f"{u['token']}: deploy failed (rc {rc}) twice; failed (log {a['log']})")
             return
         u["cand"] = (u["cand"] + 1) % len(u["cands"])
-        u["state"] = "queued"
-        self.event(f"{u['token']}: deploy failed (rc {rc}, log {a['log']}); retry on the next candidate")
+        self._to_cleanup(u, "queued", now, f"{u['token']}: deploy failed (rc {rc}, log {a['log']}); "
+                         "retry on the next candidate")
 
-    def _record_cost(self, a: dict, insts: list[dict], now: dt.datetime) -> None:
+    def _collect(self, u: dict, now: dt.datetime) -> None:
+        """Download and validate the unit's results; done (or deletion with --auto-destroy) only after that."""
+        a = u["attempts"][-1]
+        got = self.b.collect(u, a, self.run_dir / "results" / u["token"])
+        if got and shards.validate_results(u["kind"], got[0]):
+            u["results_dir"], u["run_id"] = str(got[0]), got[1]
+            u.pop("fail_reason", None)
+            if self.plan["auto_destroy"]:
+                self._to_cleanup(u, "done", now, f"{u['token']}: results {u['run_id']} confirmed; --auto-destroy "
+                                 f"deleting {u['stack']}")
+            else:
+                u["state"] = "done"
+                self.event(f"{u['token']}: done, results {u['run_id']}")
+            return
+        u["collect_tries"] = u.get("collect_tries", 0) + 1
+        if u["collect_tries"] >= COLLECT_TRIES:
+            u.update(state="failed", fail_reason="results-missing")
+            self.event(f"{u['token']}: results not found after {COLLECT_TRIES} tries; stack kept, re-run to retry")
+        else:
+            self.event(f"{u['token']}: results not complete yet (try {u['collect_tries']}); retrying")
+
+    def _to_cleanup(self, u: dict, after: str, now: dt.datetime, msg: str) -> None:
+        u["state"] = "cleanup"
+        u["after_cleanup"] = after
+        self.event(msg)
+        self._cleanup(u, now)
+
+    def _cleanup(self, u: dict, now: dt.datetime) -> None:
+        """Delete the attempt's stack; the unit keeps its slot until CloudFormation confirms the deletion."""
+        a = u["attempts"][-1]
+        rc = self.b.destroy(u["stack"], a["region"])
+        a["destroy_tries"] = a.get("destroy_tries", 0) + 1
+        a["destroy_rc"] = rc
+        if rc != 0:
+            self.event(f"{u['token']}: deleting {u['stack']} in {a['region']} failed (try {a['destroy_tries']}); "
+                       "slot held, retried next step")
+            return
+        a["destroyed"] = iso(now)
+        u["state"] = u.pop("after_cleanup", "queued")
+        if u["state"] == "done":
+            a["auto_destroyed"] = True
+            self.event(f"{u['token']}: --auto-destroy deleted {u['stack']} (results bucket kept)")
+
+    def _record_cost(self, a: dict, now: dt.datetime) -> None:
+        """Cost of exactly the instances this attempt owns (by id)."""
+        insts = self.b.instances(a["region"], ids=a["instance_ids"]) if a.get("instance_ids") else []
         rows = []
         for i in insts:
             end = i.get("end") or a.get("ended") or iso(now)
@@ -292,13 +395,11 @@ class Scheduler:
         a["cost"] = shards.unit_cost(rows, self.b.price)
 
     def refresh_costs(self) -> None:
-        """Re-read the instances of finished attempts whose termination time EC2 did not report yet."""
+        """Re-read, by instance id, the attempts whose termination time EC2 did not report yet."""
         for u in self.state["units"].values():
             for a in u["attempts"]:
                 if a.get("ended") and any(r.get("end_source") == "scheduler" for r in a.get("instances") or []):
-                    insts = self.b.instances(u["stack"], a["region"])
-                    if insts:
-                        self._record_cost(a, insts, shards.parse_time(a["ended"]))
+                    self._record_cost(a, shards.parse_time(a["ended"]))
 
     def _pick(self, u: dict) -> int | None:
         for j in range(u["cand"], len(u["cands"])):
@@ -310,7 +411,7 @@ class Scheduler:
 
     def _launch(self, now: dt.datetime) -> None:
         for u in self.units("queued"):
-            if len(self.units("running")) >= self.plan["max_instances"]:
+            if len(self.alive()) >= self.plan["max_instances"]:
                 return
             nb = shards.parse_time(u.get("not_before"))
             if nb and nb > now:
@@ -324,11 +425,16 @@ class Scheduler:
             argv = deploy_argv(self.state, u, c, spot, fanout_id_of(self.run_dir))
             n = len(u["attempts"]) + 1
             log = self.run_dir / "logs" / f"{u['token']}-{n}-{c['region']}.log"
-            a = dict(n=n, stack=u["stack"], region=c["region"], instance_type=c["instance_type"], spot=spot, started=iso(now),
-                     log=str(log), rc_file=str(log.with_suffix(".rc")), argv=argv)
-            a["pid"] = self.b.launch(u, a)
+            a = dict(n=n, stack=u["stack"], region=c["region"], instance_type=c["instance_type"], spot=spot,
+                     started=iso(now), log=str(log), rc_file=str(log.with_suffix(".rc")), argv=argv,
+                     phase="launching", pid=None, instance_ids=[])
             u["attempts"].append(a)
+            u["state"] = "launching"
+            self.save()  # intent first: a crash after the spawn is reconciled, not relaunched
+            a["pid"] = self.b.launch(u, a)
+            a["phase"] = "launched"
             u["state"] = "running"
+            self.save()
             self.event(f"{u['token']}: launch {u['stack']} in {c['region']} ({c['instance_type']}"
                        f"{', spot first' if spot else ''})")
 
@@ -418,10 +524,23 @@ class AwsBackend:
         env = dict(os.environ)
         # concurrent `npx cdk` calls sharing one npm cache race on the same _npx entry (bench.child_env)
         env["npm_config_cache"] = str(self.run_dir / "npm-cache" / unit["token"])
-        cmd = f"{shlex.join(a['argv'])} > {shlex.quote(a['log'])} 2>&1; echo $? > {shlex.quote(a['rc_file'])}"
+        # the receipt (<rc file>.pid) is written by the child itself before deploy.py starts, so a scheduler that
+        # dies between spawn and save finds the process on resume (Scheduler.reconcile)
+        cmd = (f"echo $$ > {shlex.quote(a['rc_file'] + '.pid')}; {shlex.join(a['argv'])} > {shlex.quote(a['log'])} 2>&1; "
+               f"echo $? > {shlex.quote(a['rc_file'])}")
         p = subprocess.Popen(["bash", "-c", cmd], cwd=str(BASE_DIR), env=env, start_new_session=True,  # nosec B603,B607
                              stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         return p.pid
+
+    def receipt(self, a: dict):
+        """pid from the attempt's receipt file when that process is still alive, else None."""
+        p = Path(a["rc_file"] + ".pid")
+        try:
+            pid = int(p.read_text().strip())
+            os.kill(pid, 0)
+            return pid
+        except (OSError, ValueError):
+            return None
 
     def poll(self, a: dict):
         rcf = Path(a["rc_file"])
@@ -472,12 +591,13 @@ class AwsBackend:
             print(f"[fanout] [warn] delete {stack} in {region}: {e}", file=sys.stderr)
             return 1
 
-    def instances(self, stack: str, region: str) -> list[dict]:
+    def instances(self, region: str, stack: str = "", ids: list | None = None) -> list[dict]:
+        """Instances tagged StackName=<stack> (discovery), or exactly the given instance ids."""
         ec2 = self.boto3.client("ec2", region_name=region)
         out = []
         try:
-            pages = ec2.get_paginator("describe_instances").paginate(
-                Filters=[{"Name": "tag:StackName", "Values": [stack]}])
+            kw = {"InstanceIds": list(ids)} if ids else {"Filters": [{"Name": "tag:StackName", "Values": [stack]}]}
+            pages = ec2.get_paginator("describe_instances").paginate(**kw)
             for page in pages:
                 for res in page["Reservations"]:
                     for i in res["Instances"]:
@@ -500,13 +620,19 @@ class AwsBackend:
         od = leaderboard.price_per_hour(itype, region)
         if market == "spot" and az:
             try:
+                t0, t1 = shards.parse_time(start), shards.parse_time(end)
                 ec2 = self.boto3.client("ec2", region_name=region)
-                hist = ec2.describe_spot_price_history(InstanceTypes=[itype], AvailabilityZone=az,
-                                                       ProductDescriptions=["Linux/UNIX"],
-                                                       StartTime=shards.parse_time(start), EndTime=shards.parse_time(end))
-                ps = [float(h["SpotPrice"]) for h in hist["SpotPriceHistory"]]
-                if ps:
-                    return sum(ps) / len(ps), f"EC2 Spot price history {az}, mean of {len(ps)} point(s)"
+                # one day before launch so the price in effect at launch is included; every page
+                points = []
+                for page in ec2.get_paginator("describe_spot_price_history").paginate(
+                        InstanceTypes=[itype], AvailabilityZone=az, ProductDescriptions=["Linux/UNIX"],
+                        StartTime=t0 - dt.timedelta(days=1), EndTime=t1):
+                    points += [(h["Timestamp"], float(h["SpotPrice"])) for h in page["SpotPriceHistory"]]
+                got = shards.spot_cost(points, t0, t1)
+                if got:
+                    usd, rate = got
+                    return rate, (f"EC2 Spot price history {az}, integrated over the instance lifetime "
+                                  f"({len(points)} point(s), USD {usd:.4f})")
             except Exception:  # noqa: BLE001 - fall back to On-Demand as the upper bound
                 pass
             return od, f"On-Demand upper bound (no Spot history), leaderboard.PRICES {leaderboard.PRICES_CHECKED}"
@@ -574,7 +700,7 @@ def _csv(v: str) -> list[str]:
 
 
 def parse_args(argv):
-    p = argparse.ArgumentParser(prog="vlasim deploy <target> --shards N",
+    p = argparse.ArgumentParser(prog="vlasim deploy <target> --shards N", allow_abbrev=False,
                                 description="Run one benchmark as N shard stacks (docs/shards.md).")
     p.add_argument("target", nargs="?", help="target (same as --vla)")
     p.add_argument("--vla", help="target")
@@ -600,6 +726,10 @@ def parse_args(argv):
     p.add_argument("--dry-run", action="store_true", help="print the plan and the deploy commands; no AWS call")
     p.add_argument("--no-render", action="store_true", help="--dry-run: skip generate.py + bash -n per shard")
     p.add_argument("--poll", type=int, default=DEFAULT_POLL_S, help="seconds between scheduler steps")
+    p.add_argument("--task-set", default="", metavar="NAME",
+                   help="split task_sets.NAME of models/<vla>.yaml instead of its tasks: list")
+    p.add_argument("--tasks-file", default="", metavar="PATH",
+                   help="split the tasks: list of this file (shape of one task_sets entry) instead of the model's")
     p.add_argument("--email", "-e", default="", help="notification e-mail (passed to every deploy.py)")
     p.add_argument("--seed", default="", help="--seed of every shard (default: the model's seeds)")
     p.add_argument("--skip-doctor", action="store_true", help=argparse.SUPPRESS)
@@ -612,8 +742,13 @@ def parse_args(argv):
     return p, args, rest
 
 
-def load_config(vla: str, variant: str = "") -> dict:
+def load_config(vla: str, variant: str = "", task_set: str = "", tasks_file: str = "") -> dict:
+    """Merged model config with --robolab-variant / --task-set / --tasks-file applied before the split. The
+    selected set is kept under `_shard_set` (name, description, model overrides) for the per-shard files."""
+    import yaml  # noqa: PLC0415
+
     import generate  # noqa: PLC0415
+    import task_sets  # noqa: PLC0415
 
     cfg = generate._load_merged_config(BASE_DIR / "simulator-config.yaml", vla)
     if variant:
@@ -621,7 +756,76 @@ def load_config(vla: str, variant: str = "") -> dict:
             raise ValueError(f"--robolab-variant {variant}: models/{vla}.yaml variants are "
                              f"{', '.join(sorted(cfg.get('variants') or {})) or 'none'}")
         cfg["model"] = dict(cfg.get("model") or {}, variant=variant)
+    if task_set and tasks_file:
+        raise ValueError("--tasks-file and --task-set both replace the tasks: list; give one")
+    if task_set or tasks_file:
+        if shards.kind(vla, cfg) != "tasks-file":
+            raise ValueError(f"--task-set / --tasks-file with --shards apply to targets with a tasks: list; {vla} is "
+                             f"split as {shards.kind(vla, cfg)}")
+        if tasks_file:
+            try:
+                spec = yaml.safe_load(Path(tasks_file).read_text())
+            except (OSError, yaml.YAMLError) as e:
+                raise ValueError(f"--tasks-file: {e}") from None
+            cfg = task_sets.apply_file(cfg, spec, tasks_file)
+            overrides = dict((spec or {}).get("model") or {})
+            desc = str((spec or {}).get("description", ""))
+        else:
+            cfg = task_sets.apply(cfg, task_set, vla)
+            st = (cfg.get("task_sets") or {}).get(task_set) or {}
+            overrides, desc = dict(st.get("model") or {}), str(st.get("description", ""))
+        cfg["_shard_set"] = dict(name=cfg["task_set"], description=desc, model=overrides)
     return cfg
+
+
+# deploy.py flags the scheduler sets per shard: a passthrough copy would override them (argparse keeps the last)
+SCHEDULER_OWNED = ("--vla", "--shard", "--shard-run", "--region", "-r", "--instance-types", "--repeats",
+                   "--fanout-id", "--robolab-variant", "--tasks-file", "--task-set", "--robotwin-shard",
+                   "--robotwin-protocol", "--spot", "--judge", "--run", "--bridge", "--collect", "--libero-variant",
+                   "--libero-objects")
+# passthrough flags that do not change what is evaluated (excluded from the resume fingerprint)
+OPERATIONAL_FLAGS = {"--email": 1, "-e": 1, "--no-gallery": 0, "--update-gallery": 0}
+
+
+def owned_flags(rest: list[str]) -> list[str]:
+    return [t for t in rest if any(t == f or t.startswith(f + "=") for f in SCHEDULER_OWNED)]
+
+
+def benchmark_passthrough(passthrough: list[str]) -> list[str]:
+    out, skip = [], 0
+    for t in passthrough:
+        if skip:
+            skip -= 1
+            continue
+        flag = t.split("=", 1)[0]
+        if flag in OPERATIONAL_FLAGS:
+            skip = 0 if "=" in t else OPERATIONAL_FLAGS[flag]
+            continue
+        out.append(t)
+    return out
+
+
+def fingerprint(vla: str, config: dict, parts: list[dict], plan: dict) -> dict:
+    """What makes the merged result one benchmark: effective task units per shard (and the shard task entries),
+    episodes, seed and every benchmark-affecting option. A resume must match it; operational settings
+    (regions, instance types, --max-instances, --spot, --auto-destroy, --max-usd, e-mail) may change."""
+    import hashlib  # noqa: PLC0415
+
+    model = config.get("model") or {}
+    var = (config.get("variants") or {}).get(str(model.get("variant", ""))) or {}
+    doc = dict(vla=vla, shards=plan["shards"], runs=plan["runs"], variant=plan["variant"],
+               robotwin_protocol=plan["robotwin_protocol"], model=model, variant_config=var,
+               protocol=(config.get("protocols") or {}).get(var.get("protocol")) or {},
+               eval=config.get("eval") or {}, task_set=config.get("_shard_set") or {},
+               passthrough=benchmark_passthrough(plan["passthrough"]),
+               parts=[dict(k=p["k"], units=p["units"], episodes=p["episodes"], tasks=p.get("tasks")) for p in parts])
+    blob = json.dumps(doc, sort_keys=True, default=str)
+    return dict(sha=hashlib.sha256(blob.encode()).hexdigest(), doc=json.loads(blob))
+
+
+def fingerprint_diff(a: dict, b: dict) -> list[str]:
+    da, db = (a or {}).get("doc") or {}, (b or {}).get("doc") or {}
+    return sorted(k for k in set(da) | set(db) if da.get(k) != db.get(k))
 
 
 def default_types(vla: str, config: dict) -> list[str]:
@@ -666,9 +870,15 @@ def write_tasks_files(state: dict, config: dict) -> None:
         part = shards.tasks_file_shard(config["tasks"], u["k"], u["n"])
         f = Path(u["tasks_file"])
         f.parent.mkdir(parents=True, exist_ok=True)
-        f.write_text(yaml.safe_dump(dict(name=f"shard-s{u['k']:02d}of{u['n']:02d}",
-                                         description=f"vlasim deploy --shards {u['n']}: shard {u['k']}/{u['n']}",
-                                         tasks=part), sort_keys=False))
+        sset = config.get("_shard_set") or {}
+        tag = f"s{u['k']:02d}of{u['n']:02d}"
+        spec = dict(name=f"{sset['name']}-{tag}"[:64] if sset.get("name") else f"shard-{tag}",
+                    description=f"vlasim deploy --shards {u['n']}: shard {u['k']}/{u['n']}"
+                                + (f" of {sset['name']} ({sset['description']})" if sset.get("name") else ""),
+                    tasks=part)
+        if sset.get("model"):
+            spec["model"] = sset["model"]  # the set's model overrides travel with every shard file
+        f.write_text(yaml.safe_dump(spec, sort_keys=False))
 
 
 def print_plan(state: dict, out=None) -> None:
@@ -691,8 +901,13 @@ def main(argv=None) -> int:
     import yaml  # noqa: PLC0415
 
     sim = yaml.safe_load((BASE_DIR / "simulator-config.yaml").read_text()).get("deployment") or {}
+    bad = owned_flags(rest)
+    if bad:
+        print(f"[error] {' '.join(bad)}: set per shard by the scheduler; use the fanout flags (--regions, "
+              "--instance-types, --robolab-variant, --task-set, --tasks-file, --spot) instead", file=sys.stderr)
+        return 2
     try:
-        config = load_config(args.vla, args.robolab_variant)
+        config = load_config(args.vla, args.robolab_variant, args.task_set, args.tasks_file)
         if args.runs == "auto":
             import repeatability  # noqa: PLC0415
 
@@ -736,6 +951,12 @@ def main(argv=None) -> int:
         print(f"[error] {run_dir}/{STATE_FILE} belongs to another plan ({plan_key(prev['plan'])}); "
               "use another --run-dir or remove that directory", file=sys.stderr)
         return 2
+    if prev and (prev.get("fingerprint") or {}).get("sha") != state["fingerprint"]["sha"]:
+        diff = fingerprint_diff(prev.get("fingerprint"), state["fingerprint"]) or ["fingerprint missing"]
+        print(f"[error] {run_dir}/{STATE_FILE}: the benchmark changed since the shards there ran ({', '.join(diff)}); "
+              "a resume must evaluate the same task units, episodes, seed and options. Use another --run-dir.",
+              file=sys.stderr)
+        return 2
     if prev:
         # resume: keep units, attempts, caps; take the flags that may change (regions, types, M, spot, ...)
         for tok, u in state["units"].items():
@@ -744,7 +965,8 @@ def main(argv=None) -> int:
                 if old["state"] == "queued" and old["cands"] != u["cands"]:
                     old["cands"], old["cand"] = u["cands"], 0
                 state["units"][tok] = old
-        state = dict(prev, plan=state["plan"], parts=state["parts"], units=state["units"])
+        state = dict(prev, plan=state["plan"], parts=state["parts"], units=state["units"],
+                     fingerprint=state["fingerprint"])
 
     print_plan(state)
     write_tasks_files(state, config)

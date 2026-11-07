@@ -154,14 +154,21 @@ T0 = dt.datetime(2026, 11, 8, 0, 0, tzinfo=dt.timezone.utc)
 
 
 class FakeBackend:
-    """script[(token, attempt n)] = dict(rc=0|1, log=str, after=steps, interrupt=bool); default rc 0 after 1 step."""
+    """script[(token, attempt n)] = dict(rc=0|1, log=str, after=steps, interrupt=bool); default rc 0 after 1 step.
 
-    def __init__(self, script=None, tmp=None):
+    Every attempt launches one instance (id i-<token>-<n>) that stays visible under its stack tag after it
+    terminated, as EC2 does, so attempts on the same stack see each other's instances by tag."""
+
+    def __init__(self, script=None, tmp=None, hours=None):
         self.script = script or {}
         self.t = T0
         self.step_no = 0
         self.launched, self.destroyed, self.killed = [], [], []
-        self.tmp = tmp
+        self.records = {}
+        self.hours = hours
+        self.receipts, self.stacks = {}, {}
+        self.destroy_fail = {}   # stack -> number of failing destroy calls left
+        self.collect_fail = {}   # token -> number of empty collections left
 
     def now(self):
         return self.t
@@ -176,7 +183,20 @@ class FakeBackend:
     def launch(self, u, a):
         a["token"], a["step"] = u["token"], self.step_no
         self.launched.append((u["token"], a["region"], a["instance_type"], a["spot"]))
+        start = shards.parse_time(a["started"])
+        iid = f"i-{u['token']}-{a['n']}"
+        self.records[iid] = dict(instance_id=iid, stack=u["stack"], instance_type=a["instance_type"], region=a["region"],
+                                 az=a["region"] + "a", launch=fanout.iso(start),
+                                 end=fanout.iso(start + dt.timedelta(hours=self.hours)) if self.hours else "",
+                                 market="spot" if a["spot"] else "on-demand",
+                                 interrupted=bool(self._s(a).get("interrupt")))
         return 1000 + len(self.launched)
+
+    def receipt(self, a):
+        return self.receipts.get(a["token"] if "token" in a else a["stack"])
+
+    def stack_status(self, stack, region):
+        return self.stacks.get(stack, "")
 
     def poll(self, a):
         s = self._s(a)
@@ -192,38 +212,37 @@ class FakeBackend:
 
     def destroy(self, stack, region):
         self.destroyed.append((stack, region))
+        if self.destroy_fail.get(stack, 0) > 0:
+            self.destroy_fail[stack] -= 1
+            return 1
         return 0
 
-    def instances(self, stack, region):
-        return []
+    def instances(self, region, stack="", ids=None):
+        out = [dict(r) for r in self.records.values() if r["region"] == region
+               and ((ids and r["instance_id"] in ids) or (not ids and r["stack"] == stack))]
+        for r in out:
+            r.pop("stack")
+        return out
 
     def price(self, itype, region, market="on-demand", az="", start="", end=""):
         return {"g6e.2xlarge": 2.0, "g6e.4xlarge": 3.0}.get(itype), "test table"
 
     def collect(self, u, a, dest):
-        dest.mkdir(parents=True, exist_ok=True)
+        if self.collect_fail.get(u["token"], 0) > 0:
+            self.collect_fail[u["token"]] -= 1
+            return None
+        raw = dest / "raw" / "shard-0"
+        raw.mkdir(parents=True, exist_ok=True)
+        (dest / "summary.txt").write_text("suite: RoboLab/RoboLab-120\n")
+        (raw / "episode_results.jsonl").write_text('{"env_name": "T", "success": true}\n')
         return dest, "2026-11-08-0000"
 
 
 class InstanceBackend(FakeBackend):
-    """Reports one instance per attempt: launched at the attempt start, terminated `hours` later."""
+    """Instances terminate `hours` after their attempt started."""
 
     def __init__(self, *a, hours=2.0, **k):
-        super().__init__(*a, **k)
-        self.hours = hours
-        self.by_stack = {}
-
-    def launch(self, u, a):
-        self.by_stack[u["stack"]] = a
-        return super().launch(u, a)
-
-    def instances(self, stack, region):
-        a = self.by_stack[stack]
-        s = self._s(a)
-        start = shards.parse_time(a["started"])
-        return [dict(instance_id=f"i-{a['token']}-{a['n']}", instance_type=a["instance_type"], region=region,
-                     az=region + "a", launch=fanout.iso(start), end=fanout.iso(start + dt.timedelta(hours=self.hours)),
-                     market="spot" if a["spot"] else "on-demand", interrupted=bool(s.get("interrupt")))]
+        super().__init__(*a, hours=hours, **k)
 
 
 def _plan(tmp_path, n=4, runs=1, regions=("us-east-1", "us-west-2"), types=("g6e.2xlarge",), m=2, **kw):
@@ -460,3 +479,178 @@ def test_generate_renders_one_shard(tmp_path):
     part = shards.robolab_shard(cfg, "robolab-pi05", 3, 16)
     assert f"TASKS=({' '.join(part['tasks'])} )" in text
     assert '--meta "fanout_shard=3/16"' in text and f'--meta "task_ids=[{",".join(map(str, part["task_ids"]))}]"' in text
+
+
+# --- audit fixes (F1..F8) ----------------------------------------------------------------------------------
+
+def test_f1_interruption_only_counts_the_current_attempts_instances(tmp_path):
+    # attempt 1 is interrupted; attempt 2 runs on the same stack in the same region, where EC2 still lists the
+    # interrupted instance under the stack tag. Attempt 2 must not be killed for it.
+    script = {("s01of01", 1): dict(after=3, interrupt=True), ("s01of01", 2): dict(after=3)}
+    b = InstanceBackend(script)
+    s = fanout.Scheduler(tmp_path, _plan(tmp_path, n=1, m=1, regions=("us-east-1",), spot=True), b, log=lambda *_: None)
+    assert _run(s, b) == "finished"
+    u = s.state["units"]["s01of01"]
+    assert b.killed == ["s01of01"] and u["interruptions"] == 1 and u["state"] == "done"
+    assert [a["instance_ids"] for a in u["attempts"]] == [["i-s01of01-1"], ["i-s01of01-2"]]
+
+
+def test_f2_each_instance_is_costed_once_across_retries(tmp_path):
+    script = {("s01of01", 1): dict(rc=1, log="boom")}
+    b = InstanceBackend(script, hours=2.0)
+    s = fanout.Scheduler(tmp_path, _plan(tmp_path, n=1, m=1, regions=("us-east-1",)), b, log=lambda *_: None)
+    assert _run(s, b) == "finished"
+    s.refresh_costs()
+    atts = s.state["units"]["s01of01"]["attempts"]
+    assert [a["cost"]["usd"] for a in atts] == [4.0, 4.0]  # 2 h x $2 each, not 4 + 8
+    assert [[r["instance_id"] for r in a["instances"]] for a in atts] == [["i-s01of01-1"], ["i-s01of01-2"]]
+    assert fanout.merge(tmp_path, s.state, _cfg("robolab-pi05", "full-shard"))["runs"][0]["cost"]["usd"] == 8.0
+
+
+def test_f3_spot_cost_is_integrated_over_the_lifetime():
+    t = lambda m: T0 + dt.timedelta(minutes=m)  # noqa: E731
+    # $1/h from before launch until minute 59, then $3/h for the last minute; points unsorted
+    usd, rate = shards.spot_cost([(t(59), 3.0), (t(-300), 1.0), (t(-600), 9.0)], t(0), t(60))
+    assert abs(usd - (59 / 60 + 3 / 60)) < 1e-9 and abs(rate - usd) < 1e-9  # ~1.033, not the mean 2.0
+    usd, _ = shards.spot_cost([(t(-5), 2.0), (t(30), 4.0), (t(90), 8.0)], t(0), t(60))  # change after end clipped
+    assert abs(usd - 3.0) < 1e-9
+    assert shards.spot_cost([], t(0), t(60)) is None
+
+
+class CrashOnLaunch(FakeBackend):
+    def launch(self, u, a):
+        super().launch(u, a)
+        raise KeyboardInterrupt  # the scheduler dies right after the spawn, before it can record the pid
+
+
+@pytest.mark.parametrize("found", ["receipt", "stack", "nothing"])
+def test_f4_launch_intent_is_reconciled_not_relaunched(tmp_path, found):
+    b = CrashOnLaunch()
+    s = fanout.Scheduler(tmp_path, _plan(tmp_path, n=1, m=1, regions=("us-east-1",)), b, log=lambda *_: None)
+    with pytest.raises(KeyboardInterrupt):
+        s.step()
+    saved = fanout.load_state(tmp_path)
+    assert saved["units"]["s01of01"]["state"] == "launching"  # the intent was on disk before the spawn
+    b2 = FakeBackend()
+    b2.launched = list(b.launched)
+    if found == "receipt":
+        b2.receipts["RoboLab-Pi05-Demo-s01of01"] = 4242
+    elif found == "stack":
+        b2.stacks["RoboLab-Pi05-Demo-s01of01"] = "CREATE_IN_PROGRESS"
+    s2 = fanout.Scheduler(tmp_path, saved, b2, log=lambda *_: None)
+    u = s2.state["units"]["s01of01"]
+    if found == "nothing":
+        assert u["state"] == "queued" and u["attempts"][0]["phase"] == "not-started"
+        s2.step()
+        assert len(b2.launched) == 2  # only now, after reconciliation found no process and no stack
+    else:
+        assert u["state"] == "running" and len(b2.launched) == 1
+        assert u["attempts"][0]["pid"] == (4242 if found == "receipt" else None)
+
+
+def test_f5_failed_deletion_holds_the_slot_and_blocks_the_replacement(tmp_path):
+    script = {("s01of02", 1): dict(rc=1, log="InsufficientInstanceCapacity")}
+    b = FakeBackend(script)
+    b.destroy_fail["RoboLab-Pi05-Demo-s01of02"] = 2
+    s = fanout.Scheduler(tmp_path, _plan(tmp_path, n=2, m=1), b, log=lambda *_: None)
+    s.step()  # launches s01
+    b.tick()
+    s.step()  # s01 fails, deletion fails: cleanup holds the only slot
+    u = s.state["units"]["s01of02"]
+    assert u["state"] == "cleanup" and len(b.launched) == 1
+    b.tick()
+    s.step()  # second deletion fails too
+    assert u["state"] == "cleanup" and len(b.launched) == 1
+    b.tick()
+    s.step()  # deletion confirmed -> re-queued, then relaunched in the next region
+    assert len(b.launched) == 2 and b.launched[1][:2] == ("s01of02", "us-west-2")
+    assert _run(s, b) == "finished"
+
+
+def test_f5_auto_destroy_reported_only_after_confirmed_deletion(tmp_path):
+    b = FakeBackend()
+    b.destroy_fail["RoboLab-Pi05-Demo-s01of01"] = 1
+    s = fanout.Scheduler(tmp_path, _plan(tmp_path, n=1, m=1, auto_destroy=True), b, log=lambda *_: None)
+    s.step()
+    b.tick()
+    s.step()
+    u = s.state["units"]["s01of01"]
+    assert u["state"] == "cleanup" and not any("--auto-destroy deleted" in e for e in s.state["events"])
+    b.tick()
+    assert s.step() == "finished" and u["attempts"][-1]["auto_destroyed"]
+    assert any("--auto-destroy deleted" in e for e in s.state["events"])
+
+
+def test_f6_tasks_file_is_split_and_owned_flags_are_rejected(tmp_path, capsys):
+    tf = tmp_path / "custom.yaml"
+    tf.write_text(yaml.safe_dump(dict(name="custom", tasks=[dict(suite="libero_spatial", task_ids=[0, 1, 2, 3],
+                                                                n_episodes=2, seed=7)])))
+    rd = tmp_path / "rd"
+    rc = fanout.main(["smolvla", "--shards", "2", "--tasks-file", str(tf), "--run-dir", str(rd), "--dry-run",
+                      "--no-render"])
+    out = capsys.readouterr().out
+    assert rc == 0
+    cmds = [line for line in out.splitlines() if line.startswith("python deploy.py")]
+    assert len(cmds) == 2 and all(c.count("--tasks-file") == 1 and str(tf) not in c for c in cmds)
+    ids = [yaml.safe_load((rd / "tasks" / f"tasks-s0{k}of02.yaml").read_text())["tasks"][0]["task_ids"] for k in (1, 2)]
+    assert ids == [[0, 2], [1, 3]]
+    assert yaml.safe_load((rd / "tasks" / "tasks-s01of02.yaml").read_text())["name"] == "custom-s01of02"
+    for owned in (["--region", "us-east-1"], ["--repeats", "2"], ["--shard=1/2"]):
+        assert fanout.main(["smolvla", "--shards", "2", "--run-dir", str(rd), "--dry-run", *owned]) == 2
+        assert "set per shard by the scheduler" in capsys.readouterr().err
+    assert fanout.main(["robolab-pi05", "--shards", "2", "--task-set", "x", "--run-dir", str(rd), "--dry-run"]) == 2
+
+
+def test_f7_resume_rejects_a_different_benchmark_but_not_operational_changes(tmp_path, capsys):
+    rd = tmp_path / "rd"
+    base = ["robolab-pi05", "--robolab-variant", "full-shard", "--shards", "4", "--run-dir", str(rd), "--dry-run",
+            "--no-render", "--seed", "1"]
+    cfg = fanout.load_config("robolab-pi05", "full-shard")
+    st = fanout.build_plan("robolab-pi05", cfg, 4, 1, ["us-east-1"], ["g6e.2xlarge"], max_instances=4,
+                           variant="full-shard", run_dir=rd, passthrough=["--no-gallery", "--seed", "1"])
+    rd.mkdir()
+    fanout.save_state(rd, st)
+    assert fanout.main(base) == 0  # same benchmark
+    assert fanout.main(base + ["--max-instances", "2", "--regions", "us-west-2,eu-central-1", "--email",
+                               "a@example.com"]) == 0  # operational knobs may change
+    capsys.readouterr()
+    assert fanout.main([x if x != "1" else "2" for x in base]) == 2  # --seed 2
+    assert "benchmark changed" in capsys.readouterr().err and "passthrough" in fanout.fingerprint_diff(
+        st["fingerprint"], fanout.build_plan("robolab-pi05", cfg, 4, 1, ["us-east-1"], ["g6e.2xlarge"], max_instances=4,
+                                             variant="full-shard", run_dir=rd,
+                                             passthrough=["--no-gallery", "--seed", "2"])["fingerprint"])
+    cfg2 = copy.deepcopy(cfg)
+    cfg2["protocols"]["full"]["num_envs"] = 5  # episode protocol changed
+    st2 = fanout.build_plan("robolab-pi05", cfg2, 4, 1, ["us-east-1"], ["g6e.2xlarge"], max_instances=4,
+                            variant="full-shard", run_dir=rd, passthrough=["--no-gallery", "--seed", "1"])
+    assert st2["fingerprint"]["sha"] != st["fingerprint"]["sha"]
+
+
+def test_f8_collection_is_retried_and_destroy_waits_for_results(tmp_path):
+    b = FakeBackend()
+    b.collect_fail["s01of01"] = 2
+    s = fanout.Scheduler(tmp_path, _plan(tmp_path, n=1, m=1, auto_destroy=True), b, log=lambda *_: None)
+    s.step()
+    b.tick()
+    s.step()  # compute done, first collection empty
+    u = s.state["units"]["s01of01"]
+    assert u["state"] == "collecting" and b.destroyed == []
+    b.tick()
+    s.step()  # second collection empty
+    assert u["state"] == "collecting" and b.destroyed == []
+    b.tick()
+    assert s.step() == "finished" and u["state"] == "done" and u["results_dir"]
+    assert b.destroyed == [("RoboLab-Pi05-Demo-s01of01", "us-east-1")]
+
+
+def test_f8_results_missing_is_retried_on_resume(tmp_path):
+    b = FakeBackend()
+    b.collect_fail["s01of01"] = fanout.COLLECT_TRIES
+    s = fanout.Scheduler(tmp_path, _plan(tmp_path, n=1, m=1), b, log=lambda *_: None)
+    assert _run(s, b) == "finished"
+    u = s.state["units"]["s01of01"]
+    assert u["state"] == "failed" and u["fail_reason"] == "results-missing" and not u.get("results_dir")
+    s2 = fanout.Scheduler(tmp_path, fanout.load_state(tmp_path), b, log=lambda *_: None)
+    assert s2.state["units"]["s01of01"]["state"] == "collecting"
+    assert _run(s2, b) == "finished" and s2.state["units"]["s01of01"]["state"] == "done"
+    assert not shards.validate_results("robolab", tmp_path / "nope")

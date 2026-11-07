@@ -288,6 +288,40 @@ def instance_hours(launch, end) -> float | None:
     return (b - a).total_seconds() / 3600.0
 
 
+def spot_cost(points: list, launch, end) -> tuple[float, float] | None:
+    """(usd, effective usd/h) of one instance from EC2 Spot price history points [(time, usd/h)]: the price in
+    effect at launch (the last change at or before it), then every change, each interval clipped to
+    [launch, end] and weighted by its duration. None without a point at or before the end."""
+    t0, t1 = parse_time(launch), parse_time(end)
+    if not t0 or not t1 or t1 <= t0:
+        return None
+    pts = sorted((parse_time(t), float(p)) for t, p in points if parse_time(t))
+    before = [p for p in pts if p[0] <= t0]
+    inside = [p for p in pts if t0 < p[0] < t1]
+    if before:
+        seq = [(t0, before[-1][1])] + inside
+    elif inside:
+        seq = [(t0, inside[0][1])] + inside  # no change before launch in the window: first known price
+    else:
+        return None
+    usd = 0.0
+    for (ta, pa), nxt in zip(seq, seq[1:] + [(t1, None)]):
+        usd += pa * (nxt[0] - ta).total_seconds() / 3600.0
+    hours = (t1 - t0).total_seconds() / 3600.0
+    return usd, usd / hours
+
+
+def validate_results(kind: str, path) -> bool:
+    """The downloaded results of one shard are usable for the merge: RoboLab = summary.txt + at least one raw
+    episode_results.jsonl; other targets = at least one task-N/summary.txt."""
+    d = Path(path)
+    if not d.is_dir():
+        return False
+    if kind == "robolab":
+        return (d / "summary.txt").is_file() and any(p.stat().st_size for p in d.glob("raw/*/episode_results.jsonl"))
+    return any(d.glob("task-*/summary.txt"))
+
+
 def unit_cost(instances: list[dict], price_of) -> dict:
     """Actual cost of one shard attempt set: sum over the instances it launched of (end - launch) x $/h.
 

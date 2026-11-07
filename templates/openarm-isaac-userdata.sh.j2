@@ -615,6 +615,7 @@ cd "$ASSETS"
     --n-episodes   "${N_EPISODES}" \
     --max-episodes-rendered "${MAX_EPISODES_RENDERED}" \
     --device       "${DEVICE}" \
+    --rerender-on-reset "${RERENDER_ON_RESET}" \
     --seed         "${SEED}"
 clog "run_eval.py done — outputs in ${OUT}"
 CONTAINER_EOF
@@ -716,6 +717,7 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
         -e "MAX_EPISODES_RENDERED=${MAX_EPISODES_RENDERED}" \
         -e "DEVICE=${DEVICE}" \
         -e "SEED=${SEED}" \
+        -e "RERENDER_ON_RESET={{ 1 if rerender_on_reset else 0 }}" \
         -v "${HOST_ASSETS_DIR}:/workspace/assets" \
         -v "${TASK_OUT}:/workspace/out" \
         -v "${HOST_HF_CACHE}:/workspace/hf-cache" \
@@ -737,6 +739,12 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
         SR=$(jq -r '.aggregated.pc_success // empty' "${TASK_OUT}/eval_info.json" 2>/dev/null || echo "")
     fi
     [ -z "$SR" ] && SR="unknown"
+    # n_success from the per-episode records (results.py / the protocol card read n_episodes + n_success).
+    NSUCC=unknown
+    if [ -f "${TASK_OUT}/eval_info.json" ]; then
+        NSUCC=$(jq -r '[.per_episode[]? | select(.success == true)] | length' "${TASK_OUT}/eval_info.json" 2>/dev/null || echo unknown)
+    fi
+    [ -z "$NSUCC" ] && NSUCC=unknown
     log "  pc_success=${SR} (OOD on empty Reach scene — pipe-proof, not task success)"
 
     {
@@ -747,7 +755,11 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
         echo "task: ${TASK_NAME} — \"${TASK_INSTR}\""
         echo "state_keys: ${STATE_KEYS}"
         echo "camera_keys: ${CAMERA_KEYS}"
-        echo "episode_length: ${EPISODE_LENGTH}, n_episodes: ${N_EPISODES}"
+        echo "episode_length: ${EPISODE_LENGTH}"
+        echo "n_episodes: ${N_EPISODES}"
+        echo "n_success: ${NSUCC}"
+        echo "num_envs: 1"
+        echo "rerender_on_reset: {{ 'true' if rerender_on_reset else 'false' }}"
         echo "pc_success: ${SR}  (PIPE PROOF — folding policy is OOD on empty Reach scene)"
     } > "${TASK_OUT}/summary.txt"
 

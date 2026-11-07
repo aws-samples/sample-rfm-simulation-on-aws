@@ -100,6 +100,9 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--max-episodes-rendered", type=int, default=1)
     p.add_argument("--device", default="cuda:0")
     p.add_argument("--seed", type=int, default=1000)
+    # Isaac Lab ManagerBasedEnvCfg.rerender_on_reset (its default False leaves the first camera frame of every episode
+    # stale: the previous episode's last frame). 1 = re-render the cameras on reset (models/openarm-isaac.yaml eval.).
+    p.add_argument("--rerender-on-reset", type=int, choices=(0, 1), default=1)
     p.add_argument("--use-amp", action="store_true", help="autocast during inference (off by default)")
     return p.parse_args()
 
@@ -156,7 +159,8 @@ def main() -> int:
     # ── 2. Build the vec env via OUR local env.py (replaces factory.make_env's hub download) ────
     log.info("Booting Isaac Sim + building OpenArm-Bi-VLA env (this launches the sim app)...")
     make_local_env = _load_local_make_env()
-    envs = make_local_env(n_envs=1, use_async_envs=False, cfg=env_cfg)
+    rerender_on_reset = bool(args.rerender_on_reset)
+    envs = make_local_env(n_envs=1, use_async_envs=False, cfg=env_cfg, rerender_on_reset=rerender_on_reset)
     # envs == {suite: {0: adapter}} — pull out the single vec env.
     suite = next(iter(envs))
     vec_env = envs[suite][0]
@@ -217,6 +221,8 @@ def main() -> int:
         )
 
     # ── 5. Persist metrics + close ──────────────────────────────────────────────────────────────
+    # Env settings that change what the policy sees, next to the metrics (protocol.yaml has the same two keys).
+    info["env_settings"] = {"num_envs": int(vec_env.num_envs), "rerender_on_reset": rerender_on_reset}
     info_path = out_dir / "eval_info.json"
     with open(info_path, "w") as f:
         json.dump(info, f, indent=2, default=str)

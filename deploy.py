@@ -53,6 +53,7 @@ import libero_r2s
 import repeatability
 import robotwin_plan
 import seeds
+import shards
 import task_sets
 from generate import (
     OFT_DEFAULT_SUITE,
@@ -109,13 +110,10 @@ RUN_RE = re.compile(r"^\d{4}-\d{2}-\d{2}-\d{4}$")  # RUN_ID=$(date '+%Y-%m-%d-%H
 VIDEO_KEY_RE = re.compile(r"^[^/]+/task-\d+/videos/[^/]+\.mp4$")
 
 
-def results_bucket_name(prefix: str, stack_name: str, region: str, account: str) -> str:
+def results_bucket_name(prefix: str, stack_name: str, region: str, account: str, shard_token: str = "") -> str:
     """Results bucket of a target stack. Same rule as cdk/lib/vla-simulator-stack.ts: drop "-demo"
-    only when the full name overflows 63 chars."""
-    name = f"{prefix}-{stack_name.lower()}-{region}-{account}"
-    if len(name) > 63:
-        name = f"{prefix}-{stack_name.lower().removesuffix('-demo')}-{region}-{account}"
-    return name
+    only when the full name overflows 63 chars; shard stacks (--shard) follow shards.bucket_name."""
+    return shards.bucket_name(prefix, stack_name, region, account, shard_token)
 
 
 def pick_run(run_ids, video_counts: dict, wanted: str = ""):
@@ -279,11 +277,12 @@ def _maybe_import_orphan_bucket(
     cdk_out_dir: str = "cdk.out",
     vla: str = "",
     libero_suite: str = "",
+    shard_token: str = "",
 ) -> None:
     """If the S3 bucket is orphaned (RETAINed after its stack was deleted), re-adopt it with cdk import."""
     sts = boto3.client("sts", region_name=region)
     account_id = sts.get_caller_identity()["Account"]
-    bucket_name = results_bucket_name(s3_results_prefix, stack_name, region, account_id)
+    bucket_name = results_bucket_name(s3_results_prefix, stack_name, region, account_id, shard_token)
 
     s3 = boto3.client("s3", region_name=region)
     try:
@@ -478,7 +477,52 @@ def main():
                              "judge.json + judge.txt next to that run.")
     parser.add_argument("--run", metavar="RUN_ID",
                         help="--judge only: run id to score (default: the newest run with videos)")
+    shard_grp = parser.add_argument_group("shards (one stack per shard; vlasim deploy <target> --shards N "
+                                          "schedules them, docs/shards.md)")
+    shard_grp.add_argument("--shard", default="", metavar="K/N",
+                           help="deploy shard K of N as its own stack <stack>-sKKofNN (own instance and results "
+                                "bucket). RoboLab: the stack runs every N-th task of the protocol from task K; "
+                                "RoboTwin: sets --robotwin-shard K/N; other targets need the shard's --tasks-file")
+    shard_grp.add_argument("--shard-run", type=int, default=0, metavar="R",
+                           help="--shard: run index of a vlasim deploy --runs R expansion (stack <stack>-rR-sKKofNN)")
+    shard_grp.add_argument("--fanout-id", default="", metavar="ID", help=argparse.SUPPRESS)
+    parser.add_argument("--instance-types", default="", metavar="LIST",
+                        help="comma-separated instance types to try in order instead of the model's preferred list")
+    parser.add_argument("--spot", action="store_true",
+                        help="launch Spot first and On-Demand only when Spot has no capacity (one-time Spot, "
+                             "interruption = terminate; vlasim deploy --shards re-runs an interrupted shard)")
+    parser.add_argument("--robolab-variant", default="", metavar="NAME",
+                        help="robolab-*: model.variant for this deploy (default: models/<vla>.yaml model.variant), "
+                             "e.g. full-shard = the RoboLab-120 protocol on one GPU, for --shard")
     args = parser.parse_args()
+
+    shard_token = ""
+    shard_kn = None
+    if args.shard_run and not args.shard:
+        print("[error] --shard-run needs --shard.", file=sys.stderr)
+        sys.exit(1)
+    if args.shard:
+        try:
+            shard_kn = shards.parse_shard(args.shard)
+            shard_token = shards.shard_token(*shard_kn, run=args.shard_run or None)
+        except ValueError as e:
+            print(f"[error] {e}", file=sys.stderr)
+            sys.exit(1)
+        if args.judge or args.bridge or args.collect or args.libero_variant != "libero" \
+                or args.libero_objects != "libero":
+            print("[error] --shard cannot be combined with --judge, --bridge, --collect, --libero-variant plus or "
+                  "--libero-objects real2sim.", file=sys.stderr)
+            sys.exit(1)
+    instance_types = [t.strip() for t in args.instance_types.split(",") if t.strip()]
+    if any(not re.match(r"^[a-z][a-z0-9-]*\.[a-z0-9]+$", t) for t in instance_types):
+        print(f"[error] --instance-types: not an instance type list: {args.instance_types!r}", file=sys.stderr)
+        sys.exit(1)
+    if args.robolab_variant and args.vla not in ROBOLAB_TARGETS:
+        print(f"[error] --robolab-variant applies to {', '.join(ROBOLAB_TARGETS)} only.", file=sys.stderr)
+        sys.exit(1)
+    if args.fanout_id and not re.match(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}$", args.fanout_id):
+        print("[error] --fanout-id must match [A-Za-z0-9][A-Za-z0-9_.-]*", file=sys.stderr)
+        sys.exit(1)
 
     if args.run and not args.judge:
         print("[error] --run is only used with --judge.", file=sys.stderr)
@@ -530,6 +574,33 @@ def main():
         sys.exit(1)
 
     config = _load_config(args.vla)
+    if args.robolab_variant:
+        if args.robolab_variant not in (config.get("variants") or {}):
+            print(f"[error] --robolab-variant {args.robolab_variant}: models/{args.vla}.yaml variants are "
+                  f"{', '.join(sorted(config.get('variants') or {}))}", file=sys.stderr)
+            sys.exit(1)
+        config["model"] = {**(config.get("model") or {}), "variant": args.robolab_variant}
+    if shard_kn:
+        try:
+            shard_kind = shards.kind(args.vla, config)
+        except ValueError as e:
+            print(f"[error] {e}", file=sys.stderr)
+            sys.exit(1)
+        if shard_kind == "robotwin":
+            if args.robotwin_shard and args.robotwin_shard != args.shard:
+                print("[error] --robotwin-shard and --shard must be the same K/N.", file=sys.stderr)
+                sys.exit(1)
+            args.robotwin_shard = args.shard
+        elif shard_kind == "tasks-file" and not args.tasks_file:
+            print(f"[error] --shard for {args.vla} needs the shard's --tasks-file (vlasim deploy {args.vla} --shards N "
+                  "writes one per shard).", file=sys.stderr)
+            sys.exit(1)
+        elif shard_kind == "robolab":
+            try:
+                shards.robolab_shard(config, args.vla, *shard_kn)
+            except ValueError as e:
+                print(f"[error] {e}", file=sys.stderr)
+                sys.exit(1)
     if args.tasks_file:
         if args.task_set:
             print("[error] --tasks-file and --task-set both replace the tasks: list; give one.", file=sys.stderr)
@@ -751,6 +822,21 @@ def main():
         extra_cdk_ctx += ["-c", f"robotwin_protocol={args.robotwin_protocol}"]
     else:
         stack_name = "Pi-Demo"
+    if shard_token:
+        stack_name = shards.stack_name(stack_name, shard_token)
+        extra_cdk_ctx += ["-c", f"shard={shard_token}"]
+        if args.fanout_id:
+            extra_cdk_ctx += ["-c", f"fanout_id={args.fanout_id}"]
+        if args.vla in ROBOLAB_TARGETS:
+            generate_extra += ["--robolab-shard", args.shard]
+        generate_extra += ["--output-suffix", shard_token]
+    if args.robolab_variant:
+        generate_extra += ["--robolab-variant", args.robolab_variant]
+        extra_cdk_ctx += ["-c", f"robolab_variant={args.robolab_variant}"]
+    if instance_types:
+        extra_cdk_ctx += ["-c", f"instance_types={','.join(instance_types)}"]
+    if args.spot:
+        extra_cdk_ctx += ["-c", "spot=first"]
     mode = "collect" if args.collect else ("bridge" if args.bridge else "local")
     s3_results_prefix = deployment.get("s3_results_prefix", "vla-sim-results")
     cdk_dir = str(BASE_DIR / "cdk")
@@ -760,6 +846,11 @@ def main():
     print(f"[deploy] Email:  {email}")
     print(f"[deploy] Mode:   {mode}")
     print(f"[deploy] Stack:  {stack_name}")
+    if shard_token:
+        print(f"[deploy] Shard:  {args.shard}{f' of run {args.shard_run}' if args.shard_run else ''}"
+              f"{f' (fan-out {args.fanout_id})' if args.fanout_id else ''}")
+    if instance_types or args.spot:
+        print(f"[deploy] Instance: {','.join(instance_types) or 'model list'}{', Spot first' if args.spot else ''}")
     if args.vla == "openvla-oft":
         print(f"[deploy] Suite:  libero_{libero_suite}")
     if plus_plan:
@@ -836,6 +927,8 @@ def main():
         cdk_out_dir = f"cdk.out-{args.vla}-{libero_suite}"
     else:
         cdk_out_dir = f"cdk.out-{args.vla}"
+    if shard_token:
+        cdk_out_dir += f"-{shard_token}"
 
     # 1.2 Video history gallery (shared RFM-Gallery stack + this e-mail's password)
     gallery_ctx: list[str] = []
@@ -858,6 +951,7 @@ def main():
         cdk_out_dir=cdk_out_dir,
         vla=args.vla,
         libero_suite=libero_suite if args.vla == "openvla-oft" else "",
+        shard_token=shard_token,
     )
 
     # 2. CDK deploy
@@ -1002,7 +1096,10 @@ def main():
     vla_safe = shlex.quote(args.vla)
     if plus_plan:
         print(f"  Robustness table (after the run): python vlasim.py results --robustness --vla {stack_name.lower()}")
-    if args.vla == "openvla-oft" and libero_suite != OFT_DEFAULT_SUITE:
+    if shard_token:
+        print(f"  To clean up: python destroy.py --vla {vla_safe} --shard {args.shard}"
+              + (f" --shard-run {args.shard_run}" if args.shard_run else ""))
+    elif args.vla == "openvla-oft" and libero_suite != OFT_DEFAULT_SUITE:
         print(f"  To clean up: python destroy.py --vla {vla_safe} --libero-suite {shlex.quote(libero_suite)}")
     else:
         print(f"  To clean up: python destroy.py --vla {vla_safe}")

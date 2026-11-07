@@ -134,6 +134,23 @@ python vlasim.py bench run --plan bench-plan.yaml && python vlasim.py bench repo
 
 Details: [docs/bench.md](docs/bench.md).
 
+### Splitting one benchmark over many instances: `--shards`
+
+`vlasim deploy <target> --shards N` runs one benchmark as N shard stacks (`<stack>-s03of16`, own instance and
+results bucket), so the same target runs N times in parallel in one region or over several. Shard K takes every
+N-th task from task K; a scheduler keeps at most `--max-instances` stacks alive, moves a shard to the next region
+or instance type on a capacity or quota error, re-runs only an interrupted shard with `--spot`, deletes finished
+stacks with `--auto-destroy`, and resumes from its state file (a `STOP` file halts new launches). When all shards
+are done it merges them into the summary one run writes, with the measured cost (instance-hours x price) per run.
+RoboLab, RoboTwin and targets with a `tasks:` list can be split; `--runs R` expands R x N stacks in one go.
+
+```bash
+python vlasim.py deploy robolab-pi05 --robolab-variant full-shard --shards 16 --runs 2 \
+    --regions us-east-1,us-west-2,eu-central-1 --instance-types g6e.2xlarge,g6e.4xlarge --dry-run
+```
+
+Details: [docs/shards.md](docs/shards.md).
+
 ## Supported targets
 
 Instance = first choice in `models/<target>.yaml`; the deploy falls back to other types and AZs when capacity is short. **NC** = non-commercial or research-only weights or tools (see [License](#license)).
@@ -182,7 +199,7 @@ Stack names, robots, per-target notes, deploy and cleanup commands: [docs/target
 
 **Real2Sim (`real2sim`).** Instead of a policy, this target checks a reconstruction: a multi-view capture of a tabletop is turned into a 3D Gaussian Splatting model (nerfstudio splatfacto), the table and each object are cut out of it as collision meshes (also written as a UsdPhysics `.usda`), and one scripted top-down grasp per object is replayed in MuJoCo with a UR5e + Robotiq 2F-85, against the reconstructed objects, a single scene hull (baseline) and, for the default HOPE-Video scene, the ground-truth meshes. Input: a [HOPE-Video](https://github.com/swtyree/hope-dataset) scene downloaded at run time (**CC BY-NC-SA 4.0, research / non-commercial**) or your own capture zip on S3 (`images/` + a metric nerfstudio `transforms.json`). Output: PSNR / SSIM / LPIPS, per-object fidelity, grasp success per world, videos in the gallery. Measured on HOPE-Video scene 0 (`g5.2xlarge`, `ap-northeast-2`, 2026-10-29): ~12 min instance time (about US$0.30 of EC2), PSNR 24.0, 10 of 10 objects matched (two of them over-split into 2-3 clusters), grasps lifted 8/9 objects with the floating gripper and 4/9 with the UR5e on the reconstruction, 0/9 on the single scene hull. Details: [targets note 12](docs/targets.md#note-12-real2sim).
 
-**RoboLab (`robolab-cosmos3`, `robolab-pi05`).** [NVIDIA RoboLab](https://github.com/NVlabs/RoboLab) is a 120-task Isaac Lab benchmark on the DROID Franka with a public [leaderboard](https://research.nvidia.com/labs/srl/projects/robolab/leaderboard.html). Each target runs RoboLab's server-client setup on one instance: the policy server (cosmos-framework or openpi) and the headless Isaac Sim client side by side, one pair per GPU. The default is a 12-task subset × 5 episodes; `model.variant` in the model yaml switches to Cosmos3-Nano or to the full RoboLab-120 × 10 protocol on `g6e.48xlarge`. Not validated on AWS yet; leaderboard reference and notes: [targets note 13](docs/targets.md#note-14-robolab).
+**RoboLab (`robolab-cosmos3`, `robolab-pi05`).** [NVIDIA RoboLab](https://github.com/NVlabs/RoboLab) is a 120-task Isaac Lab benchmark on the DROID Franka with a public [leaderboard](https://research.nvidia.com/labs/srl/projects/robolab/leaderboard.html). Each target runs RoboLab's server-client setup on one instance: the policy server (cosmos-framework or openpi) and the headless Isaac Sim client side by side, one pair per GPU. The default is a 12-task subset × 5 episodes; `model.variant` in the model yaml switches to Cosmos3-Nano or to the full RoboLab-120 × 10 protocol on `g6e.48xlarge`; `--robolab-variant full-shard --shards N` splits RoboLab-120 over N one-GPU stacks ([docs/shards.md](docs/shards.md)). Not validated on AWS yet; leaderboard reference and notes: [targets note 13](docs/targets.md#note-14-robolab).
 
 **RoboTwin 2.0 (`smolvla-robotwin`, `lingbot-vla2`).** [RoboTwin 2.0](https://github.com/RoboTwin-Platform/RoboTwin) is a 50-task dual-arm benchmark (SAPIEN, Aloha-AgileX) with a clean (Easy) and a domain-randomized (Hard) setting. Both targets run upstream LeRobot's `lerobot-eval --env.type=robotwin` in-process; the default run is 5 tasks x 5 episodes in the clean setting, and `--robotwin-protocol clean|randomized|full --robotwin-shard K/N` runs the official 49 tasks x 100 episodes in 12-hour shards. `vlasim results` labels the rows `RoboTwin2/<setting>`. Not run on AWS yet. Details: [targets note 14](docs/targets.md#note-15-robotwin-20-smolvla-robotwin-lingbot-vla2).
 
@@ -204,6 +221,7 @@ Stack names, robots, per-target notes, deploy and cleanup commands: [docs/target
 | [Showcase](docs/showcase.md) | Full rollout gallery |
 | [Results](docs/results.md) | Downloading results, `vlasim results`, expected results, baselines |
 | [Benchmark advisor](docs/bench.md) | `vlasim bench`: questions -> candidate RFMs -> same actions on each -> one HTML report |
+| [Shards](docs/shards.md) | `vlasim deploy <target> --shards N`: one benchmark over many stacks, regions and instance types, merged results and cost |
 | [Video history](docs/gallery.md) | Password-protected page with all your run videos, destroy data choice |
 | [Configuration](docs/configuration.md) | `doctor`, regions, Hugging Face token, config keys |
 | [Architecture](docs/architecture.md) | Deploy flow and project structure |

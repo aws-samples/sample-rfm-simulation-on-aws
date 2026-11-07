@@ -43,6 +43,9 @@ export interface AzSelectorProps {
   // After every On-Demand type/AZ has no capacity, try the same list again as one-time Spot
   // (interruption = terminate). Off by default; models/<vla>.yaml instance.spot_fallback: true.
   spotFallback?: boolean;
+  // deploy.py --spot: try the list as one-time Spot first, then On-Demand (interruption = terminate;
+  // vlasim deploy --shards re-runs the interrupted shard).
+  spotFirst?: boolean;
 }
 
 export class AzSelectorConstruct extends Construct {
@@ -97,7 +100,7 @@ export class AzSelectorConstruct extends Construct {
                 ec2Arn('volume/*'),
                 ec2Arn('network-interface/*'),
                 // A one-time Spot launch also creates a spot-instances-request (only with spotFallback).
-                ...(props.spotFallback ? [ec2Arn('spot-instances-request/*')] : []),
+                ...(props.spotFallback || props.spotFirst ? [ec2Arn('spot-instances-request/*')] : []),
               ],
             }),
             // Tags only as part of the launch (TagSpecifications), never on existing resources.
@@ -144,6 +147,7 @@ export class AzSelectorConstruct extends Construct {
         EbsGb: props.ebsGb.toString(),
         Tags: JSON.stringify(props.tags),
         SpotFallback: props.spotFallback ? 'true' : 'false',
+        SpotFirst: props.spotFirst ? 'true' : 'false',
         Timestamp: Date.now().toString(),
       },
     });
@@ -182,11 +186,11 @@ export class AzSelectorConstruct extends Construct {
           'Resource::arn:<AWS::Partition>:ec2:<AWS::Region>:<AWS::AccountId>:network-interface/*',
         ],
       },
-      ...(props.spotFallback
+      ...(props.spotFallback || props.spotFirst
         ? [
             {
               id: 'AwsSolutions-IAM5',
-              reason: 'A one-time Spot launch (spotFallback only) creates a spot-instances-request whose ID is unknown until RunInstances returns. The instance statement still requires the scope tag and IMDSv2.',
+              reason: 'A one-time Spot launch (spotFallback or spotFirst) creates a spot-instances-request whose ID is unknown until RunInstances returns. The instance statement still requires the scope tag and IMDSv2.',
               appliesTo: ['Resource::arn:<AWS::Partition>:ec2:<AWS::Region>:<AWS::AccountId>:spot-instances-request/*'],
             },
           ]
@@ -236,7 +240,10 @@ def handler(event, context):
         sg_ids = props['SecurityGroupIds'].split(',')
         ebs_gb = int(props['EbsGb'])
         tags = json.loads(props['Tags'])
-        markets = ['on-demand'] + (['spot'] if props.get('SpotFallback') == 'true' else [])
+        if props.get('SpotFirst') == 'true':
+            markets = ['spot', 'on-demand']
+        else:
+            markets = ['on-demand'] + (['spot'] if props.get('SpotFallback') == 'true' else [])
 
         subnets_resp = ec2.describe_subnets(SubnetIds=subnet_ids)
         subnet_az_map = {s['SubnetId']: s['AvailabilityZone'] for s in subnets_resp['Subnets']}

@@ -1,6 +1,6 @@
 import * as cdk from 'aws-cdk-lib';
 import { Template } from 'aws-cdk-lib/assertions';
-import { captureObjectPath, real2simRunPrefix, resolveInstanceCfg, VlaSimulatorStack } from '../lib/vla-simulator-stack';
+import { captureObjectPath, real2simRunPrefix, resolveInstanceCfg, resultsBucketName, VlaSimulatorStack } from '../lib/vla-simulator-stack';
 
 // The stack reads the rendered UserData from assets/userdata/<vla>.sh (gitignored); the jest
 // globalSetup seeds placeholders for the targets synthesized here (test/userdata-seed.ts).
@@ -202,6 +202,53 @@ test.each([
 });
 
 // RoboTwin targets: instance list from the yaml; the WaitCondition timeout is keyed by robotwin_protocol.
+// deploy.py --shard (vlasim deploy --shards): one stack per shard. The bucket literals are the same as BUCKETS in
+// tests/test_shards.py (shards.bucket_name), so the Python and CDK rules cannot drift.
+describe('shard stacks', () => {
+  test('resultsBucketName matches shards.bucket_name', () => {
+    const cases: Array<[string, string, string, string]> = [
+      ['RoboLab-Pi05-Demo', 'us-east-1', '', 'vla-sim-results-robolab-pi05-demo-us-east-1-123456789012'],
+      ['RoboLab-Pi05-Demo-s03of16', 'us-east-1', 's03of16', 'vla-sim-results-robolab-pi05-s03of16-us-east-1-123456789012'],
+      ['RoboLab-Cosmos3-Demo-r2-s03of16', 'eu-central-1', 'r2-s03of16',
+        'vla-sim-results-robolab-co-r2-s03of16-eu-central-1-123456789012'],
+      ['OpenArm-Lift-ACT-Demo', 'ap-northeast-2', '', 'vla-sim-results-openarm-lift-act-ap-northeast-2-123456789012'],
+    ];
+    for (const [stack, region, token, want] of cases) {
+      const got = resultsBucketName('vla-sim-results', stack, region, '123456789012', token || undefined);
+      expect(got).toBe(want);
+      expect(got.length).toBeLessThanOrEqual(63);
+    }
+  });
+  const shardStack = (ctx: Record<string, string>) => {
+    const app = new cdk.App({ context: { region: 'eu-central-1', vla: 'robolab-cosmos3', notify_email: 'test@example.com',
+      ...ctx } });
+    return Template.fromStack(new VlaSimulatorStack(app, 'RoboLab-Cosmos3-Demo-r2-s03of16', {
+      vla: 'robolab-cosmos3', shardToken: 'r2-s03of16', env: { account: '123456789012', region: 'eu-central-1' },
+    }));
+  };
+  test('a shard stack takes the variant, instance list, Spot-first and tags from context', () => {
+    const t = shardStack({ robolab_variant: 'edge-full-shard', instance_types: 'g6e.2xlarge,g6e.xlarge', spot: 'first',
+      fanout_id: 'rl120' });
+    t.hasResourceProperties('AWS::S3::Bucket', { BucketName: 'vla-sim-results-robolab-co-r2-s03of16-eu-central-1-123456789012' });
+    t.hasResourceProperties('AWS::CloudFormation::CustomResource', {
+      InstanceTypes: 'g6e.2xlarge,g6e.xlarge', SpotFirst: 'true', EbsGb: '600',
+    });
+    t.hasResourceProperties('AWS::CloudFormation::WaitCondition', { Timeout: String(720 * 60) });
+    const cr = Object.values(t.findResources('AWS::CloudFormation::CustomResource'))[0];
+    expect(String(cr.Properties.Tags)).toContain('VlasimShard');
+    expect(String(cr.Properties.Tags)).toContain('rl120');
+  });
+  test('without the knobs a shard stack is the default variant, On-Demand only', () => {
+    const t = shardStack({});
+    t.hasResourceProperties('AWS::CloudFormation::CustomResource', { InstanceTypes: 'g6e.2xlarge,g6e.4xlarge', SpotFirst: 'false' });
+  });
+  test('bad shard knobs are rejected', () => {
+    expect(() => shardStack({ spot: 'yes' })).toThrow(/spot must be/);
+    expect(() => shardStack({ instance_types: 'g6e.2xlarge;rm' })).toThrow(/instance_types/);
+    expect(() => shardStack({ robolab_variant: 'huge' })).toThrow(/not one of/);
+  });
+});
+
 describe('smolvla-robotwin', () => {
   const waitTimeout = (ctx: Record<string, string>) => {
     const app = new cdk.App({ context: { region: 'ap-northeast-2', vla: 'smolvla-robotwin', notify_email: 'test@example.com', ...ctx } });

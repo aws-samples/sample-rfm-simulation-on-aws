@@ -23,7 +23,9 @@ Subcommands
   deploy   Run a deploy. Runs `doctor` for the target first (preflight) so a
            missing GPU quota or un-bootstrapped account is caught in seconds
            rather than mid-deploy. Forwards all flags to deploy.py unchanged.
-           Use --skip-doctor to bypass the preflight.
+           Use --skip-doctor to bypass the preflight. With --shards N the
+           benchmark runs as N shard stacks scheduled over --regions /
+           --instance-types (fanout.py, docs/shards.md).
 
   destroy  Tear down a stack. Forwards all flags to destroy.py unchanged.
 
@@ -623,6 +625,14 @@ def _peek_core_args(rest):
 
 
 def run_deploy(rest):
+    # `vlasim deploy <target> ...` = `vlasim deploy --vla <target> ...`
+    if rest and not rest[0].startswith("-"):
+        rest = ["--vla", rest[0]] + rest[1:]
+    # --shards N: one benchmark as N shard stacks over regions / instance types (fanout.py, docs/shards.md).
+    if any(tok == "--shards" or tok.startswith("--shards=") for tok in rest):
+        import fanout  # noqa: PLC0415 - needs pyyaml/jinja2 (doctor must run without them)
+
+        return fanout.main([t for t in rest if t != "--skip-doctor"])
     # If the user just wants deploy.py's help, hand it straight through.
     if any(tok in ("-h", "--help") for tok in rest):
         return _run([sys.executable, str(DEPLOY_PY), "--help"], cwd=str(BASE_DIR)).returncode
@@ -743,6 +753,8 @@ Usage:
   python vlasim.py doctor  [--vla TARGET] [--region R] [--email A]
   python vlasim.py init    [--email A] [--region R] [--bootstrap] [--skip-install]
   python vlasim.py deploy  --vla TARGET [--email A] [--region R] [--skip-doctor] [deploy.py flags...]
+  python vlasim.py deploy  TARGET --shards N [--runs R] [--regions a,b] [--max-instances M]
+                           [--instance-types t1,t2] [--spot] [--auto-destroy] [--dry-run]   (docs/shards.md)
   python vlasim.py destroy --vla TARGET [destroy.py flags...]
   python vlasim.py results [--vla PREFIX] [--region R] [--since RUN_ID] [--all-runs] [--robustness] [--csv F] [--json F]
   python vlasim.py results --matrix [--all-conditions] [--write-docs] [--csv F] [--json F]

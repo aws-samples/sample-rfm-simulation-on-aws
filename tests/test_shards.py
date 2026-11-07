@@ -698,3 +698,24 @@ def test_launches_are_paced_by_deploys_in_flight(tmp_path):
             break
         b.tick()
     assert peak == 3 and seen[0] == 3 and status == "finished" and len(b.launched) == 7
+
+
+def test_deploy_is_detached_once_the_instance_is_up(tmp_path):
+    # the stack is followed in CloudFormation; the slot for a new deploy.py opens at once
+    b = FakeBackend(script={(f"s{k:02d}of04", 1): dict(after=3) for k in range(1, 5)})
+    b.detach_when_up = True
+    st = _plan(tmp_path, n=4, m=4)
+    st["launch_batch"] = 1
+    s = fanout.Scheduler(tmp_path, st, b, log=lambda *_: None)
+    s.step()
+    assert len(b.launched) == 1 and b.killed == []
+    b.tick()
+    s.step()  # poll: the instance is up -> detach s01, which frees the deploy slot for s02
+    assert b.killed == ["s01of04"] and len(b.launched) == 2
+    assert s.state["units"]["s01of04"]["attempts"][-1]["detached"]
+    assert s.state["units"]["s01of04"]["state"] == "running"
+    for _ in range(12):
+        if s.step() == "finished":
+            break
+        b.tick()
+    assert all(u["state"] == "done" for u in s.units())

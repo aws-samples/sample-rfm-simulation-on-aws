@@ -325,6 +325,16 @@ class Scheduler:
                 self._to_cleanup(u, "queued", now, f"{u['token']}: Spot interruption in {a['region']} "
                                  f"({a['instance_type']}); re-queued" + (" On-Demand" if u.get("no_spot") else ""))
                 return
+        if getattr(self.b, "detach_when_up", False) and not a.get("detached") and a["instance_ids"]:
+            # the instance is up, so placement (capacity / quota) is settled; what is left is cdk deploy
+            # waiting hours on the WaitCondition (~0.3 GB per process on this machine). Stop it and follow the
+            # stack in CloudFormation instead (poll() falls back to the stack status once deploy.py is gone).
+            a["detached"] = iso(now)
+            self.save()
+            self.b.kill(a)
+            self.event(f"{u['token']}: instance {','.join(a['instance_ids'])} up in {a['region']}; "
+                       "following the stack in CloudFormation")
+            return
         rc = self.b.poll(a)
         if rc is None:
             return
@@ -433,13 +443,17 @@ class Scheduler:
                 return j
         return None
 
+    def deploys_in_flight(self) -> int:
+        """Units whose deploy.py still runs on this machine (not yet detached to CloudFormation)."""
+        return sum(1 for u in self.units("running") if u["attempts"] and not u["attempts"][-1].get("detached"))
+
     def _launch(self, now: dt.datetime) -> None:
         # pace the launches: every deploy.py runs a CDK synth (ts-node, ~0.8 GB) and a cdk deploy (~0.25 GB)
         # on this machine for ~10 min; 32 at once crashed a 16 GB host (SIGSEGV in ts-node, scheduler gone).
-        # So at most launch_batch deploy processes at a time ("running" = its deploy.py is still alive).
+        # So at most launch_batch deploy processes at a time (a unit is detached once its instance is up).
         batch = int(self.state.get("launch_batch") or DEFAULT_LAUNCH_BATCH)
         for u in self.units("queued"):
-            if len(self.alive()) >= self.plan["max_instances"] or len(self.units("running")) >= batch:
+            if len(self.alive()) >= self.plan["max_instances"] or self.deploys_in_flight() >= batch:
                 return
             nb = shards.parse_time(u.get("not_before"))
             if nb and nb > now:
@@ -546,6 +560,8 @@ class AwsBackend:
 
     def now(self) -> dt.datetime:
         return utcnow()
+
+    detach_when_up = True  # Scheduler._poll: stop the waiting cdk deploy once the instance runs
 
     def launch(self, unit: dict, a: dict) -> int:
         Path(a["log"]).parent.mkdir(parents=True, exist_ok=True)

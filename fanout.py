@@ -142,6 +142,29 @@ def fanout_id_of(run_dir: Path) -> str:
 
 # --- state ----------------------------------------------------------------------------------------------
 
+LOCK_FILE = "fanout.lock"
+
+
+def acquire_lock(run_dir: Path):
+    """Exclusive POSIX lock on <run_dir>/fanout.lock (fcntl.lockf also works on NFS/EFS).
+
+    Returns the open file (keep it referenced for the life of the scheduler) or None when another
+    scheduler holds it. The lock goes away with the process, so a crash never leaves it stale.
+    """
+    import fcntl
+    f = open(Path(run_dir) / LOCK_FILE, "a+")
+    try:
+        fcntl.lockf(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        f.close()
+        return None
+    f.seek(0)
+    f.truncate()
+    f.write(f"{os.getpid()}\n")
+    f.flush()
+    return f
+
+
 def load_state(run_dir: Path) -> dict | None:
     p = Path(run_dir) / STATE_FILE
     return json.loads(p.read_text()) if p.is_file() else None
@@ -945,6 +968,20 @@ def main(argv=None) -> int:
             except ValueError as e:
                 print(f"[error] {e}", file=sys.stderr)
                 return 2
+
+    if not args.dry_run:
+        email = args.email or sim.get("notify_email") or ""
+        if not email or email == "YOUR_EMAIL@example.com":
+            # deploy.py refuses without it; fail once here instead of once per shard attempt
+            print("[error] Email not set. Use --email YOUR@EMAIL.COM or edit notify_email in "
+                  "simulator-config.yaml", file=sys.stderr)
+            return 2
+        run_dir.mkdir(parents=True, exist_ok=True)
+        lock = acquire_lock(run_dir)
+        if lock is None:
+            print(f"[error] another scheduler is already running on {run_dir} ({LOCK_FILE} is locked); "
+                  "two schedulers would launch every shard twice", file=sys.stderr)
+            return 2
 
     prev = load_state(run_dir)
     if prev and plan_key(prev["plan"]) != plan_key(state["plan"]):

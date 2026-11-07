@@ -654,3 +654,30 @@ def test_f8_results_missing_is_retried_on_resume(tmp_path):
     assert s2.state["units"]["s01of01"]["state"] == "collecting"
     assert _run(s2, b) == "finished" and s2.state["units"]["s01of01"]["state"] == "done"
     assert not shards.validate_results("robolab", tmp_path / "nope")
+
+
+def test_second_scheduler_on_the_same_run_dir_is_refused(tmp_path):
+    # another process holds the lock (POSIX locks are per process, so use a child)
+    holder = subprocess.Popen(
+        [sys.executable, "-c",
+         "import sys, time; sys.path.insert(0, sys.argv[1]); import fanout; from pathlib import Path; "
+         "f = fanout.acquire_lock(Path(sys.argv[2])); print('locked' if f else 'no', flush=True); time.sleep(30)",
+         str(Path(fanout.__file__).parent), str(tmp_path)],
+        stdout=subprocess.PIPE, text=True)
+    try:
+        assert holder.stdout.readline().strip() == "locked"
+        assert fanout.acquire_lock(tmp_path) is None
+    finally:
+        holder.kill()
+        holder.wait()
+    f = fanout.acquire_lock(tmp_path)  # released with the process
+    assert f is not None
+    f.close()
+
+
+def test_real_run_without_email_fails_before_any_launch(tmp_path, capsys):
+    rc = fanout.main(["robolab-pi05", "--robolab-variant", "full-shard", "--shards", "2",
+                      "--regions", "us-west-2", "--run-dir", str(tmp_path / "r"), "--skip-doctor"])
+    assert rc == 2
+    assert "Email not set" in capsys.readouterr().err
+    assert not (tmp_path / "r" / fanout.STATE_FILE).exists()

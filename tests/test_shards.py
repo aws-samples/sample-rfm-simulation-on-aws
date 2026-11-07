@@ -683,14 +683,18 @@ def test_real_run_without_email_fails_before_any_launch(tmp_path, capsys):
     assert not (tmp_path / "r" / fanout.STATE_FILE).exists()
 
 
-def test_launches_are_paced_per_step(tmp_path):
-    b = FakeBackend(script={(f"s{k:02d}of10", 1): dict(after=99) for k in range(1, 11)})
-    st = _plan(tmp_path, n=10, m=10)
+def test_launches_are_paced_by_deploys_in_flight(tmp_path):
+    # each deploy.py takes 2 steps; at most 3 in flight, so launches come in waves of 3
+    b = FakeBackend(script={(f"s{k:02d}of07", 1): dict(after=2) for k in range(1, 8)})
+    st = _plan(tmp_path, n=7, m=7)
     st["launch_batch"] = 3
     s = fanout.Scheduler(tmp_path, st, b, log=lambda *_: None)
-    seen = []
-    for _ in range(4):
-        s.step()
+    seen, peak = [], 0
+    for _ in range(12):
+        status = s.step()
+        peak = max(peak, len(s.units("running")))
         seen.append(len(b.launched))
+        if status == "finished":
+            break
         b.tick()
-    assert seen == [3, 6, 9, 10]
+    assert peak == 3 and seen[0] == 3 and status == "finished" and len(b.launched) == 7

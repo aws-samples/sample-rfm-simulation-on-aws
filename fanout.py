@@ -50,7 +50,7 @@ TERMINAL = ("done", "failed")
 ALIVE = ("launching", "running", "cleanup")  # states that hold a --max-instances slot
 COLLECT_TRIES = 10
 DEFAULT_POLL_S = 120
-DEFAULT_LAUNCH_BATCH = 4  # new deploys per scheduler step (each one runs a CDK synth locally)
+DEFAULT_LAUNCH_BATCH = 4  # deploy.py processes at a time (each runs a CDK synth + deploy locally)
 CAPACITY_BACKOFF_S = 20 * 60
 CAPACITY_ROUNDS = 3
 OTHER_RETRIES = 1
@@ -434,12 +434,12 @@ class Scheduler:
         return None
 
     def _launch(self, now: dt.datetime) -> None:
-        # pace the launches: every deploy synthesizes the CDK app (ts-node, ~1 GB) on this machine, and
-        # 32 at once crashed it (SIGSEGV in ts-node, scheduler gone) - at most launch_batch per step
+        # pace the launches: every deploy.py runs a CDK synth (ts-node, ~0.8 GB) and a cdk deploy (~0.25 GB)
+        # on this machine for ~10 min; 32 at once crashed a 16 GB host (SIGSEGV in ts-node, scheduler gone).
+        # So at most launch_batch deploy processes at a time ("running" = its deploy.py is still alive).
         batch = int(self.state.get("launch_batch") or DEFAULT_LAUNCH_BATCH)
-        launched = 0
         for u in self.units("queued"):
-            if len(self.alive()) >= self.plan["max_instances"] or launched >= batch:
+            if len(self.alive()) >= self.plan["max_instances"] or len(self.units("running")) >= batch:
                 return
             nb = shards.parse_time(u.get("not_before"))
             if nb and nb > now:
@@ -463,7 +463,6 @@ class Scheduler:
             a["phase"] = "launched"
             u["state"] = "running"
             self.save()
-            launched += 1
             self.event(f"{u['token']}: launch {u['stack']} in {c['region']} ({c['instance_type']}"
                        f"{', spot first' if spot else ''})")
 
@@ -756,7 +755,7 @@ def parse_args(argv):
     p.add_argument("--no-render", action="store_true", help="--dry-run: skip generate.py + bash -n per shard")
     p.add_argument("--poll", type=int, default=DEFAULT_POLL_S, help="seconds between scheduler steps")
     p.add_argument("--launch-batch", type=int, default=DEFAULT_LAUNCH_BATCH, metavar="B",
-                   help=f"at most B new deploys per step; each runs a local CDK synth (default {DEFAULT_LAUNCH_BATCH})")
+                   help=f"at most B deploy processes at a time; each runs a local CDK synth + deploy (default {DEFAULT_LAUNCH_BATCH})")
     p.add_argument("--task-set", default="", metavar="NAME",
                    help="split task_sets.NAME of models/<vla>.yaml instead of its tasks: list")
     p.add_argument("--tasks-file", default="", metavar="PATH",

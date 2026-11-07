@@ -95,6 +95,8 @@
             echo "chunk_rule: $(pc_q "$(pc_get replan replan_head n_action_steps action_horizon execute_steps)")"
             echo "step_cap: $(pc_q "$(pc_get max_episode_steps max_steps step_scale episode_length)")"
             echo "instruction: $(pc_q "$(pc_get instruction instruction_type prompt)")"
+            echo "num_envs: $(pc_q "$(pc_val num_envs)")"
+            echo "rerender_on_reset: $(pc_q "$(pc_val rerender_on_reset)")"
             echo "k: $(pc_val n_success)"
             echo "n: $(pc_val n_episodes)"
             echo "instance_type: $(pc_q "${PC_ITYPE:-${INSTANCE_TYPE:-unknown}}")"

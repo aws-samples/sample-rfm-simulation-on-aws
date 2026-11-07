@@ -744,9 +744,16 @@ def generate_openarm_isaac(config: dict, dry_run: bool) -> str:
         print(f"[error] openarm-isaac asset files missing: {missing} (check assets/openarm-isaac/)", file=sys.stderr)
         sys.exit(1)
 
+    rerender = (config.get("eval") or {}).get("rerender_on_reset", True)
+    if not isinstance(rerender, bool):
+        print(f"[error] models/openarm-isaac.yaml eval.rerender_on_reset must be true or false, got {rerender!r}",
+              file=sys.stderr)
+        sys.exit(1)
+
     ctx = {
         "tasks_json": tasks_json,
         "deployment": deployment,
+        "rerender_on_reset": rerender,
         "hf_repo": model.get("hf_repo", "lerobot/folding_latest"),
         "hf_model_revision": model.get("hf_model_revision", ""),
         "openarm_isaac_commit": model.get("openarm_isaac_commit", ""),

@@ -46,6 +46,13 @@ instance:
   # Docker pull (large image) ~20-30min + sim boot + single short rollout. No model server warmup.
   creationpolicy_timeout: PT240M
 
+# Isaac Lab's ManagerBasedEnvCfg.rerender_on_reset defaults to False: the camera frame right after a reset is then the
+# previous episode's last frame (a black frame for the first episode), and a chunked policy plans its first actions from
+# it (pi0.5 on Isaac Lab Arena GR1 open-microwave: 73.5% -> 100% at 1 env with re-render on). True re-renders the cameras
+# on every reset (one extra render per reset); the value is written to summary.txt, protocol.yaml and eval_info.json.
+eval:
+  rerender_on_reset: true
+
 # Single task: empty bimanual Reach scene, pipe-proof rollout.
 # state_keys ORDER defines the 16-dim layout consumed by IsaaclabArenaProcessorStep:
 #   [R_arm(7), R_grip(1), L_arm(7), L_grip(1)] — matches folding_latest's [R_j1..7,R_grip,L_j1..7,L_grip].

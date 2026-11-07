@@ -50,6 +50,7 @@ TERMINAL = ("done", "failed")
 ALIVE = ("launching", "running", "cleanup")  # states that hold a --max-instances slot
 COLLECT_TRIES = 10
 DEFAULT_POLL_S = 120
+DEFAULT_LAUNCH_BATCH = 4  # new deploys per scheduler step (each one runs a CDK synth locally)
 CAPACITY_BACKOFF_S = 20 * 60
 CAPACITY_ROUNDS = 3
 OTHER_RETRIES = 1
@@ -433,8 +434,12 @@ class Scheduler:
         return None
 
     def _launch(self, now: dt.datetime) -> None:
+        # pace the launches: every deploy synthesizes the CDK app (ts-node, ~1 GB) on this machine, and
+        # 32 at once crashed it (SIGSEGV in ts-node, scheduler gone) - at most launch_batch per step
+        batch = int(self.state.get("launch_batch") or DEFAULT_LAUNCH_BATCH)
+        launched = 0
         for u in self.units("queued"):
-            if len(self.alive()) >= self.plan["max_instances"]:
+            if len(self.alive()) >= self.plan["max_instances"] or launched >= batch:
                 return
             nb = shards.parse_time(u.get("not_before"))
             if nb and nb > now:
@@ -458,6 +463,7 @@ class Scheduler:
             a["phase"] = "launched"
             u["state"] = "running"
             self.save()
+            launched += 1
             self.event(f"{u['token']}: launch {u['stack']} in {c['region']} ({c['instance_type']}"
                        f"{', spot first' if spot else ''})")
 
@@ -749,6 +755,8 @@ def parse_args(argv):
     p.add_argument("--dry-run", action="store_true", help="print the plan and the deploy commands; no AWS call")
     p.add_argument("--no-render", action="store_true", help="--dry-run: skip generate.py + bash -n per shard")
     p.add_argument("--poll", type=int, default=DEFAULT_POLL_S, help="seconds between scheduler steps")
+    p.add_argument("--launch-batch", type=int, default=DEFAULT_LAUNCH_BATCH, metavar="B",
+                   help=f"at most B new deploys per step; each runs a local CDK synth (default {DEFAULT_LAUNCH_BATCH})")
     p.add_argument("--task-set", default="", metavar="NAME",
                    help="split task_sets.NAME of models/<vla>.yaml instead of its tasks: list")
     p.add_argument("--tasks-file", default="", metavar="PATH",
@@ -1029,6 +1037,7 @@ def main(argv=None) -> int:
         return 1 if bad else 0
 
     run_dir.mkdir(parents=True, exist_ok=True)
+    state["launch_batch"] = max(1, args.launch_batch)  # operational: may change on resume
     sched = Scheduler(run_dir, state, AwsBackend(run_dir))
     try:
         while True:

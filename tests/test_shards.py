@@ -681,3 +681,16 @@ def test_real_run_without_email_fails_before_any_launch(tmp_path, capsys):
     assert rc == 2
     assert "Email not set" in capsys.readouterr().err
     assert not (tmp_path / "r" / fanout.STATE_FILE).exists()
+
+
+def test_launches_are_paced_per_step(tmp_path):
+    b = FakeBackend(script={(f"s{k:02d}of10", 1): dict(after=99) for k in range(1, 11)})
+    st = _plan(tmp_path, n=10, m=10)
+    st["launch_batch"] = 3
+    s = fanout.Scheduler(tmp_path, st, b, log=lambda *_: None)
+    seen = []
+    for _ in range(4):
+        s.step()
+        seen.append(len(b.launched))
+        b.tick()
+    assert seen == [3, 6, 9, 10]

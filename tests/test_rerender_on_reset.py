@@ -103,3 +103,12 @@ def test_card_records_num_envs_and_rerender(tmp_path):
 def test_card_says_unknown_when_not_recorded(tmp_path):
     card, _ = _run_card(tmp_path, "n_episodes: 1\nn_success: 0\n")
     assert (card["num_envs"], card["rerender_on_reset"]) == ("unknown", "unknown")
+
+
+def test_summary_has_one_key_per_line_for_results_and_the_card():
+    # results.py and the protocol card read `n_episodes:` / `n_success:` at the start of a line; the old combined
+    # "episode_length: N, n_episodes: M" line left k and n unknown.
+    text = _render(_config())
+    assert 'echo "episode_length: ${EPISODE_LENGTH}"' in text
+    assert 'echo "n_episodes: ${N_EPISODES}"' in text and 'echo "n_success: ${NSUCC}"' in text
+    assert ", n_episodes:" not in text

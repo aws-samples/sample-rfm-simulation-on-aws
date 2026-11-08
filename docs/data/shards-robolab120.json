@@ -1,0 +1,77 @@
+{
+ "benchmark": "RoboLab-120 full protocol (120 tasks x 10 episodes), policy pi0.5-DROID (robolab-pi05)",
+ "measured": "2026-11-07/08",
+ "runs": [
+  {
+   "layout": "16",
+   "run": 1,
+   "k": 313,
+   "n": 1200,
+   "ci": [
+    0.2368,
+    0.2864
+   ],
+   "usd": 117.11,
+   "instance_h": 39.025,
+   "wall_h": 5.78,
+   "instance_type": "g6e.4xlarge",
+   "regions": [
+    "eu-central-1",
+    "us-east-1",
+    "us-west-2"
+   ]
+  },
+  {
+   "layout": "16",
+   "run": 2,
+   "k": 314,
+   "n": 1200,
+   "ci": [
+    0.2376,
+    0.2873
+   ],
+   "usd": 119.81,
+   "instance_h": 39.879,
+   "wall_h": 8.53,
+   "instance_type": "g6e.4xlarge",
+   "regions": [
+    "us-east-1",
+    "us-west-2"
+   ]
+  },
+  {
+   "layout": "1",
+   "run": 1,
+   "k": 320,
+   "n": 1200,
+   "ci": [
+    0.2424,
+    0.2924
+   ],
+   "usd": 240.32,
+   "instance_h": 6.487,
+   "wall_h": 7.9,
+   "instance_type": "g6e.48xlarge",
+   "regions": [
+    "ap-northeast-2"
+   ]
+  },
+  {
+   "layout": "1",
+   "run": 2,
+   "k": 314,
+   "n": 1200,
+   "ci": [
+    0.2376,
+    0.2873
+   ],
+   "usd": 235.26,
+   "instance_h": 6.351,
+   "wall_h": 7.76,
+   "instance_type": "g6e.48xlarge",
+   "regions": [
+    "ap-northeast-2"
+   ]
+  }
+ ]
+}

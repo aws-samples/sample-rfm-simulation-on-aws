@@ -211,7 +211,7 @@ def _to_numpy(x):
     return x.detach().to("cpu").numpy()
 
 
-def make_env(n_envs: int = 1, use_async_envs: bool = False, cfg: Any = None):
+def make_env(n_envs: int = 1, use_async_envs: bool = False, cfg: Any = None, rerender_on_reset: bool = True):
     """LeRobot EnvHub entry point. Boots Isaac Sim, builds the OpenArm-Bi-VLA env, and returns it
     in the normalized {suite: {task_id: vec_env}} mapping LeRobot expects (_normalize_hub_result).
 
@@ -222,6 +222,8 @@ def make_env(n_envs: int = 1, use_async_envs: bool = False, cfg: Any = None):
         use_async_envs: ignored — Isaac Sim is a single in-process GPU app; async vec env is N/A.
         cfg: the IsaaclabArenaEnv config (envs/configs.py:641). Read for task / camera res / device /
             episode cap / enable_cameras.
+        rerender_on_reset: set on the Isaac Lab env cfg before gym.make (default True: re-render the cameras on
+            reset so the first observation of an episode is not the previous episode's last frame).
     """
     if n_envs < 1:
         raise ValueError("n_envs must be >= 1")
@@ -276,6 +278,10 @@ def make_env(n_envs: int = 1, use_async_envs: bool = False, cfg: Any = None):
         if sensor is not None:
             sensor.height = cam_h
             sensor.width = cam_w
+
+    # Isaac Lab defaults rerender_on_reset to False ("sensor data after reset will be stale"): the first camera frame
+    # of every episode would be the previous episode's last frame (black for the first one). Re-render on reset.
+    env_cfg.rerender_on_reset = bool(rerender_on_reset)
 
     # rgb_array render_mode + enable_cameras is what makes env.render() / camera obs produce frames.
     isaac_env = gym.make(_GYM_ID, cfg=env_cfg, render_mode="rgb_array")

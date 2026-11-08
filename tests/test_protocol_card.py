@@ -27,7 +27,7 @@ BASH = shutil.which("bash")
 pytestmark = pytest.mark.skipif(BASH is None, reason="bash not on PATH")
 MARK = "# Evaluation protocol card"
 CARD_KEYS = {"schema", "target", "tool_commit", "checkpoints", "code_pins", "suite", "condition", "seed",
-             "start_states", "chunk_rule", "step_cap", "instruction", "k", "n", "instance_type", "gpu", "region",
+             "start_states", "chunk_rule", "step_cap", "instruction", "num_envs", "rerender_on_reset", "k", "n", "instance_type", "gpu", "region",
              "written_utc", "seed_plan", "rerun_null"}
 
 

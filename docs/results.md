@@ -362,6 +362,7 @@ two numbers are comparable:
 |---|---|
 | `target`, `checkpoints` (repo, revision, suite), `code_pins`, `tool_commit` | model YAML and this repository at render time |
 | `suite`, `condition`, `seed`, `start_states`, `chunk_rule`, `step_cap`, `instruction`, `k`, `n` | this task's `summary.txt` (the key that was found is kept, e.g. `replan=1`); where the evaluation takes a value as a flag instead (RoboLab: `--seed`, the variant checkpoint, the instruction type), the value the script passes |
+| `num_envs`, `rerender_on_reset` | this task's `summary.txt` (`openarm-isaac` writes both; `rerender_on_reset: false` means the first camera frame of every episode was the previous episode's last frame, so success rates are not comparable to a re-rendered run) |
 | `instance_type`, `gpu`, `region`, `written_utc` | instance metadata and `nvidia-smi` at run time |
 
 A field the target does not record is written as `unknown`, never guessed. `--matrix` reads the cards: a cell

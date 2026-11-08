@@ -329,9 +329,12 @@ class Scheduler:
             # the instance is up, so placement (capacity / quota) is settled; what is left is cdk deploy
             # waiting hours on the WaitCondition (~0.3 GB per process on this machine). Stop it and follow the
             # stack in CloudFormation instead (poll() falls back to the stack status once deploy.py is gone).
+            # kill first, then record: a crash in between leaves an undetached attempt whose deploy is gone,
+            # which the next step detaches again (kill is idempotent) instead of a "detached" deploy that still
+            # holds a launch-batch slot
+            self.b.kill(a)
             a["detached"] = iso(now)
             self.save()
-            self.b.kill(a)
             self.event(f"{u['token']}: instance {','.join(a['instance_ids'])} up in {a['region']}; "
                        "following the stack in CloudFormation")
             return
@@ -568,6 +571,7 @@ class AwsBackend:
         self.boto3 = boto3
         self.run_dir = Path(run_dir)
         self._account = None
+        self._procs: dict[int, subprocess.Popen] = {}  # spawned wrappers, kept so that poll() reaps them
 
     def now(self) -> dt.datetime:
         return utcnow()
@@ -585,6 +589,7 @@ class AwsBackend:
                f"echo $? > {shlex.quote(a['rc_file'])}")
         p = subprocess.Popen(["bash", "-c", cmd], cwd=str(BASE_DIR), env=env, start_new_session=True,  # nosec B603,B607
                              stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        self._procs[p.pid] = p
         return p.pid
 
     def receipt(self, a: dict):
@@ -597,7 +602,19 @@ class AwsBackend:
         except (OSError, ValueError):
             return None
 
+    def _reap(self, pid) -> None:
+        p = self._procs.get(int(pid)) if str(pid).isdigit() else None
+        if p is not None and p.poll() is not None:
+            del self._procs[int(pid)]
+
     def poll(self, a: dict):
+        if a.get("pid") is not None:
+            self._reap(a["pid"])
+        if a.get("detached"):
+            # the wrapper was killed on purpose: neither its rc file nor its pid says anything about the stack
+            # (seen: the killed wrapper stayed a zombie, os.kill(pid, 0) kept succeeding, and the last shard
+            # would have been polled as "running" forever)
+            return self._stack_rc(a)
         rcf = Path(a["rc_file"])
         if rcf.is_file() and rcf.read_text().strip():
             try:
@@ -610,6 +627,9 @@ class AwsBackend:
         except (OSError, TypeError, ValueError):
             pass
         # deploy.py is gone without an rc (scheduler host rebooted): CloudFormation has the answer
+        return self._stack_rc(a)
+
+    def _stack_rc(self, a: dict):
         status = self.stack_status(a.get("stack", ""), a["region"])
         return {"CREATE_COMPLETE": 0, "UPDATE_COMPLETE": 0}.get(status, None if status and "IN_PROGRESS" in status
                                                                  else 1)

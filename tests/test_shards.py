@@ -737,3 +737,33 @@ def test_queued_unit_goes_back_to_an_earlier_candidate_with_room(tmp_path):
     assert s._pick(u) == 1
     s.state["caps"][f"{early['region']}|{early['instance_type']}"] = 0
     assert s._pick(u) is None
+
+
+def test_detached_attempt_is_polled_from_cloudformation_not_the_wrapper_pid(tmp_path):
+    # B1 run 2026-11-08: the killed wrapper of a detached deploy stayed a zombie, so os.kill(pid, 0) kept
+    # succeeding and the attempt would have been "running" forever after its stack completed.
+    b = fanout.AwsBackend.__new__(fanout.AwsBackend)
+    b._procs = {}
+    status = {"s": "CREATE_IN_PROGRESS"}
+    b.stack_status = lambda stack, region: status["s"]
+    import os
+    a = dict(pid=os.getpid(), rc_file=str(tmp_path / "x.rc"), stack="S", region="us-west-2", detached="t")
+    (tmp_path / "x.rc").write_text("143\n")  # a stray rc from the killed wrapper is ignored too
+    assert b.poll(a) is None
+    status["s"] = "CREATE_COMPLETE"
+    assert b.poll(a) == 0
+    status["s"] = "ROLLBACK_COMPLETE"
+    assert b.poll(a) == 1
+    a.pop("detached")
+    assert b.poll(a) == 143  # an attached attempt still reads its own rc
+
+
+def test_launch_keeps_the_wrapper_and_poll_reaps_it(tmp_path):
+    b = fanout.AwsBackend.__new__(fanout.AwsBackend)
+    b._procs = {}
+    b.run_dir = tmp_path
+    b.stack_status = lambda stack, region: ""
+    a = dict(argv=["true"], log=str(tmp_path / "l.log"), rc_file=str(tmp_path / "l.rc"), stack="S", region="r")
+    a["pid"] = b.launch(dict(token="t"), a)
+    b._procs[a["pid"]].wait()
+    assert b.poll(a) == 0 and a["pid"] not in b._procs

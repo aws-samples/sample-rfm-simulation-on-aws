@@ -781,3 +781,38 @@ def test_resume_with_new_regions_gives_queued_units_fresh_capacity_rounds(tmp_pa
     same = fanout.merge_resume(copy.deepcopy(prev), _plan(tmp_path, n=1, m=1, regions=("us-west-2",),
                                                           types=("g6e.48xlarge",)))["units"]["s01of01"]
     assert same["rounds"] == 2 and same["not_before"]  # unchanged candidates keep their rounds and backoff
+
+
+class LostDuringDestroy(FakeBackend):
+    """The scheduler's machine disappears while cdk destroy runs; afterwards the stack is gone and the
+    detached attempt polls as failed (what the real backend reports for a missing stack)."""
+
+    def __init__(self, *a, **k):
+        super().__init__(*a, **k)
+        self.lost = False
+
+    def destroy(self, stack, region):
+        if not self.lost:
+            self.lost = True
+            raise SystemExit("machine lost")
+        return super().destroy(stack, region)
+
+    def poll(self, a):
+        return 1 if self.lost else super().poll(a)
+
+
+def test_scheduler_lost_during_auto_destroy_resumes_the_deletion_not_a_retry(tmp_path):
+    b = LostDuringDestroy()
+    s = fanout.Scheduler(tmp_path, _plan(tmp_path, n=1, m=1, auto_destroy=True), b, log=lambda *_: None)
+    s.step()
+    b.tick()
+    with pytest.raises(SystemExit):
+        s.step()  # compute done, results confirmed, lost inside the deletion
+    saved = fanout.load_state(tmp_path)["units"]["s01of01"]
+    assert saved["state"] == "cleanup" and saved["after_cleanup"] == "done" and saved["results_dir"]
+    s2 = fanout.Scheduler(tmp_path, fanout.load_state(tmp_path), b, log=lambda *_: None)
+    assert _run(s2, b) == "finished"
+    u = s2.state["units"]["s01of01"]
+    assert u["state"] == "done" and u["other_failures"] == 0 and len(u["attempts"]) == 1
+    assert u["attempts"][-1]["rc"] == 0 and u["attempts"][-1].get("auto_destroyed")
+    assert len(b.launched) == 1 and b.destroyed == [("RoboLab-Pi05-Demo-s01of01", "us-east-1")]

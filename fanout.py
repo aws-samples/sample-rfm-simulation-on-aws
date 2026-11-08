@@ -416,6 +416,10 @@ class Scheduler:
         u["state"] = "cleanup"
         u["after_cleanup"] = after
         self.event(msg)
+        # save before deleting: cdk destroy takes minutes, and a scheduler lost in between (seen: its machine
+        # was terminated during an --auto-destroy) must resume the deletion, not poll a finished attempt whose
+        # stack is gone and count it as a failed deploy
+        self.save()
         self._cleanup(u, now)
 
     def _cleanup(self, u: dict, now: dt.datetime) -> None:

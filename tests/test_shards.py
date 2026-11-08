@@ -719,3 +719,21 @@ def test_deploy_is_detached_once_the_instance_is_up(tmp_path):
             break
         b.tick()
     assert all(u["state"] == "done" for u in s.units())
+
+
+def test_queued_unit_goes_back_to_an_earlier_candidate_with_room(tmp_path):
+    # B1 run 2026-11-08: r2-s12 hit the quota in us-west-2, moved to its last candidate (cap 0) and sat
+    # queued for hours although us-west-2 had room again once other shards finished.
+    b = FakeBackend()
+    st = _plan(tmp_path, n=2, m=4, types=("g6e.2xlarge", "g6e.4xlarge"))
+    s = fanout.Scheduler(tmp_path, st, b, log=lambda *_: None)
+    u = s.state["units"]["s01of02"]
+    last = len(u["cands"]) - 1
+    u["cand"] = last
+    for i, c in enumerate(u["cands"]):
+        s.state["caps"][f"{c['region']}|{c['instance_type']}"] = 0
+    early = u["cands"][1]
+    s.state["caps"][f"{early['region']}|{early['instance_type']}"] = 3
+    assert s._pick(u) == 1
+    s.state["caps"][f"{early['region']}|{early['instance_type']}"] = 0
+    assert s._pick(u) is None

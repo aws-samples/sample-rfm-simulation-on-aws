@@ -436,10 +436,21 @@ class Scheduler:
                     self._record_cost(a, shards.parse_time(a["ended"]))
 
     def _pick(self, u: dict) -> int | None:
-        for j in range(u["cand"], len(u["cands"])):
-            c = u["cands"][j]
+        def room(c: dict) -> int | None:
             cap = self.state["caps"].get(f"{c['region']}|{c['instance_type']}")
-            if cap is None or self.running_on(c["region"], c["instance_type"]) < cap:
+            return None if cap is None else cap - self.running_on(c["region"], c["instance_type"])
+
+        for j in range(u["cand"], len(u["cands"])):
+            r = room(u["cands"][j])
+            if r is None or r > 0:
+                return j
+        # The candidates from u["cand"] on are all at their cap. An earlier one may have room again now that
+        # its units finished (seen: the last unit sat queued for hours on a cap-0 region while the region it
+        # had left had 10 free slots), so go back to one that has a cap with room. Uncapped earlier ones are
+        # not retried here: the unit already moved past them, and a new round resets the caps anyway.
+        for j in range(u["cand"]):
+            r = room(u["cands"][j])
+            if r is not None and r > 0:
                 return j
         return None
 

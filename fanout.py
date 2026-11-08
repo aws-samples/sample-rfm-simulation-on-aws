@@ -118,6 +118,19 @@ def plan_key(plan: dict) -> dict:
     return {k: plan[k] for k in ("vla", "shards", "runs", "variant", "robotwin_protocol")}
 
 
+def merge_resume(prev: dict, state: dict) -> dict:
+    """Resume: keep units, attempts, caps; take the flags that may change (regions, types, M, spot, ...)."""
+    for tok, u in state["units"].items():
+        old = prev["units"].get(tok)
+        if old:
+            if old["state"] == "queued" and old["cands"] != u["cands"]:
+                # new regions / types: a fresh set of capacity rounds over them, without the old backoff
+                old["cands"], old["cand"], old["rounds"] = u["cands"], 0, 0
+                old.pop("not_before", None)
+            state["units"][tok] = old
+    return dict(prev, plan=state["plan"], parts=state["parts"], units=state["units"], fingerprint=state["fingerprint"])
+
+
 def deploy_argv(state: dict, unit: dict, cand: dict, spot: bool, fanout_id: str) -> list[str]:
     """deploy.py command of one unit attempt (runs from the repo root)."""
     plan = state["plan"]
@@ -1049,15 +1062,7 @@ def main(argv=None) -> int:
               file=sys.stderr)
         return 2
     if prev:
-        # resume: keep units, attempts, caps; take the flags that may change (regions, types, M, spot, ...)
-        for tok, u in state["units"].items():
-            old = prev["units"].get(tok)
-            if old:
-                if old["state"] == "queued" and old["cands"] != u["cands"]:
-                    old["cands"], old["cand"] = u["cands"], 0
-                state["units"][tok] = old
-        state = dict(prev, plan=state["plan"], parts=state["parts"], units=state["units"],
-                     fingerprint=state["fingerprint"])
+        state = merge_resume(prev, state)
 
     print_plan(state)
     write_tasks_files(state, config)

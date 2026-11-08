@@ -767,3 +767,17 @@ def test_launch_keeps_the_wrapper_and_poll_reaps_it(tmp_path):
     a["pid"] = b.launch(dict(token="t"), a)
     b._procs[a["pid"]].wait()
     assert b.poll(a) == 0 and a["pid"] not in b._procs
+
+
+def test_resume_with_new_regions_gives_queued_units_fresh_capacity_rounds(tmp_path):
+    # B2 run 2026-11-08: g6e.48xlarge had no capacity in 3 regions for 2 rounds; adding ap-northeast-2 on resume
+    # must not leave the unit one capacity miss away from "failed" or behind the old 20 min backoff.
+    prev = _plan(tmp_path, n=1, m=1, regions=("us-west-2",), types=("g6e.48xlarge",))
+    u = prev["units"]["s01of01"]
+    u.update(rounds=2, not_before="2099-01-01T00:00:00Z", cand=0)
+    new = _plan(tmp_path, n=1, m=1, regions=("ap-northeast-2", "us-west-2"), types=("g6e.48xlarge",))
+    got = fanout.merge_resume(copy.deepcopy(prev), new)["units"]["s01of01"]
+    assert got["rounds"] == 0 and "not_before" not in got and got["cands"][0]["region"] == "ap-northeast-2"
+    same = fanout.merge_resume(copy.deepcopy(prev), _plan(tmp_path, n=1, m=1, regions=("us-west-2",),
+                                                          types=("g6e.48xlarge",)))["units"]["s01of01"]
+    assert same["rounds"] == 2 and same["not_before"]  # unchanged candidates keep their rounds and backoff

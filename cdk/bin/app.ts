@@ -35,12 +35,13 @@
  *   npx cdk deploy GE-Act-Demo                 -c region=us-east-1 -c vla=ge-act
  *   npx cdk deploy DINO-WM-Demo                -c region=us-east-1 -c vla=dino-wm
  *   npx cdk deploy JEPA-WMs-Demo               -c region=us-east-1 -c vla=jepa-wms
+ *   npx cdk deploy RoboLab-Pi05-Demo-s03of16   -c region=us-east-1 -c vla=robolab-pi05 -c shard=s03of16   (deploy.py --shard 3/16)
  */
 
 import * as cdk from 'aws-cdk-lib';
 import { Validations } from 'aws-cdk-lib';
 import { AwsSolutionsChecks } from 'cdk-nag';
-import { VlaSimulatorStack } from '../lib/vla-simulator-stack';
+import { SHARD_TOKEN_RE, VlaSimulatorStack } from '../lib/vla-simulator-stack';
 
 const app = new cdk.App();
 
@@ -124,7 +125,12 @@ const stackNameMap: Record<string, string> = {
   'jepa-wms':    'JEPA-WMs-Demo',
   'vla-jepa':    'VLA-JEPA-Demo',
 };
-const stackName = stackNameMap[vla];
+// deploy.py --shard K/N [--shard-run R] (vlasim deploy --shards): one stack per shard, <base>-<token>.
+const shardToken: string = String(app.node.tryGetContext('shard') ?? '').trim();
+if (shardToken && !SHARD_TOKEN_RE.test(shardToken)) {
+  throw new Error(`Invalid shard "${shardToken}". Expected s03of16 or r2-s03of16 (deploy.py --shard sets it).`);
+}
+const stackName = shardToken ? `${stackNameMap[vla]}-${shardToken}` : stackNameMap[vla];
 
 const oftDescription = (suite: string): string => {
   if (suite === '10') return 'OpenVLA-OFT + LIBERO-10 (Franka Panda, long-horizon)';
@@ -177,6 +183,7 @@ const stack = new VlaSimulatorStack(app, stackName, {
   liberoVariant,
   liberoObjects,
   real2simRun,
+  shardToken,
   env: {
     account: process.env.CDK_DEFAULT_ACCOUNT,
     region,

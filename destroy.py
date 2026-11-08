@@ -9,6 +9,7 @@ Usage: python destroy.py --vla gr00t        [--region REGION] [--keep-data | --d
        python destroy.py --vla openarm-isaac [--region REGION]
        python destroy.py --vla openarm-lift-act [--region REGION]
        python destroy.py --judge --vla smolvla [--region REGION]   # the Flora judge stack of smolvla
+       python destroy.py --vla robolab-pi05 --shard 3/16 [--shard-run 2] [--region REGION]   # one shard stack
 
 Data choice:
   --keep-data   Delete the compute stack only. The S3 results bucket (RemovalPolicy.RETAIN) and the
@@ -30,6 +31,7 @@ from pathlib import Path
 import yaml
 
 import gallery
+import shards
 from generate import (
     OFT_DEFAULT_SUITE,
     OFT_LIBERO_SUITES,
@@ -110,7 +112,21 @@ def main():
     parser.add_argument("--judge", nargs="?", const=JUDGE_TARGETS[0], choices=JUDGE_TARGETS, metavar="JUDGE",
                         help="Delete the post-run judge stack of --vla (deploy.py --judge) instead of the target. "
                              "judge.json/judge.txt stay next to the run in the target's results bucket.")
+    parser.add_argument("--shard", default="", metavar="K/N",
+                        help="Delete the shard stack <stack>-sKKofNN of deploy.py --shard K/N (vlasim deploy --shards)")
+    parser.add_argument("--shard-run", type=int, default=0, metavar="R",
+                        help="--shard: run index of a --runs expansion (<stack>-rR-sKKofNN)")
     args = parser.parse_args()
+
+    if args.shard_run and not args.shard:
+        print("[error] --shard-run needs --shard.", file=sys.stderr)
+        sys.exit(1)
+    if args.shard:
+        if args.judge:
+            print("[error] --shard cannot be combined with --judge.", file=sys.stderr)
+            sys.exit(1)
+        _destroy_shard(args)
+        return
 
     if args.judge:
         if args.delete_all:
@@ -205,6 +221,44 @@ def main():
               + " --delete-all")
         return
     _delete_data(region, stack_name, outputs)
+
+
+def _destroy_shard(args) -> None:
+    """Delete one shard stack with CloudFormation directly (a cdk destroy would have to re-render the shard's
+    user data). --keep-data (default) keeps its results bucket; --delete-all removes it too."""
+    import boto3  # noqa: PLC0415
+
+    try:
+        token = shards.shard_token(*shards.parse_shard(args.shard), run=args.shard_run or None)
+    except ValueError as e:
+        print(f"[error] {e}", file=sys.stderr)
+        sys.exit(1)
+    config = yaml.safe_load((BASE_DIR / "simulator-config.yaml").read_text())
+    region = args.region or config["deployment"]["region"]
+    _validate_region(region)
+    base = oft_stack_name(normalise_libero_suite(args.libero_suite)) if args.vla == "openvla-oft" else STACK_NAMES[args.vla]
+    stack_name = shards.stack_name(base, token)
+    print(f"[destroy] Shard stack: {stack_name} ({region})")
+    if args.delete_all and not args.yes:
+        print("[error] --shard --delete-all needs --yes.", file=sys.stderr)
+        sys.exit(1)
+    outputs = _stack_outputs(region, stack_name)
+    if _stack_exists(region, stack_name):
+        cfn = boto3.client("cloudformation", region_name=region)
+        cfn.delete_stack(StackName=stack_name)
+        cfn.get_waiter("stack_delete_complete").wait(StackName=stack_name,
+                                                     WaiterConfig={"Delay": 15, "MaxAttempts": 160})
+        print("[destroy] Stack deleted.")
+    else:
+        print("[destroy] Not found (already deleted?).")
+    if not args.delete_all:
+        print("  The S3 results bucket stays (--delete-all removes it).")
+        return
+    account = boto3.client("sts", region_name=region).get_caller_identity()["Account"]
+    prefix = config.get("deployment", {}).get("s3_results_prefix", "vla-sim-results")
+    bucket = outputs.get("S3BucketName") or shards.bucket_name(prefix, stack_name, region, account, token)
+    n = gallery.delete_bucket(bucket, region)
+    print(f"[destroy] Results bucket {bucket}: " + ("not found (already deleted?)" if n is None else f"deleted ({n} objects)"))
 
 
 def _destroy_judge(args) -> None:

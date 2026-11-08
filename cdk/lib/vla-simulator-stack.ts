@@ -38,6 +38,48 @@ export interface VlaSimulatorStackProps extends cdk.StackProps {
   liberoObjects?: string;
   /** --libero-objects real2sim: s3://<bucket>/<RUN_ID>/real2sim of the stage-1 run whose objects are read. */
   real2simRun?: string;
+  /**
+   * deploy.py --shard K/N (vlasim deploy --shards): shard token (s03of16 / r2-s03of16). The stack id is
+   * <base>-<token>; the user data is assets/userdata/<vla>-<token>.sh and the results bucket follows
+   * resultsBucketName() below. Absent = the target's one stack, unchanged.
+   */
+  shardToken?: string;
+}
+
+/** Shard token of deploy.py --shard / --shard-run (same rule as shards.TOKEN_RE). */
+export const SHARD_TOKEN_RE = /^(?:r\d{1,2}-)?s\d{2,3}of\d{2,3}$/;
+
+/**
+ * Results bucket name. Same rule as shards.bucket_name() (deploy.py, destroy.py, fanout.py).
+ * Without a shard token: <prefix>-<stack>-<region>-<account>, dropping "-demo" only when that overflows 63 chars
+ * (names that fit are unchanged, so existing retained buckets keep their names). Shard stack: <prefix>-<base>-
+ * <token>-<region>-<account>, base = stack name without "-<token>" and "-demo", cut to fit 63 chars (the account
+ * is counted as 12 digits, so the result does not depend on whether it is resolved at synth time).
+ */
+export function resultsBucketName(prefix: string, stackName: string, region: string, account: string,
+  shardToken?: string): string {
+  const stack = stackName.toLowerCase();
+  if (!shardToken) {
+    let name = `${prefix}-${stack}-${region}-${account}`;
+    if (!cdk.Token.isUnresolved(name) && name.length > 63) {
+      name = `${prefix}-${stack.replace(/-demo$/, '')}-${region}-${account}`;
+      if (name.length > 63) {
+        throw new Error(
+          `Results bucket name is longer than 63 chars: ${name}\n` +
+          'Use a shorter deployment.s3_results_prefix in simulator-config.yaml.',
+        );
+      }
+    }
+    return name;
+  }
+  let base = stack.endsWith(`-${shardToken}`) ? stack.slice(0, -(shardToken.length + 1)) : stack;
+  base = base.replace(/-demo$/, '');
+  const room = 63 - prefix.length - shardToken.length - region.length - 12 - 4;
+  if (room < 3) {
+    throw new Error(`Results bucket of ${stackName} in ${region} cannot fit 63 chars; use a shorter s3_results_prefix`);
+  }
+  base = base.slice(0, room).replace(/-+$/, '');
+  return `${prefix}-${base}-${shardToken}-${region}-${account}`;
 }
 
 /**
@@ -124,7 +166,7 @@ function preferredFromYaml(vla: string, instanceCfg: any): string[] {
 //
 // Targets with a `profiles:` block (rlinf-*) select one with CDK context rl_profile (deploy.py --rl-profile,
 // default "smoke"); that profile's `instance:` keys override the top-level `instance:` the same way.
-export function resolveInstanceCfg(vla: string, modelConfig: any, rlProfile?: string): any {
+export function resolveInstanceCfg(vla: string, modelConfig: any, rlProfile?: string, variantOverride?: string): any {
   const base = modelConfig?.instance ?? {};
   const profiles = modelConfig?.profiles;
   if (profiles && typeof profiles === 'object') {
@@ -139,7 +181,7 @@ export function resolveInstanceCfg(vla: string, modelConfig: any, rlProfile?: st
   }
   const variants = modelConfig?.variants;
   if (!variants || typeof variants !== 'object') return base;
-  const name = String(modelConfig?.model?.variant ?? '').trim();
+  const name = String(variantOverride || modelConfig?.model?.variant || '').trim();
   if (!Object.prototype.hasOwnProperty.call(variants, name)) {
     throw new Error(`models/${vla}.yaml: model.variant "${name}" is not one of ${Object.keys(variants).join(', ')}`);
   }
@@ -174,6 +216,27 @@ export class VlaSimulatorStack extends cdk.Stack {
     super(scope, id, props);
 
     const { vla, liberoSuite, liberoVariant, liberoObjects, real2simRun } = props;
+    const shardToken = props.shardToken || '';
+    if (shardToken && !SHARD_TOKEN_RE.test(shardToken)) {
+      throw new Error(`shard "${shardToken}" is not a shard token (s03of16 or r2-s03of16)`);
+    }
+    // deploy.py --robolab-variant: model.variant for this stack (instance list, EBS, timeout of that variant).
+    const variantCtx = String(this.node.tryGetContext('robolab_variant') ?? '').trim();
+    // deploy.py --instance-types: ordered instance list instead of the model's.
+    const instanceTypesCtx = String(this.node.tryGetContext('instance_types') ?? '').split(',')
+      .map((t) => t.trim()).filter((t) => t);
+    if (instanceTypesCtx.some((t) => !/^[a-z][a-z0-9-]*\.[a-z0-9]+$/.test(t))) {
+      throw new Error(`instance_types must be a comma-separated list of instance types, got "${instanceTypesCtx}"`);
+    }
+    // deploy.py --spot: Spot first, On-Demand when Spot has no capacity.
+    const spotCtx = String(this.node.tryGetContext('spot') ?? '').trim();
+    if (spotCtx && spotCtx !== 'first') {
+      throw new Error(`spot must be "first" or absent, got "${spotCtx}"`);
+    }
+    const fanoutId = String(this.node.tryGetContext('fanout_id') ?? '').trim();
+    if (fanoutId && !/^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}$/.test(fanoutId)) {
+      throw new Error(`fanout_id "${fanoutId}" must match [A-Za-z0-9][A-Za-z0-9_.-]*`);
+    }
 
     // ── Load config ──────────────────────────────────────────────
     const simConfigPath = path.resolve(__dirname, '../../simulator-config.yaml');
@@ -199,7 +262,8 @@ export class VlaSimulatorStack extends cdk.Stack {
     const r2sRun = r2sCfg ? real2simRunPrefix(real2simRun ?? '') : undefined;
     const knobCfg = plusCfg ?? r2sCfg;
     const instanceCfg = {
-      ...(resolveInstanceCfg(vla, modelConfig, this.node.tryGetContext('rl_profile') as string | undefined) ?? {}),
+      ...(resolveInstanceCfg(vla, modelConfig, this.node.tryGetContext('rl_profile') as string | undefined,
+        variantCtx || undefined) ?? {}),
       ...(knobCfg?.creationpolicy_timeout ? { creationpolicy_timeout: knobCfg.creationpolicy_timeout } : {}),
       ...(knobCfg?.ebs_gb ? { ebs_gb: knobCfg.ebs_gb } : {}),
     };
@@ -300,16 +364,8 @@ export class VlaSimulatorStack extends cdk.Stack {
     // OpenVLA-OFT-<Suite>-Demo) overflow it in ap-northeast-* / eu-central-1, so drop the
     // "-demo" part only for those. Names that already fit are unchanged, so existing (retained)
     // buckets keep their names. deploy.py mirrors this rule for the orphan-bucket import.
-    let bucketName = `${s3ResultsPrefix}-${stackName.toLowerCase()}-${this.region}-${this.account}`;
-    if (!cdk.Token.isUnresolved(bucketName) && bucketName.length > 63) {
-      bucketName = `${s3ResultsPrefix}-${stackName.toLowerCase().replace(/-demo$/, '')}-${this.region}-${this.account}`;
-      if (bucketName.length > 63) {
-        throw new Error(
-          `Results bucket name is longer than 63 chars: ${bucketName}\n` +
-          'Use a shorter deployment.s3_results_prefix in simulator-config.yaml.',
-        );
-      }
-    }
+    // Shard stacks (deploy.py --shard) get <prefix>-<base>-<token>-<region>-<account>, cut to fit.
+    const bucketName = resultsBucketName(s3ResultsPrefix, stackName, this.region, this.account, shardToken);
     const bucket = new s3.Bucket(this, 'ResultsBucket', {
       bucketName,
       removalPolicy: cdk.RemovalPolicy.RETAIN,
@@ -472,7 +528,8 @@ export class VlaSimulatorStack extends cdk.Stack {
     });
 
     // ── UserData (S3 Asset bootstrap) ─────────────────────────────
-    const userDataPath = path.resolve(__dirname, `../../assets/userdata/${vla}.sh`);
+    const userDataFile = shardToken ? `${vla}-${shardToken}.sh` : `${vla}.sh`;
+    const userDataPath = path.resolve(__dirname, `../../assets/userdata/${userDataFile}`);
     if (!fs.existsSync(userDataPath)) {
       throw new Error(
         `UserData script not found: ${userDataPath}\n` +
@@ -535,7 +592,7 @@ export class VlaSimulatorStack extends cdk.Stack {
 
     // ── AzSelector: launch real instance (no probe+terminate race) ─
     const azSelector = new AzSelectorConstruct(this, 'AzSelector', {
-      instanceTypes: INSTANCE_TYPES[vla] ?? preferredFromYaml(vla, instanceCfg),
+      instanceTypes: instanceTypesCtx.length ? instanceTypesCtx : (INSTANCE_TYPES[vla] ?? preferredFromYaml(vla, instanceCfg)),
       amiId,
       subnetIds: vpc.privateSubnets.map((s) => s.subnetId),
       userDataBase64: userDataRendered,
@@ -546,9 +603,12 @@ export class VlaSimulatorStack extends cdk.Stack {
       tags: [
         { key: 'Name',      value: `${stackName}-${vla}` },
         { key: 'StackName', value: stackName },
+        ...(shardToken ? [{ key: 'VlasimShard', value: shardToken }] : []),
+        ...(fanoutId ? [{ key: 'VlasimFanout', value: fanoutId }] : []),
       ],
       scopeTag: { key: 'StackName', value: stackName },
       spotFallback: instanceCfg.spot_fallback === true,
+      spotFirst: spotCtx === 'first',
     });
     // WaitCondition timeout starts when CFN processes it. The instance is launched by AzSelector
     // Lambda. No explicit DependsOn needed — WaitConditionHandle URL is embedded in UserData,

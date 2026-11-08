@@ -24,3 +24,6 @@ MUJOCO_LOG.TXT
 bench-plan*.yaml
 bench-plan*.d/
 bench-report-*.html
+
+# vlasim deploy --shards (state, logs, downloaded and merged results)
+fanout/

@@ -48,6 +48,7 @@ import libero_r2s
 import repeatability
 import robotwin_plan
 import seeds
+import shards as shard_plan
 import task_sets
 from targets import JUDGE_TARGETS, VLA_TARGETS
 
@@ -2119,6 +2120,16 @@ def generate_robolab(config: dict, dry_run: bool, vla: str) -> str:
     if not proto:
         fail(f"variants.{variant}.protocol must name an entry of protocols: {sorted(protocols)}")
     tasks = list(proto.get("tasks") or [])
+    extra_meta = []
+    shard = config.get("robolab_shard")
+    if shard:  # vlasim deploy --shards: this stack runs shard K/N of the protocol's task list (shards.py)
+        try:
+            part = shard_plan.robolab_shard(config, vla, *shard_plan.parse_shard(shard))
+        except ValueError as e:
+            fail(str(e))
+        tasks = part["tasks"]
+        extra_meta = [f"fanout_shard={shard}", "task_ids=[" + ",".join(str(i) for i in part["task_ids"]) + "]",
+                      f"n_tasks_protocol={part['n_tasks_total']}"]
     bad = [t for t in tasks if not _TASK_RE.match(str(t))]
     if bad:
         fail(f"protocol task names must be RoboLab task class names: {bad}")
@@ -2203,6 +2214,7 @@ def generate_robolab(config: dict, dry_run: bool, vla: str) -> str:
         "min_host_mib": int(var.get("min_host_mib", 60000)),
         "report_py_b64": base64.encodebytes(asset.read_bytes()).decode(),
         "repeats": int((config.get("repeat_plan") or {}).get("repeats", 1)),
+        "extra_meta": extra_meta,
     }
     # protocol card: RoboLab takes the seed as a client flag and the checkpoint from the variant, not from
     # summary.txt, so the card gets them (and the start-state rule) from what this script passes
@@ -2538,6 +2550,12 @@ def main():
     parser.add_argument("--collect", action="store_true",
                         help="gr00t-g1: trajectory COLLECTION mode (success-only obs/action HDF5 for "
                              "N1.7 G1 adapter FT) instead of the default rollout/video mode.")
+    parser.add_argument("--robolab-variant", default="", metavar="NAME",
+                        help="robolab-*: model.variant for this render (default: the yaml's model.variant)")
+    parser.add_argument("--robolab-shard", default="", metavar="K/N",
+                        help="robolab-*: render shard K of N of the protocol's task list (vlasim deploy --shards)")
+    parser.add_argument("--output-suffix", default="", metavar="TOKEN",
+                        help="write <output-dir>/<vla>-<TOKEN>.sh (one file per shard stack, e.g. s03of16)")
     args = parser.parse_args()
 
     config_path = Path(args.config).resolve()
@@ -2553,6 +2571,24 @@ def main():
 
     name = args.judge_target or args.vla
     config = _load_merged_config(config_path, name)
+    if (args.robolab_variant or args.robolab_shard) and args.vla not in ROBOLAB_TARGETS:
+        parser.error(f"--robolab-variant / --robolab-shard apply to {', '.join(ROBOLAB_TARGETS)} only")
+    if args.robolab_variant:
+        if args.robolab_variant not in (config.get("variants") or {}):
+            parser.error(f"--robolab-variant {args.robolab_variant}: models/{name}.yaml variants are "
+                         f"{', '.join(sorted(config.get('variants') or {}))}")
+        config["model"] = dict(config.get("model") or {}, variant=args.robolab_variant)
+    if args.robolab_shard:
+        try:
+            shard_plan.parse_shard(args.robolab_shard)
+        except ValueError as e:
+            parser.error(str(e))
+        config["robolab_shard"] = args.robolab_shard
+    if args.output_suffix:
+        try:
+            shard_plan.parse_token(args.output_suffix)
+        except ValueError as e:
+            parser.error(f"--output-suffix: {e}")
     if args.task_set:
         if args.judge_target or args.collect or args.libero_variant != "libero" or args.libero_objects != "libero" \
                 or args.robotwin_protocol != "subset":
@@ -2692,7 +2728,7 @@ def main():
 
     out_dir = Path(args.output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    dest = out_dir / f"{name}.sh"
+    dest = out_dir / (f"{name}-{args.output_suffix}.sh" if args.output_suffix else f"{name}.sh")
     dest.write_text(rendered)
 
     # Syntax-validate the rendered UserData before it can reach a deploy. A bash

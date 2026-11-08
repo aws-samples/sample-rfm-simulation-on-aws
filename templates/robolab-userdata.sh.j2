@@ -476,7 +476,8 @@ KN=$(python3 "${WORK}/robolab_report.py" "${RUN_DIRS[@]}" --upload-dir "$UPLOAD_
     --meta "stack_isaac_lab={{ isaac_lab_tag.split('@')[0] }}" \
     --meta "stack_server={{ server_commit[:8] }}" \
     --meta "shards=${SHARDS}" \
-    --meta "instance=${INSTANCE_TYPE}" 2> /tmp/{{ vla }}_report.log | tail -1) || { [ "$REP" -gt 1 ] || die "report failed (see /tmp/{{ vla }}_report.log)"; \
+{% for kv in extra_meta %}    --meta "{{ kv }}" \
+{% endfor %}    --meta "instance=${INSTANCE_TYPE}" 2> /tmp/{{ vla }}_report.log | tail -1) || { [ "$REP" -gt 1 ] || die "report failed (see /tmp/{{ vla }}_report.log)"; \
     log "[warn] repeat ${REP} report failed (see /tmp/{{ vla }}_report.log)"; KN="0/0"; }
 N_EPISODES=${KN#*/}
 log "  {{ label }}: ${KN} episodes succeeded ($(jq -r '.success_rate // "n/a"' "${UPLOAD_DIR}/robolab_results.json"))"

@@ -150,15 +150,19 @@ PRICES = {
         "g5.xlarge": 1.006, "g5.2xlarge": 1.212, "g5.4xlarge": 1.624, "g5.12xlarge": 5.672, "g5.24xlarge": 8.144,
         "g6.xlarge": 0.8048, "g6.2xlarge": 0.9776, "g6.4xlarge": 1.3232, "g6.12xlarge": 4.6016,
         "g6.24xlarge": 6.6752, "g6e.xlarge": 1.861, "g6e.2xlarge": 2.24208, "g6e.4xlarge": 3.00424,
-        "g6e.12xlarge": 10.49264, "g6e.24xlarge": 15.06559, "g7e.2xlarge": 3.36312, "g7e.4xlarge": 3.99816,
-        "p5.4xlarge": 6.88,
+        "g6e.12xlarge": 10.49264, "g6e.24xlarge": 15.06559, "g6e.48xlarge": 30.13118, "g7e.2xlarge": 3.36312,
+        "g7e.4xlarge": 3.99816, "p5.4xlarge": 6.88,
+    },
+    # g6e only (vlasim deploy --shards region list; checked 2026-11-07)
+    "us-east-2": {
+        "g6e.xlarge": 1.861, "g6e.2xlarge": 2.24208, "g6e.4xlarge": 3.00424, "g6e.48xlarge": 30.13118,
     },
     "us-west-2": {
         "g5.xlarge": 1.006, "g5.2xlarge": 1.212, "g5.4xlarge": 1.624, "g5.12xlarge": 5.672, "g5.24xlarge": 8.144,
         "g6.xlarge": 0.8048, "g6.2xlarge": 0.9776, "g6.4xlarge": 1.3232, "g6.12xlarge": 4.6016,
         "g6.24xlarge": 6.6752, "g6e.xlarge": 1.861, "g6e.2xlarge": 2.24208, "g6e.4xlarge": 3.00424,
-        "g6e.12xlarge": 10.49264, "g6e.24xlarge": 15.06559, "g7e.2xlarge": 3.36312, "g7e.4xlarge": 3.99816,
-        "p5.4xlarge": 6.88,
+        "g6e.12xlarge": 10.49264, "g6e.24xlarge": 15.06559, "g6e.48xlarge": 30.13118, "g7e.2xlarge": 3.36312,
+        "g7e.4xlarge": 3.99816, "p5.4xlarge": 6.88,
     },
     "ap-northeast-1": {
         "g5.xlarge": 1.459, "g5.2xlarge": 1.75776, "g5.4xlarge": 2.35528, "g5.12xlarge": 8.22609,
@@ -171,14 +175,14 @@ PRICES = {
         "g5.xlarge": 1.237, "g5.2xlarge": 1.4903, "g5.4xlarge": 1.99691, "g5.12xlarge": 6.97442,
         "g5.24xlarge": 10.01404, "g6.xlarge": 0.9896, "g6.2xlarge": 1.20208, "g6.4xlarge": 1.62704,
         "g6.12xlarge": 5.65823, "g6.24xlarge": 8.20797, "g6e.xlarge": 2.288, "g6e.2xlarge": 2.75652,
-        "g6e.4xlarge": 3.69355, "g6e.12xlarge": 12.90014, "g6e.24xlarge": 18.52234, "g7e.2xlarge": 4.13478,
+        "g6e.4xlarge": 3.69355, "g6e.12xlarge": 12.90014, "g6e.24xlarge": 18.52234, "g6e.48xlarge": 37.04468, "g7e.2xlarge": 4.13478,
         "g7e.4xlarge": 4.91553,
     },
     "eu-central-1": {
         "g5.xlarge": 1.258, "g5.2xlarge": 1.5156, "g5.4xlarge": 2.03081, "g5.12xlarge": 7.09282,
         "g5.24xlarge": 10.18405, "g6.xlarge": 1.0064, "g6.2xlarge": 1.22249, "g6.4xlarge": 1.65466,
         "g6.12xlarge": 5.75429, "g6.24xlarge": 8.34732, "g6e.xlarge": 2.327, "g6e.2xlarge": 2.8035,
-        "g6e.4xlarge": 3.75651, "g6e.12xlarge": 13.12002, "g6e.24xlarge": 18.83806, "g7e.2xlarge": 5.71915,
+        "g6e.4xlarge": 3.75651, "g6e.12xlarge": 13.12002, "g6e.24xlarge": 18.83806, "g6e.48xlarge": 37.67612, "g7e.2xlarge": 5.71915,
         "g7e.4xlarge": 6.79907,
     },
 }

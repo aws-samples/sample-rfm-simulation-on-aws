@@ -94,6 +94,24 @@ variants:
       preferred: [g6e.48xlarge]
       ebs_gb: 900
       creationpolicy_timeout: PT720M
+  # RoboLab-120 split over many 1-GPU stacks: vlasim deploy robolab-pi05 --robolab-variant full-shard --shards N
+  # (docs/shards.md). One shard = 120/N tasks x 10 episodes on one L40S; N >= 8 keeps a shard within the 12 h
+  # WaitCondition (a single 1-GPU stack would need ~8 x the 8-GPU full wall time).
+  full-shard:
+    policy_config: "pi05_droid_jointpos"
+    checkpoint_dir: "gs://openpi-assets-simeval/pi05_droid_jointpos"
+    client_args: ["--policy", "pi05"]
+    protocol: full
+    shards: 1
+    gpus_per_shard: 1
+    eval_timeout_min: 600
+    min_gpu_mib: 44000
+    min_host_mib: 60000
+    leaderboard: "pi0.5 28.0% (336/1200, RoboLab-120 default)"
+    instance:
+      preferred: [g6e.2xlarge, g6e.4xlarge]
+      ebs_gb: 500
+      creationpolicy_timeout: PT720M
 
 instance:
   preferred: [g6e.2xlarge, g6e.4xlarge]

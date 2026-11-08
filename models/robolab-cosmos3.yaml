@@ -125,6 +125,24 @@ variants:
       preferred: [g6e.48xlarge]
       ebs_gb: 1000
       creationpolicy_timeout: PT720M   # the WaitCondition maximum (12 h)
+  # RoboLab-120 split over many 1-GPU stacks: vlasim deploy robolab-cosmos3 --robolab-variant edge-full-shard
+  # --shards N (docs/shards.md). One shard = 120/N tasks x 10 episodes on one L40S; N >= 8 keeps a shard within
+  # the 12 h WaitCondition (a single 1-GPU stack would need ~8 x the 8-GPU edge-full wall time).
+  edge-full-shard:
+    hf_repo: "nvidia/Cosmos3-Edge-Policy-DROID"
+    hf_model_revision: "0110e64ca982589f1a3d856cbdd7d465dccb79bc"
+    server_args: ["--format-prompt-as-json", "True", "--guidance-interval", "960", "1001"]
+    protocol: full
+    shards: 1
+    gpus_per_shard: 1
+    eval_timeout_min: 600
+    min_gpu_mib: 44000
+    min_host_mib: 60000
+    leaderboard: "Cosmos3-Edge-Policy 22.9% (275/1200, RoboLab-120 default)"
+    instance:
+      preferred: [g6e.2xlarge, g6e.4xlarge]
+      ebs_gb: 600
+      creationpolicy_timeout: PT720M
 
 # Defaults for tools that read instance.* without resolving model.variant (vlasim doctor regex fallback).
 instance:

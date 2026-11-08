@@ -25,11 +25,11 @@ python vlasim.py deploy robolab-pi05 --robolab-variant full-shard --shards 16 --
 | `--max-instances M` | At most M shard stacks alive at once (default N x R). |
 | `--spot` | Launch Spot first (On-Demand inside the same stack when Spot has no capacity). An interruption re-runs only that shard; after two interruptions it runs On-Demand. |
 | `--auto-destroy` | Delete each shard stack as soon as its run is done (the results bucket is kept). |
+| `--launch-batch B` | At most B deploy processes at a time (default 4); each runs a local CDK synth + deploy, and 32 at once exhausted a 16 GB machine. |
 | `--max-usd X` | Stop new launches once the spend (instance-hours x price, running ones included) reaches X. |
 | `--robolab-variant V` | RoboLab: `model.variant` for every shard (`full-shard` / `edge-full-shard` = RoboLab-120 on one L40S per shard). |
 | `--run-dir D` | State and results directory (default `fanout/<target>-<variant>-<N>x<R>`). |
 | `--dry-run` | Print the plan, every deploy command with its region and instance type, and render + `bash -n` each shard's user data. No AWS call. |
-
 | `--task-set NAME` / `--tasks-file PATH` | Split that task list instead of the model's `tasks:` (list-based targets); every shard file carries the set's model overrides. |
 
 `--email` and `--seed` are passed to every shard; other unknown flags are passed through to `deploy.py`, except
@@ -117,6 +117,42 @@ long it applied). `fanout-result.json`, the merged
 `robolab_results.json` / `summary.json` and the merged RoboLab `summary.txt` (`cost_usd`, `instance_hours`) carry it per run, with
 `usd_per_episode` and the wall clock from the first deploy to the last shard done. Stack create / delete, EBS,
 NAT gateway and data transfer are not included.
+
+## Measured: RoboLab-120, 16 shards vs 1 instance
+
+`robolab-pi05` (pi0.5-DROID), full RoboLab-120 protocol (120 tasks x 10 episodes), two runs per layout,
+measured 2026-11-07/08. **16 shards**: `--robolab-variant full-shard --shards 16 --runs 2`, one L40S per shard
+(`g6e.4xlarge`; `g6e.2xlarge` had no capacity in any of the three regions, so the scheduler moved every shard to
+the next type), `us-west-2`, `us-east-1`, `eu-central-1`. **1 instance**: `--robolab-variant full --shards 1 --runs 2`
+on `g6e.48xlarge` (8 x L40S, one server-client pair per GPU); no `g6e.48xlarge` capacity in the three US / EU
+regions for 1.3 h, so both runs ran in `ap-northeast-2`.
+
+![RoboLab-120: success rate, cost and wall clock, 16 shards vs one 8-GPU instance](images/shards-robolab120.svg)
+
+| Layout | Run | Success | Rate (Wilson 95%) | Instance-hours | Cost (USD) | Wall clock |
+|---|---|---|---|---|---|---|
+| 16 x `g6e.4xlarge` | 1 | 313/1200 | 26.1% (23.7-28.6%) | 39.0 | 117.11 | 5.8 h |
+| 16 x `g6e.4xlarge` | 2 | 314/1200 | 26.2% (23.8-28.7%) | 39.9 | 119.81 | 8.5 h |
+| 1 x `g6e.48xlarge` | 1 | 320/1200 | 26.7% (24.2-29.2%) | 6.49 | 240.32 (Seoul) / ~195.5 (US price) | 7.9 h |
+| 1 x `g6e.48xlarge` | 2 | 314/1200 | 26.2% (23.8-28.7%) | 6.35 | 235.26 (Seoul) / ~191.3 (US price) | 7.8 h |
+
+Cost = the measured instance-hours x On-Demand price ([Cost per run](#cost-per-run)); "US price" is the same
+hours at the `us-west-2` `g6e.48xlarge` price, for a like-for-like comparison with the US / EU shards. Leaderboard
+reference for pi0.5: 28.0% (336/1200).
+
+- **Same result.** All four runs fall between 26.1% and 26.7%, each inside the others' Wilson interval: splitting
+  the benchmark into 16 stacks does not change the score.
+- **About half the cost.** 117-120 USD per run with 16 shards against ~191-196 USD for one `g6e.48xlarge` at the
+  same regional price (235-240 USD at the Seoul price paid). Sixteen `g6e.4xlarge` cost less per GPU-hour than
+  one `g6e.48xlarge`, and a shard stops paying when its own tasks are done instead of waiting for the slowest GPU.
+- **Wall clock is not a clean comparison.** Both layouts include incidents: the 16-shard runs include two
+  scheduler restarts (a lost scheduler machine) and, in run 2, one shard left queued for ~3.8 h by a scheduler
+  bug (fixed); the 1-instance wall clock includes 1.3 h of capacity search before Seoul was added. A clean shard
+  took ~2.5 h on `g6e.4xlarge` (setup included), so with capacity in place a 16-shard run finishes in about
+  2.5-3 h against ~6.4 h of instance time for the 8-GPU instance.
+
+The figure is drawn from [`data/shards-robolab120.json`](data/shards-robolab120.json) by
+`python3 tools/shards-figure/plot.py render`.
 
 ## Limits
 

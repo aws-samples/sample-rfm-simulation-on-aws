@@ -816,3 +816,48 @@ def test_scheduler_lost_during_auto_destroy_resumes_the_deletion_not_a_retry(tmp
     assert u["state"] == "done" and u["other_failures"] == 0 and len(u["attempts"]) == 1
     assert u["attempts"][-1]["rc"] == 0 and u["attempts"][-1].get("auto_destroyed")
     assert len(b.launched) == 1 and b.destroyed == [("RoboLab-Pi05-Demo-s01of01", "us-east-1")]
+
+
+def test_capped_candidates_with_nothing_running_start_a_new_round(tmp_path):
+    # audit A8c91c268ca F1: two shards with rotated candidates both miss capacity while nothing else runs, so
+    # each caps the other's next candidate at 0; no cap ever frees up and both would stay queued forever.
+    script = {("s01of02", 1): dict(rc=1, log="InsufficientInstanceCapacity"),
+              ("s02of02", 1): dict(rc=1, log="InsufficientInstanceCapacity")}
+    b = FakeBackend(script)
+    s = fanout.Scheduler(tmp_path, _plan(tmp_path, n=2, m=2), b, log=lambda *_: None)
+    status = _run(s, b, steps=60)
+    assert status == "finished"
+    units = s.state["units"].values()
+    assert all(u["state"] == "done" for u in units)
+    assert sum(u["rounds"] for u in units) == 1  # one new round (it clears every cap) frees both
+
+
+def test_describe_error_is_not_taken_for_a_deleted_stack(tmp_path):
+    # audit A8c91c268ca F2: a throttled / denied describe_stacks must not count as "stack gone" (cleanup would
+    # record a live, billable stack as deleted) nor as a failed deploy.
+    class ClientError(Exception):  # the shape of botocore's ClientError
+        def __init__(self, code, msg):
+            super().__init__(msg)
+            self.response = {"Error": {"Code": code, "Message": msg}}
+
+    err = ClientError
+
+    class Cfn:
+        def __init__(self, e):
+            self.e, self.deleted = e, []
+
+        def describe_stacks(self, StackName):
+            raise self.e
+
+        def delete_stack(self, StackName):
+            self.deleted.append(StackName)
+
+    b = fanout.AwsBackend.__new__(fanout.AwsBackend)
+    for e, want in ((err("ValidationError", "Stack with id S does not exist"), ""),
+                    (err("Throttling", "Rate exceeded"), fanout.STATUS_UNKNOWN),
+                    (err("AccessDenied", "not authorized"), fanout.STATUS_UNKNOWN)):
+        cfn = Cfn(e)
+        b.boto3 = type("B", (), {"client": staticmethod(lambda *a, **k: cfn)})
+        assert b.stack_status("S", "us-west-2") == want
+        assert b.destroy("S", "us-west-2") == (0 if want == "" else 1) and not cfn.deleted
+        assert b._stack_rc(dict(stack="S", region="us-west-2")) == (1 if want == "" else None)

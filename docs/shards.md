@@ -140,11 +140,14 @@ Cost = the measured instance-hours x On-Demand price ([Cost per run](#cost-per-r
 hours at the `us-west-2` `g6e.48xlarge` price, for a like-for-like comparison with the US / EU shards. Leaderboard
 reference for pi0.5: 28.0% (336/1200).
 
-- **Same result.** All four runs fall between 26.1% and 26.7%, each inside the others' Wilson interval: splitting
-  the benchmark into 16 stacks does not change the score.
-- **About half the cost.** 117-120 USD per run with 16 shards against ~191-196 USD for one `g6e.48xlarge` at the
-  same regional price (235-240 USD at the Seoul price paid). Sixteen `g6e.4xlarge` cost less per GPU-hour than
-  one `g6e.48xlarge`, and a shard stops paying when its own tasks are done instead of waiting for the slowest GPU.
+- **Similar success rate.** The four runs score 26.1-26.7%, each inside the others' Wilson interval; no
+  difference between the layouts shows up in these runs. That is not a proof of equivalence (it would need an
+  equivalence margin and a paired test on the same episodes).
+- **About 40% less cost.** 117-120 USD per run with 16 shards against ~191-196 USD for one `g6e.48xlarge` at the
+  same regional price (39% less on average); against the 235-240 USD actually paid at the Seoul price it is about
+  half. A `g6e.4xlarge` costs less per GPU-hour than one eighth of a `g6e.48xlarge` (3.00 vs 3.77 USD in
+  `us-west-2`), and a shard stops paying when its own tasks are done instead of waiting for the slowest GPU
+  (39-40 GPU-hours against 51-52).
 - **Wall clock is not a clean comparison.** Both layouts include incidents: the 16-shard runs include two
   scheduler restarts (a lost scheduler machine) and, in run 2, one shard left queued for ~3.8 h by a scheduler
   bug (fixed); the 1-instance wall clock includes 1.3 h of capacity search before Seoul was added. A clean shard

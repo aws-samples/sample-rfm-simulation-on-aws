@@ -149,9 +149,9 @@ python vlasim.py deploy robolab-pi05 --robolab-variant full-shard --shards 16 --
     --regions us-east-1,us-west-2,eu-central-1 --instance-types g6e.2xlarge,g6e.4xlarge --dry-run
 ```
 
-Measured on RoboLab-120 with `robolab-pi05`: 16 one-GPU shards gave the same success rate as one
-`g6e.48xlarge` (26.1-26.7% over four runs) for about half the cost per run (117-120 USD against ~191-196 USD at
-the same regional price) — [figure and table](docs/shards.md#measured-robolab-120-16-shards-vs-1-instance).
+Measured on RoboLab-120 with `robolab-pi05`: 16 one-GPU shards scored like one `g6e.48xlarge`
+(26.1-26.7% over four runs) for about 40% less per run (117-120 USD against ~191-196 USD at the same regional
+price) — [figure and table](docs/shards.md#measured-robolab-120-16-shards-vs-1-instance).
 Details: [docs/shards.md](docs/shards.md).
 
 ## Supported targets

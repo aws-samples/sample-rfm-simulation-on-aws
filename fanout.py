@@ -53,6 +53,7 @@ DEFAULT_POLL_S = 120
 DEFAULT_LAUNCH_BATCH = 4  # deploy.py processes at a time (each runs a CDK synth + deploy locally)
 CAPACITY_BACKOFF_S = 20 * 60
 CAPACITY_ROUNDS = 3
+STATUS_UNKNOWN = "?"  # stack_status when CloudFormation could not be asked (not "absent")
 OTHER_RETRIES = 1
 SPOT_INTERRUPTIONS_BEFORE_ON_DEMAND = 2
 
@@ -369,15 +370,11 @@ class Scheduler:
                                           self.running_on(a["region"], a["instance_type"], exclude=u))
             u["cand"] += 1
             if u["cand"] >= len(u["cands"]):
-                u["rounds"] += 1
-                if u["rounds"] >= CAPACITY_ROUNDS:
+                if self._end_round(u, now):
                     u["fail_reason"] = why
                     self._to_cleanup(u, "failed", now, f"{u['token']}: {why} in every region/type for "
                                      f"{CAPACITY_ROUNDS} rounds; failed")
                     return
-                u["cand"] = 0
-                u["not_before"] = iso(now + dt.timedelta(seconds=CAPACITY_BACKOFF_S))
-                self.state["caps"] = {}  # capacity moves: start the next round without caps
             nxt = u["cands"][u["cand"]]
             self._to_cleanup(u, "queued", now, f"{u['token']}: {why} in {a['region']} ({a['instance_type']}); "
                              f"next candidate {nxt['region']} {nxt['instance_type']}")
@@ -411,6 +408,16 @@ class Scheduler:
             self.event(f"{u['token']}: results not found after {COLLECT_TRIES} tries; stack kept, re-run to retry")
         else:
             self.event(f"{u['token']}: results not complete yet (try {u['collect_tries']}); retrying")
+
+    def _end_round(self, u: dict, now: dt.datetime) -> bool:
+        """One capacity round over the unit's candidates is over. True = that was the last round."""
+        u["rounds"] += 1
+        if u["rounds"] >= CAPACITY_ROUNDS:
+            return True
+        u["cand"] = 0
+        u["not_before"] = iso(now + dt.timedelta(seconds=CAPACITY_BACKOFF_S))
+        self.state["caps"] = {}  # capacity moves: start the next round without caps
+        return False
 
     def _to_cleanup(self, u: dict, after: str, now: dt.datetime, msg: str) -> None:
         u["state"] = "cleanup"
@@ -491,6 +498,15 @@ class Scheduler:
                 continue
             j = self._pick(u)
             if j is None:
+                if not any(self.running_on(c["region"], c["instance_type"]) for c in u["cands"]):
+                    # every candidate is capped and nothing runs on any of them, so no cap frees up (seen in
+                    # audit: two shards with rotated candidates both missed capacity and capped each other at 0)
+                    if self._end_round(u, now):
+                        u.update(state="failed", fail_reason="capacity")
+                        self.event(f"{u['token']}: every region/type capped for {CAPACITY_ROUNDS} rounds; failed")
+                    else:
+                        self.event(f"{u['token']}: every region/type capped with nothing running there; "
+                                   f"new capacity round {u['rounds'] + 1} after {CAPACITY_BACKOFF_S // 60} min")
                 continue
             u["cand"] = j
             c = u["cands"][j]
@@ -648,6 +664,8 @@ class AwsBackend:
 
     def _stack_rc(self, a: dict):
         status = self.stack_status(a.get("stack", ""), a["region"])
+        if status == STATUS_UNKNOWN:
+            return None  # ask again next step
         return {"CREATE_COMPLETE": 0, "UPDATE_COMPLETE": 0}.get(status, None if status and "IN_PROGRESS" in status
                                                                  else 1)
 
@@ -657,8 +675,13 @@ class AwsBackend:
         try:
             return self.boto3.client("cloudformation", region_name=region).describe_stacks(
                 StackName=stack)["Stacks"][0]["StackStatus"]
-        except Exception:  # noqa: BLE001 - absent stack
-            return ""
+        except Exception as e:  # noqa: BLE001
+            err = (getattr(e, "response", None) or {}).get("Error", {})
+            if err.get("Code") == "ValidationError" and "does not exist" in str(err.get("Message", "")):
+                return ""  # the stack is gone
+            # throttling, network, denied: not proof of absence (cleanup would record a live stack as deleted)
+            print(f"[fanout] [warn] describe {stack} in {region}: {e}", file=sys.stderr)
+            return STATUS_UNKNOWN
 
     def kill(self, a: dict) -> None:
         try:
@@ -673,8 +696,11 @@ class AwsBackend:
     def destroy(self, stack: str, region: str) -> int:
         """Delete the compute stack (results bucket RETAINed). 0 = gone."""
         cfn = self.boto3.client("cloudformation", region_name=region)
-        if not self.stack_status(stack, region):
+        status = self.stack_status(stack, region)
+        if not status:
             return 0
+        if status == STATUS_UNKNOWN:
+            return 1  # retried next step
         try:
             cfn.delete_stack(StackName=stack)
             cfn.get_waiter("stack_delete_complete").wait(StackName=stack, WaiterConfig={"Delay": 15, "MaxAttempts": 160})

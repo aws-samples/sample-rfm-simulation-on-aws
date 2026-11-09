@@ -1747,6 +1747,13 @@ _VLAEVAL_IMAGE_RE = re.compile(r"^[a-z0-9][a-z0-9.-]*(:[0-9]+)?(/[a-z0-9][a-z0-9
 _VLAEVAL_CONFIG_RE = re.compile(r"^configs/model_servers/[A-Za-z0-9_./-]+\.ya?ml$")
 _VLAEVAL_TASK_KEYS = {"suite", "benchmark", "model_server", "episodes_per_task", "seed", "max_tasks", "max_steps",
                       "params", "action_type", "description", "published", "condition"}
+# Benchmark param values reach the instance only inside the tasks JSON (single-quoted in bash, `'` escaped) and are
+# written to the run config by jq, never interpolated into a command; still kept to one plain token (paths such as
+# /app/rtc/worlds and module:Class import strings included, no whitespace, quotes or shell metacharacters).
+_VLAEVAL_PARAM_VALUE_RE = re.compile(r"^[A-Za-z0-9_./:-]{1,256}$")
+_VLAEVAL_PARAM_NAME_RE = re.compile(r"^[a-z_][a-z0-9_]*$")
+# docker.env entries of the run config (`docker run -e`): an upper-case name and a plain value.
+_VLAEVAL_DOCKER_ENV_RE = re.compile(r"^([A-Z_][A-Z0-9_]*)=([A-Za-z0-9_.,:/=-]{0,256})$")
 
 
 def _vlaeval_int(value, where, minimum):
@@ -1783,6 +1790,29 @@ def vlaeval_plan(config: dict, vla: str = "vlaeval") -> tuple:
             raise ValueError(f"{where}.image must be a registry/repository name without tag")
         if not re.fullmatch(r"sha256:[0-9a-f]{64}", str(b.get("image_digest", ""))):
             raise ValueError(f"{where}.image_digest must be sha256:<64 hex> (images are pulled by digest)")
+        # The harness builds the benchmark with Benchmark(**params) (no kwargs filtering): a param it does not
+        # take is a TypeError. suite_param / seed_param name the constructor args that get the entry's suite and
+        # seed (default suite / seed); null = the benchmark takes none, nothing is injected.
+        for key in ("suite_param", "seed_param"):
+            if key in b and b[key] is not None and not _VLAEVAL_PARAM_NAME_RE.match(str(b[key])):
+                raise ValueError(f"{where}.{key} must be a benchmark constructor arg name or null")
+        if b.get("suite_param", "suite") is not None and b.get("suite_param", "suite") == b.get("seed_param", "seed"):
+            raise ValueError(f"{where}: suite_param and seed_param name the same arg")
+        env = b.get("docker_env") or []
+        if not isinstance(env, list):
+            raise ValueError(f"{where}.docker_env must be a list of NAME=value strings")
+        names = []
+        for e in env:
+            m = _VLAEVAL_DOCKER_ENV_RE.match(e) if isinstance(e, str) else None
+            if not m:
+                raise ValueError(f"{where}.docker_env: {e!r} is not NAME=value (upper-case name, plain value)")
+            if m.group(1) in names:
+                raise ValueError(f"{where}.docker_env: {m.group(1)} is set twice")
+            names.append(m.group(1))
+        if not isinstance(b.get("expect_videos", True), bool):
+            raise ValueError(f"{where}.expect_videos must be true or false")
+        if any(c in str(b.get("init_states", "")) for c in "\"'$`\\\n"):
+            raise ValueError(f"{where}.init_states: quotes, $, backticks, backslashes and newlines are not allowed")
     for name, s in servers.items():
         where = f"models/{vla}.yaml vlaeval.model_servers.{name}"
         if not _VLAEVAL_KEY_RE.match(str(name)) or not isinstance(s, dict):
@@ -1828,26 +1858,33 @@ def vlaeval_plan(config: dict, vla: str = "vlaeval") -> tuple:
             raise ValueError(f"{where}: model_server {t.get('model_server')!r} is not in vlaeval.model_servers")
         eps = _vlaeval_int(t.get("episodes_per_task", 5), f"{where}.episodes_per_task", 1)
         seed = _vlaeval_int(t.get("seed", 7), f"{where}.seed", 0)
+        bench, server = benches[t["benchmark"]], servers[t["model_server"]]
+        suite_param, seed_param = bench.get("suite_param", "suite"), bench.get("seed_param", "seed")  # None = none
+        injected = {k: v for k, v in ((suite_param, suite), (seed_param, seed)) if k is not None}
         params = t.get("params") or {}
-        if not isinstance(params, dict) or "suite" in params or "seed" in params:
-            raise ValueError(f"{where}.params must be a mapping without suite / seed (set by the entry)")
+        if not isinstance(params, dict) or set(params) & set(injected):
+            raise ValueError(f"{where}.params must be a mapping without {' / '.join(injected) or 'suite / seed'} "
+                             "(set by the entry)")
         for k, v in params.items():
-            if not re.fullmatch(r"[a-z_][a-z0-9_]*", str(k)) or isinstance(v, (dict, list)) \
-                    or not re.fullmatch(r"[A-Za-z0-9_.-]{1,64}", str(v)):
-                raise ValueError(f"{where}.params.{k}: plain scalar values only")
+            if not _VLAEVAL_PARAM_NAME_RE.match(str(k)) or isinstance(v, (dict, list)) or v is None \
+                    or not _VLAEVAL_PARAM_VALUE_RE.match(str(v)):
+                raise ValueError(f"{where}.params.{k}: plain scalar values only (one token of [A-Za-z0-9_./:-], "
+                                 "at most 256 characters)")
         cond = str(t.get("condition") or "S0")
         if not re.fullmatch(r"[A-Za-z0-9_./-]{1,64}", cond):
             raise ValueError(f"{where}.condition {cond!r}: plain token only")
-        bench, server = benches[t["benchmark"]], servers[t["model_server"]]
         entry = {"benchmark": bench["benchmark"], "subname": suite, "episodes_per_task": eps,
-                 "params": {"suite": suite, "seed": seed, **params},
+                 "params": {**injected, **params},
                  "recording": {"record_video": bool(run.get("record_video", True))}}
         for key in ("max_tasks", "max_steps"):
             if t.get(key) is not None:
                 entry[key] = _vlaeval_int(t[key], f"{where}.{key}", 1)
+        docker = {"image": f"{bench['image']}@{bench['image_digest']}", "user": user}
+        if bench.get("docker_env"):
+            docker["env"] = list(bench["docker_env"])
         eval_config = {
             "server": {"url": f"ws://localhost:{port}", "timeout": timeout},
-            "docker": {"image": f"{bench['image']}@{bench['image_digest']}", "user": user},
+            "docker": docker,
             "output_dir": f"{VLAEVAL_EVAL_DIR}/task-{i}",
             "benchmarks": [entry],
         }
@@ -1862,6 +1899,11 @@ def vlaeval_plan(config: dict, vla: str = "vlaeval") -> tuple:
             image=f"{bench['image']}@{bench['image_digest']}", server_config=str(server["config"]),
             hf_repo=str(server.get("hf_repo") or ""), hf_model_revision=str(server.get("hf_model_revision") or ""),
             checkpoint_arg=str(server.get("checkpoint_arg") or ""), eval_config=eval_config))
+        # only when set, so the tasks JSON of a benchmark without them is unchanged
+        if bench.get("expect_videos", True) is False:
+            out[-1]["expect_videos"] = False  # e.g. Kinetix symbolic observations: no frame to record
+        if bench.get("init_states"):
+            out[-1]["init_states"] = str(bench["init_states"])
     bench_list = [dict(name=n, image=f"{benches[n]['image']}@{benches[n]['image_digest']}",
                        simulator=str(benches[n].get("simulator") or n)) for n in used_b]
     server_list = [dict(name=n, config=str(servers[n]["config"]), hf_repo=str(servers[n].get("hf_repo") or ""),

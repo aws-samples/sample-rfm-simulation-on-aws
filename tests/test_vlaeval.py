@@ -36,6 +36,11 @@ JQ = shutil.which("jq")
 SETSID = shutil.which("setsid")
 FIX = ROOT / "tests" / "fixtures" / "vlaeval"
 SP50S4 = FIX / "sp50s4_LIBEROBenchmark_libero_spatial_aggregate.json"   # 4-shard run: 48/50, task 4 ep 0 and 2 failed
+# The harness's own X-VLA x CALVIN ABC->D reproduction (1000 sequences, avg len 4.301), as published in its repo at
+# v0.9.0: docs/reproductions/data/xvla-calvin/merged.json (git LFS object sha256 0d7d6a86..., 389,704 bytes, fetched
+# from media.githubusercontent.com) plus a final newline. Written by an older harness (0.0.4.dev22) through the same
+# ResultCollector._aggregate_metrics that v0.9.0 uses (metric_keys success + completed_subtasks, mean_<key>).
+CALVIN = FIX / "xvla_calvin_merged_CALVINBenchmark_aggregate.json"
 SMOKE = FIX / "smoke_LIBEROBenchmark_libero_spatial_aggregate.json"     # 1 episode, failure_reason timeout
 DIGEST = "sha256:bc9930a7e42f970bdde7f3aaddaab0c223bd8e7e922e387cd9eb48aa89ccf2f1"
 
@@ -278,8 +283,12 @@ def _loop_script(text, tmp_path):
     cfg = work / "harness" / "configs" / "model_servers" / "lerobot" / "pi05_libero.yaml"
     cfg.parent.mkdir(parents=True)
     cfg.write_text("extends: _base.yaml\nargs:\n  chunk_size: 10  # LIBERO protocol\n")
+    for rel, yml in (("xvla/calvin.yaml", "args:\n  chunk_size: 20\n"), ("rtc/rtc.yaml", "args:\n  method: rtc\n")):
+        (cfg.parent.parent / rel).parent.mkdir(parents=True, exist_ok=True)
+        (cfg.parent.parent / rel).write_text(yml)
     shutil.copy(ROOT / "assets" / "vlaeval" / "vlaeval_results.py", work / "vlaeval_results.py")
-    (tmp_path / "ckpt.path").write_text("/hf/snapshots/7152f13e\n")
+    (tmp_path / "ckpt_lerobot-pi05-libero.path").write_text("/hf/snapshots/7152f13e\n")
+    (tmp_path / "ckpt_xvla-calvin.path").write_text("/hf/snapshots/d76710ee\n")
     head = f"""set -euo pipefail
 WORK={work}; VENV={work}/venv; HARNESS_DIR={work}/harness
 export EVAL_BASE_DIR={tmp_path}/eval; VIDEO_BASE_DIR={tmp_path}/videos; RUN_ID=R; S3_BUCKET=b; REGION=r
@@ -295,7 +304,7 @@ stop_server() {{ [ -z "$SERVER_PID" ] || kill -- "-$SERVER_PID" 2>/dev/null || k
 aws() {{ echo "aws $*" >> "$CALLS"; }}
 curl() {{ return 0; }}
 """
-    body = text[start:end].replace("/tmp/vlaeval_ckpt_${SERVER_NAME}.path", str(tmp_path / "ckpt.path"))
+    body = text[start:end].replace("/tmp/vlaeval_ckpt_${SERVER_NAME}.path", f"{tmp_path}/ckpt_${{SERVER_NAME}}.path")
     body = body.replace("/tmp/vlaeval_", f"{tmp_path}/vlaeval_")
     return head + body + 'echo "FAILED=[${FAILED}]"\necho "SUMMARY_ALL=${SUMMARY_ALL}"\n'
 
@@ -371,3 +380,226 @@ def test_task_loop_fails_when_the_result_does_not_reach_s3(tmp_path):
     assert proc.returncode == 0, proc.stdout + proc.stderr
     assert "FAILED=[ task-0]" in proc.stdout and "upload incomplete (summary.txt 0/1" in proc.stdout
     assert (tmp_path / "calls").read_text().count("/R/task-0/summary.txt") == 3  # retried
+
+
+# --- batch A: LIBERO-Mem, CALVIN, Kinetix (per-benchmark suite_param / seed_param, docker_env, expect_videos) ------
+
+def _set(name):
+    import task_sets
+    return task_sets.apply(_model(), name, "vlaeval")
+
+
+def test_batch_a_sets_render_the_harness_configs():
+    benches, servers, tasks = generate.vlaeval_plan(_set("batch-a"))
+    assert [b["name"] for b in benches] == ["libero-mem", "calvin", "kinetix"]
+    assert all(b["image"].startswith("ghcr.io/allenai/vla-evaluation-harness/") and "@sha256:" in b["image"]
+               for b in benches)
+    assert [s["name"] for s in servers] == ["lerobot-pi05-libero", "xvla-calvin", "rtc-kinetix"]
+    assert servers[1]["hf_repo"] == "2toINF/X-VLA-Calvin-ABC_D" and servers[1]["gated_repos"] == []
+    assert servers[2]["hf_repo"] == "" and servers[2]["config"] == "configs/model_servers/rtc/rtc.yaml"
+    mem, calvin, kin = tasks
+    assert [t["eval_config"]["output_dir"][-6:] for t in tasks] == ["task-0", "task-1", "task-2"]
+    # LIBERO-Mem takes suite + seed like LIBERO
+    assert mem["eval_config"]["benchmarks"][0]["params"] == {"suite": "libero_mem", "seed": 7, "num_steps_wait": 10}
+    assert "env" not in mem["eval_config"]["docker"] and "expect_videos" not in mem
+    # CALVIN: no suite (CALVINBenchmark(**params) would raise), the image's EGL env, = configs/benchmarks/calvin/eval.yaml
+    c = calvin["eval_config"]
+    assert c["benchmarks"][0]["params"] == {"seed": 0, "dataset_path": "/data/calvin/dataset/validation",
+                                            "num_sequences": 5}
+    assert c["benchmarks"][0]["subname"] == "calvin_abc_d" and c["benchmarks"][0]["episodes_per_task"] == 1
+    assert c["docker"]["env"] == ["NVIDIA_DRIVER_CAPABILITIES=all"]
+    assert (calvin["checkpoint_arg"], calvin["hf_model_revision"]) == \
+        ("model_path", "d76710ee314ee1fa8506f421664c989b40bae415")
+    # Kinetix: no suite, a path param, JAX preallocation off in the container, no videos expected
+    k = kin["eval_config"]
+    assert k["benchmarks"][0]["params"] == {"seed": 0, "observation_type": "symbolic", "max_episode_steps": 256,
+                                            "rtc_worlds_dir": "/app/rtc/worlds", "action_noise_std": 0.1}
+    assert k["docker"]["env"] == ["XLA_PYTHON_CLIENT_PREALLOCATE=false"] and k["benchmarks"][0]["max_tasks"] == 4
+    assert kin["expect_videos"] is False and kin["checkpoint_arg"] == "" and kin["hf_repo"] == ""
+    assert "PRNGKey" in kin["init_states"] and "validation set" in calvin["init_states"]
+    # each single set is the same entry as in batch-a
+    for name, t in (("libero-mem", mem), ("calvin", calvin), ("kinetix", kin)):
+        (single,) = generate.vlaeval_plan(_set(name))[2]
+        assert single["eval_config"]["benchmarks"] == t["eval_config"]["benchmarks"]
+        assert single["eval_config"]["output_dir"].endswith("/task-0")
+
+
+def test_default_tasks_json_has_no_new_keys():
+    # the default LIBERO-Spatial entry renders the same tasks JSON as before suite_param / docker_env / expect_videos
+    (t,) = generate.vlaeval_plan(_model())[2]
+    assert "expect_videos" not in t and "init_states" not in t and "env" not in t["eval_config"]["docker"]
+
+
+def test_seed_param_null_injects_nothing():
+    cfg = _set("kinetix")
+    cfg["vlaeval"]["benchmarks"]["kinetix"]["seed_param"] = None
+    (t,) = generate.vlaeval_plan(cfg)[2]
+    assert "seed" not in t["eval_config"]["benchmarks"][0]["params"]
+    cfg["vlaeval"]["benchmarks"]["kinetix"]["seed_param"] = "base_seed"   # another arg name gets the seed
+    (t,) = generate.vlaeval_plan(cfg)[2]
+    assert t["eval_config"]["benchmarks"][0]["params"]["base_seed"] == 0
+
+
+def _bench(c, name="kinetix"):
+    return c["vlaeval"]["benchmarks"][name]
+
+
+@pytest.mark.parametrize("mutate,msg", [
+    (lambda c: _bench(c).update(suite_param="Suite-X"), "suite_param"),
+    (lambda c: _bench(c).update(seed_param="seed; rm"), "seed_param"),
+    (lambda c: _bench(c).update(suite_param="seed"), "same arg"),
+    (lambda c: _bench(c).update(docker_env="A=1"), "docker_env must be a list"),
+    (lambda c: _bench(c).update(docker_env=["lower=1"]), "docker_env"),
+    (lambda c: _bench(c).update(docker_env=["A=b c"]), "docker_env"),
+    (lambda c: _bench(c).update(docker_env=["A=$(id)"]), "docker_env"),
+    (lambda c: _bench(c).update(docker_env=["A='x'"]), "docker_env"),
+    (lambda c: _bench(c).update(docker_env=["A=1", "A=2"]), "set twice"),
+    (lambda c: _bench(c).update(docker_env=[1]), "docker_env"),
+    (lambda c: _bench(c).update(expect_videos="no"), "expect_videos"),
+    (lambda c: _bench(c).update(init_states="it's"), "init_states"),
+    (lambda c: c["tasks"][0]["params"].update(seed=1), "params"),                 # injected by the entry
+    (lambda c: c["tasks"][0]["params"].update(rtc_worlds_dir="/app/rtc worlds"), "params.rtc_worlds_dir"),
+    (lambda c: c["tasks"][0]["params"].update(rtc_worlds_dir="/app;id"), "params.rtc_worlds_dir"),
+    (lambda c: c["tasks"][0]["params"].update(rtc_worlds_dir="/app/$HOME"), "params.rtc_worlds_dir"),
+    (lambda c: c["tasks"][0]["params"].update(rtc_worlds_dir="/app/it's"), "params.rtc_worlds_dir"),
+    (lambda c: c["tasks"][0]["params"].update(rtc_worlds_dir="/" + "a" * 256), "params.rtc_worlds_dir"),
+    (lambda c: c["tasks"][0]["params"].update(tasks=["a", "b"]), "params.tasks"),
+    (lambda c: c["tasks"][0]["params"].update(rtc_worlds_dir=None), "params.rtc_worlds_dir"),
+    (lambda c: c["tasks"][0]["params"].update({"Bad": 1}), "params.Bad"),
+])
+def test_plan_rejects_bad_benchmark_settings(mutate, msg):
+    cfg = copy.deepcopy(_set("kinetix"))
+    mutate(cfg)
+    with pytest.raises(ValueError, match=msg):
+        generate.vlaeval_plan(cfg)
+
+
+def test_param_values_may_be_paths_and_import_strings():
+    cfg = copy.deepcopy(_set("kinetix"))
+    long_path = "/assets/benchmarks/" + "x" * 230
+    cfg["tasks"][0]["params"].update(
+        rtc_worlds_dir=long_path, eval_config_cls="molmo_spaces.evaluation.configs.evaluation_configs:Dummy")
+    (t,) = generate.vlaeval_plan(cfg)[2]
+    p = t["eval_config"]["benchmarks"][0]["params"]
+    assert p["rtc_worlds_dir"] == long_path and len(long_path) <= 256 and p["eval_config_cls"].endswith(":Dummy")
+    # a suite-less benchmark may name `suite` in its params (nothing else injects it)
+    cfg["tasks"][0]["params"]["suite"] = "x"
+    assert generate.vlaeval_plan(cfg)[2][0]["eval_config"]["benchmarks"][0]["params"]["suite"] == "x"
+
+
+@pytest.mark.skipif(BASH is None, reason="bash not on PATH")
+@pytest.mark.parametrize("task_set", ["libero-mem", "calvin", "kinetix", "batch-a"])
+def test_batch_a_render_and_bash_n(task_set, tmp_path):
+    _render(tmp_path, "--task-set", task_set)
+    text = (tmp_path / "vlaeval.sh").read_text()
+    assert subprocess.run([BASH, "-n", str(tmp_path / "vlaeval.sh")]).returncode == 0
+    tasks = _tasks_json(text)
+    assert tasks == json.loads(json.dumps(generate.vlaeval_plan(_set(task_set))[2]))   # survives the bash quoting
+    assert ":latest" not in text
+    for t in tasks:
+        assert f'docker pull -q "{t["image"]}"' in text
+    if task_set in ("calvin", "batch-a"):
+        assert 'snapshot_download("2toINF/X-VLA-Calvin-ABC_D", revision="d76710ee314ee1fa8506f421664c989b40bae415")' \
+            in text
+    if task_set == "kinetix":
+        assert 'snapshot_download("' not in text and "gated google" not in text   # RTC fetches its own checkpoints
+
+
+# --- adapter: CALVIN average chain length --------------------------------------------------------------------------
+
+def test_adapter_reports_calvin_avg_len_and_chain_rates(tmp_path):
+    out = tmp_path / "out"
+    (out / "episodes" / "CALVINBenchmark_calvin_abc_d").mkdir(parents=True)
+    shutil.copy(CALVIN, out / "CALVINBenchmark_calvin_abc_d_aggregate.json")
+    (out / "episodes" / "CALVINBenchmark_calvin_abc_d" / "task0000_ep0000_success.mp4").write_bytes(b"x")
+    summary = tmp_path / "s.txt"
+    rc = vlaeval_results.main(["--output-dir", str(out), "--summary", str(summary), "--video-dir",
+                               str(tmp_path / "v"), "--suite", "calvin_abc_d",
+                               "--init-states", "sequences drawn from the validation set with params.seed"])
+    assert rc == 0
+    kv = dict(results.KV_RE.findall(summary.read_text()))
+    # = docs/reproductions/xvla.md of the harness: 1/5 95.6 % ... 5/5 73.9 %, avg len 4.30
+    assert (kv["n_success"], kv["n_episodes"], kv["n_tasks"]) == ("739", "1000", "1000")
+    assert kv["calvin_avg_len"] == "4.301" and kv["harness_mean_completed_subtasks"] == "4.301"
+    assert [kv[f"calvin_chain_{i}_of_5"] for i in range(1, 6)] == ["0.956", "0.918", "0.871", "0.817", "0.739"]
+    assert kv["calvin_n_sequences"] == "1000" and kv["init_states"].startswith("sequences drawn")
+    assert kv["vla_eval_benchmark"] == "CALVINBenchmark" and kv["n_videos"] == "1"
+
+
+def test_adapter_adds_nothing_for_libero(tmp_path):
+    out = tmp_path / "out"
+    out.mkdir()
+    shutil.copy(SP50S4, out / "LIBEROBenchmark_libero_spatial_aggregate.json")
+    vlaeval_results.main(["--output-dir", str(out), "--summary", str(tmp_path / "s.txt"), "--video-dir",
+                          str(tmp_path / "v"), "--suite", "libero_spatial", "--init-states", ""])
+    text = (tmp_path / "s.txt").read_text()
+    assert "calvin_" not in text and "harness_mean_completed" not in text
+    assert "init_states: fixed (benchmark init-state files, episode i = init state i)" in text
+
+
+def test_adapter_calvin_lines_need_the_metric():
+    agg = vlaeval_results.load(CALVIN)
+    assert vlaeval_results.calvin_lines(dict(agg, metric_keys={"success": "mean"})) == []
+    assert vlaeval_results.metric_lines(dict(agg, metric_keys={"success": "mean"})) == []
+    no_eps = dict(agg, tasks=[{"task": "seq", "episodes": [{"metrics": {"success": False}}]}])
+    assert vlaeval_results.calvin_lines(no_eps) == []
+
+
+# --- the task loop over three servers ---------------------------------------------------------------------------
+
+STUB_MULTI = """#!/bin/bash
+# stub of `vla-eval` for several benchmarks: run = the fixture aggregate under the entry's own file name; videos only
+# where the benchmark records frames (not Kinetix symbolic) and not for $NO_VIDEO_BENCH
+echo "vla-eval $*" >> "$CALLS"
+if [ "$1" = serve ]; then exec sleep 300; fi
+cfg="$3"
+dest="$EVAL_BASE_DIR/$(basename "$(jq -r .output_dir "$cfg")")"
+b=$(jq -r '.benchmarks[0].benchmark | split(":")[1]' "$cfg")_$(jq -r '.benchmarks[0].subname' "$cfg")
+mkdir -p "$dest/episodes/$b"
+cp "$FIXTURE" "$dest/${b}_aggregate.json"
+case "$b" in Kinetix*|"$NO_VIDEO_BENCH") ;; *) echo x > "$dest/episodes/$b/task0000_ep0000_success.mp4" ;; esac
+exit 0
+"""
+
+
+def _batch_loop(tmp_path, curl_body):
+    _render(tmp_path / "r", "--task-set", "batch-a")
+    script = _loop_script((tmp_path / "r" / "vlaeval.sh").read_text(), tmp_path)
+    (tmp_path / "work" / "venv" / "bin" / "vla-eval").write_text(STUB_MULTI)
+    script = script.replace("curl() { return 0; }", "curl() { " + curl_body + " }")
+    assert curl_body in script
+    return script
+
+
+@pytest.mark.skipif(None in (BASH, JQ, SETSID), reason="bash / jq / setsid not on PATH")
+@pytest.mark.parametrize("no_video", ["", "LIBEROMemBenchmark_libero_mem"])
+def test_batch_a_loop_switches_servers(tmp_path, no_video):
+    # health = the current server process is alive, so a stopped server stops answering
+    script = _batch_loop(tmp_path, '[ -n "$SERVER_PID" ] && kill -0 "$SERVER_PID" 2>/dev/null;')
+    env = {"PATH": os.environ["PATH"], "HOME": str(tmp_path), "NO_VIDEO_BENCH": no_video}
+    proc = subprocess.run([BASH, "-c", script], capture_output=True, text=True, timeout=120, env=env)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    serves = [ln for ln in (tmp_path / "calls").read_text().splitlines() if ln.startswith("vla-eval serve")]
+    assert serves == [
+        "vla-eval serve --config configs/model_servers/lerobot/pi05_libero.yaml --arg checkpoint=/hf/snapshots/7152f13e",
+        "vla-eval serve --config configs/model_servers/xvla/calvin.yaml --arg model_path=/hf/snapshots/d76710ee",
+        "vla-eval serve --config configs/model_servers/rtc/rtc.yaml"]      # RTC: no checkpoint arg
+    cfgs = [json.loads((tmp_path / "work" / f"eval-task-{i}.json").read_text()) for i in range(3)]
+    assert [c["docker"].get("env") for c in cfgs] == \
+        [None, ["NVIDIA_DRIVER_CAPABILITIES=all"], ["XLA_PYTHON_CLIENT_PREALLOCATE=false"]]
+    kv = dict(results.KV_RE.findall((tmp_path / "vlaeval_task2_summary.txt").read_text()))
+    assert kv["init_states"].startswith("episode i = PRNGKey") and kv["checkpoint"] == "from server config@"
+    assert "no episode videos expected" in proc.stdout
+    # Kinetix without videos is not a failure; LIBERO-Mem without videos still is
+    assert ("FAILED=[ task-0]" if no_video else "FAILED=[]") in proc.stdout
+
+
+@pytest.mark.skipif(None in (BASH, JQ, SETSID), reason="bash / jq / setsid not on PATH")
+def test_batch_a_loop_stops_when_the_old_server_keeps_answering(tmp_path):
+    script = _batch_loop(tmp_path, "return 0;")      # something still answers /health after the stop
+    script = script.replace("sleep 2\n", ":\n")
+    env = {"PATH": os.environ["PATH"], "HOME": str(tmp_path), "NO_VIDEO_BENCH": ""}
+    proc = subprocess.run([BASH, "-c", script], capture_output=True, text=True, timeout=120, env=env)
+    assert proc.returncode == 9 and "DIE model server lerobot-pi05-libero still answers on :8000" in proc.stdout
+    serves = [ln for ln in (tmp_path / "calls").read_text().splitlines() if ln.startswith("vla-eval serve")]
+    assert len(serves) == 1    # the CALVIN server was never started against a stale health check

@@ -42,6 +42,40 @@ vlaeval:
       image_digest: "sha256:bc9930a7e42f970bdde7f3aaddaab0c223bd8e7e922e387cd9eb48aa89ccf2f1"   # 8.84 GB
       simulator: "LIBERO (robosuite / MuJoCo)"
       license: "LIBERO MIT; image built by the harness"
+    # Per benchmark, optional (defaults = the LIBERO behaviour above):
+    #   suite_param / seed_param  constructor arg that gets the entry's suite / seed (default suite / seed; null =
+    #                             the benchmark takes none and nothing is injected: Benchmark(**params) would fail)
+    #   docker_env                NAME=value list -> the run config's docker.env (`docker run -e`)
+    #   expect_videos             false = zero episode videos is not a failure (no renderable frame)
+    #   init_states               how episode start states are chosen (summary.txt init_states)
+    # All three images below are the 0.9.0 tag (= latest) of the harness's own ghcr.io/allenai packages, read
+    # anonymously by digest on 2026-11-09 (no mirror needed).
+    libero-mem:
+      benchmark: "vla_eval.benchmarks.libero_mem.benchmark:LIBEROMemBenchmark"
+      image: "ghcr.io/allenai/vla-evaluation-harness/libero-mem"
+      image_digest: "sha256:5f78cc5ee5b6105d5a4457ad96795565f368f934318c66863d03b2b66aa74a62"   # 5.57 GB compressed
+      simulator: "LIBERO-Mem (robosuite / MuJoCo)"
+      license: "libero-mem MIT; LIBERO MIT; image built by the harness"
+    calvin:
+      benchmark: "vla_eval.benchmarks.calvin.benchmark:CALVINBenchmark"
+      image: "ghcr.io/allenai/vla-evaluation-harness/calvin"
+      image_digest: "sha256:6d018bfe4cdeb3af2c8841e4504e4e613a1f8c9acdd040eec3b8c81c7af20174"   # 2.56 GB compressed
+      simulator: "CALVIN (PyBullet)"
+      license: "CALVIN MIT; validation sequences baked into the image"
+      suite_param: null                                  # CALVINBenchmark takes no suite
+      docker_env: ["NVIDIA_DRIVER_CAPABILITIES=all"]     # as configs/benchmarks/calvin/eval.yaml (PyBullet EGL)
+      init_states: "sequences drawn from the validation set with params.seed (CALVIN protocol)"
+    kinetix:
+      benchmark: "vla_eval.benchmarks.kinetix.benchmark:KinetixBenchmark"
+      image: "ghcr.io/allenai/vla-evaluation-harness/kinetix"
+      image_digest: "sha256:a8f6565dd4e260032de2d83ed948a475388571437424bd5716c3af811b3aaaeb"   # 5.50 GB compressed
+      simulator: "Kinetix (JAX 2D physics)"
+      license: "Kinetix MIT; RTC levels from Physical-Intelligence/real-time-chunking-kinetix (MIT)"
+      suite_param: null                                  # KinetixBenchmark takes no suite
+      # the container's JAX (cuda12) shares the GPU with the RTC server's JAX; both preallocate 75 % by default
+      docker_env: ["XLA_PYTHON_CLIENT_PREALLOCATE=false"]
+      expect_videos: false                               # symbolic observations have no frame to record
+      init_states: "episode i = PRNGKey(params.seed + i) on the RTC level (Kinetix protocol)"
   # Model servers: a config path inside the harness checkout (configs/model_servers/...). The checkpoint the
   # config names is downloaded at hf_model_revision and passed as `--arg <checkpoint_arg>=<snapshot path>`.
   model_servers:
@@ -57,6 +91,21 @@ vlaeval:
       gated_repos: ["google/paligemma-3b-pt-224"]
       license: "Gemma terms (checkpoint card: gemma); PaliGemma tokenizer gated"
       published: "LeRobot: Spatial 97.0 / Object 99.0 / Goal 98.0 / Long 96.0 (50 episodes per task)"
+    xvla-calvin:
+      config: "configs/model_servers/xvla/calvin.yaml"
+      checkpoint_arg: model_path      # xvla.py from_pretrained(model_path): a local snapshot dir works
+      hf_repo: "2toINF/X-VLA-Calvin-ABC_D"            # the config's own model_path; ungated (HF API 2026-11-09)
+      hf_model_revision: "d76710ee314ee1fa8506f421664c989b40bae415"   # = main (2025-11-15), 3.52 GB, self-contained
+      license: "Apache-2.0 (X-VLA code and weights)"
+      published: "CALVIN ABC->D avg len 4.43 (paper) / 4.30 (harness reproduction, 1000 sequences)"
+    rtc-kinetix:
+      config: "configs/model_servers/rtc/rtc.yaml"
+      # No Hugging Face checkpoint: the server fetches the public gs://rtc-assets/bc/31/policies (12 x 12.3 MB
+      # worlds_l_<level>.pkl, md5-checked against the bucket listing) into the vla-eval assets cache on first use,
+      # and clones Physical-Intelligence/real-time-chunking-kinetix at 9296f31d (pinned in rtc.py). The bucket
+      # has no object versions pinned here; its md5 list as read on 2026-11-09 is in docs/targets.md Note 23.
+      license: "MIT (real-time-chunking-kinetix); the checkpoint bucket states no license"
+      published: "RTC 12-level average 0.922 at d=0 (paper Fig. 5, 2048 rollouts per level)"
   # Values written into every rendered eval config (all documented harness config keys).
   run:
     server_timeout: 900     # cold first episode warmed up for 216 s; the harness default of 30 s fails it
@@ -105,6 +154,49 @@ task_sets:
     tasks:
       - {<<: *spatial, suite: libero_10, description: "LIBERO-10, 10 tasks x 5 episodes",
          published: "96.0 (LeRobot, 50 episodes per task)"}
+  # Batch A: three more benchmarks of the harness, each with a paired server (smoke sizes, not the full protocols).
+  libero-mem:
+    description: "LIBERO-Mem 2 tasks x 3 episodes, LeRobot pi0.5 (LIBERO fine-tune) zero-shot"
+    tasks:
+      - &libero_mem
+        suite: libero_mem
+        benchmark: libero-mem
+        model_server: lerobot-pi05-libero
+        episodes_per_task: 3
+        max_tasks: 2
+        seed: 7
+        params: {num_steps_wait: 10}
+        description: "LIBERO-Mem, 2 tasks x 3 episodes (pi0.5 LIBERO checkpoint, zero-shot)"
+        published: "none (checkpoint not trained on LIBERO-Mem)"
+  calvin:
+    description: "CALVIN ABC->D, 5 sequences x 5 chained subtasks, X-VLA"
+    tasks:
+      - &calvin
+        suite: calvin_abc_d
+        benchmark: calvin
+        model_server: xvla-calvin
+        episodes_per_task: 1
+        seed: 0
+        params: {dataset_path: /data/calvin/dataset/validation, num_sequences: 5}
+        description: "CALVIN ABC->D, 5 sequences (X-VLA through vla-eval)"
+        published: "avg len 4.43 / 5-of-5 chain 78.8 % (X-VLA paper, 1000 sequences)"
+  kinetix:
+    description: "Kinetix RTC levels, 4 levels x 5 rollouts, RTC (sync, d=0)"
+    tasks:
+      - &kinetix
+        suite: kinetix_rtc
+        benchmark: kinetix
+        model_server: rtc-kinetix
+        episodes_per_task: 5
+        max_tasks: 4
+        seed: 0
+        params: {observation_type: symbolic, max_episode_steps: 256, rtc_worlds_dir: /app/rtc/worlds,
+                 action_noise_std: 0.1}
+        description: "Kinetix, 4 RTC levels x 5 rollouts (RTC through vla-eval)"
+        published: "12-level avg 0.922 at d=0 (paper; a 4-level subset is not comparable)"
+  batch-a:
+    description: "LIBERO-Mem + CALVIN + Kinetix smokes on one instance (servers switched per task)"
+    tasks: [*libero_mem, *calvin, *kinetix]
 
 bridge:
   enabled: false

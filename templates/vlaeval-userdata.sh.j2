@@ -274,6 +274,16 @@ CURRENT_SERVER=""
 start_server() {
     local _name=$1 _config=$2 _ckpt_arg=$3 _ckpt=$4
     stop_server
+    if [ -n "${CURRENT_SERVER}" ]; then
+        # switching servers: the next health check must not be answered by the one just stopped
+        local _w=0
+        while curl -sf -o /dev/null "http://localhost:{{ port }}/health"; do
+            _w=$((_w + 1))
+            [ "${_w}" -lt 30 ] || die "model server ${CURRENT_SERVER} still answers on :{{ port }} 60 s after it was stopped"
+            sleep 2
+        done
+        CURRENT_SERVER=""
+    fi
     local _args=(serve --config "${_config}")
     [ -z "${_ckpt_arg}" ] || _args+=(--arg "${_ckpt_arg}=${_ckpt}")
     log "  vla-eval ${_args[*]}"
@@ -311,6 +321,8 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
     ACTION_TYPE=$(echo "$TASK" | jq -r '.action_type')
     DESCRIPTION=$(echo "$TASK" | jq -r '.description')
     PUBLISHED=$(echo "$TASK" | jq -r '.published')
+    EXPECT_VIDEOS=$(echo "$TASK" | jq -r 'if .expect_videos == false then "false" else "true" end')
+    INIT_STATES=$(echo "$TASK" | jq -r '.init_states // ""')
     OUT_DIR="${EVAL_BASE_DIR}/task-${TASK_IDX}"
     VIDEO_DIR="${VIDEO_BASE_DIR}/task-${TASK_IDX}"
     S3_TASK_PREFIX="s3://${S3_BUCKET}/${RUN_ID}/task-${TASK_IDX}"
@@ -345,7 +357,7 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
     # chunk executed open loop = the server config's chunk_size (protocol card chunk_rule)
     CHUNK=$(sed -nE 's/^[[:space:]]*chunk_size:[[:space:]]*([0-9]+).*/\1/p' "${HARNESS_DIR}/${SERVER_CONFIG}" | head -1 || true)
     KN=$(python3 "${WORK}/vlaeval_results.py" --output-dir "${OUT_DIR}" --summary "${SUMMARY_FILE}" \
-        --video-dir "${VIDEO_DIR}" --suite "${SUITE}" \
+        --video-dir "${VIDEO_DIR}" --suite "${SUITE}" --init-states "${INIT_STATES}" \
         --caption "{{ display_name }}: ${SUITE} x ${SERVER_NAME} (run ${RUN_ID}, task-${TASK_IDX})" \
         --meta "model=${SERVER_NAME}" \
         --meta "checkpoint=${HF_REPO:-from server config}@${HF_REV:0:8}" \
@@ -381,6 +393,7 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
         fi
     done < <(find "${VIDEO_DIR}" -name '*.mp4' | sort)
     log "  Videos uploaded: ${UPLOAD_COUNT}/${VIDEO_COUNT}"
+    [ "${EXPECT_VIDEOS}" = "true" ] || log "  (no episode videos expected: this benchmark's observations have no frame)"
     aws s3 cp "${EVAL_CONFIG}" "${S3_TASK_PREFIX}/eval-config.json" --region "$REGION" > /dev/null 2>&1 || true
     aws s3 cp "/tmp/{{ vla }}_task${TASK_IDX}.log" "${S3_TASK_PREFIX}/eval.log" --region "$REGION" > /dev/null 2>&1 || true
     aws s3 cp "/tmp/{{ vla }}_server_${SERVER_NAME}.log" "${S3_TASK_PREFIX}/server.log" --region "$REGION" > /dev/null 2>&1 || true
@@ -399,7 +412,7 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
     if [ "${EVAL_EXIT}" -ne 0 ] || [ -z "${KN}" ]; then
         FAILED="${FAILED} task-${TASK_IDX}"
         log "  [error] task ${TASK_IDX}: vla-eval exit ${EVAL_EXIT}, result '${KN}' (see ${S3_TASK_PREFIX}/eval.log)"
-    elif [ "${VIDEO_COUNT}" -eq 0 ]; then
+    elif [ "${VIDEO_COUNT}" -eq 0 ] && [ "${EXPECT_VIDEOS}" = "true" ]; then
         FAILED="${FAILED} task-${TASK_IDX}"
         log "  [error] task ${TASK_IDX}: no episode videos (recording.record_video is on)"
     elif [ "${SUMMARY_UP}" -ne 1 ] || [ "${UPLOAD_COUNT}" -ne "${VIDEO_COUNT}" ]; then

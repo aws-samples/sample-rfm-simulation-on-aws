@@ -838,6 +838,8 @@ def _server(c, name="molmobot-droid"):
     (lambda c: _server(c, "db-cogact-maniskill2").update(checkpoint_pass="repo_id", hf_repo=None,
                                                          hf_model_revision=None), "needs hf_repo"),
     (lambda c: _bench(c, "maniskill2").update(render="egl"), "render must be gpu or cpu"),
+    (lambda c: _server(c)["hf_offline_repos"].append(dict(repo="allenai/MolmoBot-DROID", revision="0" * 40)),
+     "shared refs/main"),
 ])
 def test_plan_rejects_bad_checkpoint_settings(mutate, msg):
     cfg = copy.deepcopy(_set("batch-b"))
@@ -968,3 +970,17 @@ def test_batch_b_loop_passes_the_repo_id_offline(tmp_path):
     assert kv["checkpoint"] == f"allenai/MolmoBot-DROID@{MOLMO_SHA[:8]}" and kv["init_states"].startswith("task i")
     card = yaml.safe_load((tmp_path / "vlaeval_task1_summary.protocol.yaml").read_text())
     assert {"repo": "Qwen/Qwen3-4B-Instruct-2507", "revision": QWEN_SHA} in card["checkpoints"]
+
+
+def test_plan_rejects_two_repo_id_pins_of_one_repo_across_servers():
+    cfg = copy.deepcopy(_set("batch-b"))
+    servers = cfg["vlaeval"]["model_servers"]
+    servers["molmobot-droid-b"] = copy.deepcopy(servers["molmobot-droid"])
+    servers["molmobot-droid-b"]["hf_model_revision"] = "0" * 40
+    task = next(t for t in cfg["tasks"] if t["model_server"] == "molmobot-droid")
+    cfg["tasks"].append(dict(task, model_server="molmobot-droid-b"))
+    with pytest.raises(ValueError, match="shared refs/main"):
+        generate.vlaeval_plan(cfg)
+    # same pin twice is fine: refs/main gets the same commit
+    servers["molmobot-droid-b"]["hf_model_revision"] = servers["molmobot-droid"]["hf_model_revision"]
+    generate.vlaeval_plan(cfg)

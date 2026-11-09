@@ -1988,6 +1988,18 @@ def vlaeval_plan(config: dict, vla: str = "vlaeval") -> tuple:
                 dict(repo=str(x["repo"]), revision=str(x["revision"]),
                      **({"allow_patterns": list(x["allow_patterns"])} if x.get("allow_patterns") else {}))
                 for x in s["hf_offline_repos"]]
+    # repo_id servers resolve `main` from refs/main of the one shared HF cache, which the pre-download writes
+    # per repo: two pins of the same repo would leave only the last one, and the other server would load it
+    pins = {}
+    for s in server_list:
+        if s.get("checkpoint_pass") != "repo_id":
+            continue
+        for repo, rev in [(s["hf_repo"], s["hf_model_revision"]),
+                          *[(x["repo"], x["revision"]) for x in s.get("hf_offline_repos", [])]]:
+            prev = pins.setdefault(repo, (rev, s["name"]))
+            if prev[0] != rev:
+                raise ValueError(f"vlaeval: {repo} is pinned at {prev[0][:8]} ({prev[1]}) and {rev[:8]} ({s['name']}) "
+                                 "with checkpoint_pass repo_id; the shared refs/main holds one revision per repo")
     return bench_list, server_list, out
 
 

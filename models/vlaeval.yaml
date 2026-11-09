@@ -110,7 +110,7 @@ vlaeval:
       suite_param: null                                  # ManiSkill2Benchmark takes neither suite nor seed
       seed_param: null
       # render: cpu  = the harness's lavapipe fallback if SAPIEN finds no NVIDIA Vulkan ICD in the container (the
-      #                image's base sets NVIDIA_DRIVER_CAPABILITIES=all and ships the NVIDIA ICD; not run on AWS yet)
+      #                image's base sets NVIDIA_DRIVER_CAPABILITIES=all and ships the NVIDIA ICD; the GPU path worked on AWS 2026-11-09)
       init_states: "env.reset() without a seed (the benchmark passes none): episode start states are not reproducible"
   # Model servers: a config path inside the harness checkout (configs/model_servers/...). The checkpoint the
   # config names is downloaded at hf_model_revision and passed as `--arg <checkpoint_arg>=<snapshot path>`.

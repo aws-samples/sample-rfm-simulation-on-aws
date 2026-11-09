@@ -1,0 +1,110 @@
+# vla-eval — allenai/vla-evaluation-harness run UNMODIFIED on one EC2 GPU instance.
+# Template: templates/vlaeval-userdata.sh.j2 (+ assets/vlaeval/vlaeval_results.py, stdlib-only adapter).
+#
+# The harness is a runtime dependency, not vendored: the instance installs `vla-eval==<harness_version>` from
+# PyPI into a uv-managed Python venv and clones the matching tag for its configs/ (they are not in the wheel).
+# It then runs the harness's own two halves on the same host, as its README describes:
+#   - model server:     `vla-eval serve --config <model_servers.<name>.config>` (the harness's PEP 723 script,
+#                       resolved by uv with the harness's own exclude-newer date) on localhost:8000
+#   - benchmark client: `vla-eval run --config <rendered eval config>`, which starts the benchmark's Docker image
+#                       (pulled by digest) and talks to the server over WebSocket
+# Nothing of the harness is patched. The only overrides are config values the harness documents
+# (server.timeout, docker.user, recording.record_video) and the model-server `--arg checkpoint=<path>` that
+# points the server at a checkpoint snapshot downloaded at a pinned Hugging Face revision.
+#
+# One (benchmark suite x model server) pair = one `tasks:` entry = one `task-N/summary.txt`. Adding a pair:
+# add the benchmark image under vlaeval.benchmarks (if new), the server under vlaeval.model_servers (if new) and
+# one tasks / task_sets entry naming both.
+#
+# Measured recipe (2026-11-08, ap-northeast-2, g6e.2xlarge, by hand over SSM before this target existed):
+# LIBERO-Spatial 10 tasks x 5 episodes, seed 7, LeRobot pi0.5 = 50/50 in 453 s of eval, ~36 min launch to
+# terminate, ~USD 1.65. See docs/targets.md Note 23.
+#
+# Licenses: harness Apache-2.0. Each benchmark, simulator image and checkpoint keeps its own license
+# (LIBERO MIT; lerobot/pi05_libero_finetuned: Gemma terms, its PaliGemma tokenizer repo is gated).
+model:
+  id: vlaeval
+  display_name: "vla-eval (allenai/vla-evaluation-harness)"
+  policy_desc: "model servers and benchmark images of the harness, unmodified (default: LeRobot pi0.5 x LIBERO-Spatial)"
+  license: "harness Apache-2.0; each benchmark image, model server and checkpoint keeps its own license"
+  harness_repo: "https://github.com/allenai/vla-evaluation-harness.git"
+  harness_version: "0.9.0"                                   # PyPI vla-eval (uploaded 2026-11-03)
+  harness_commit: "8798464b2e3317f49b259dca8861aea04f75bb59"  # tag v0.9.0; configs/ come from this checkout
+  python_version: "3.11"                                     # vla-eval needs >= 3.11; the DLAMI ships 3.10
+  huggingface_hub_version: "2.4.0"                           # only for the pinned checkpoint pre-download
+
+vlaeval:
+  # Benchmark images: pulled by digest; `vla-eval run` finds them locally and never pulls a moving tag.
+  benchmarks:
+    libero:
+      benchmark: "vla_eval.benchmarks.libero.benchmark:LIBEROBenchmark"
+      image: "ghcr.io/allenai/vla-evaluation-harness/libero"
+      image_digest: "sha256:bc9930a7e42f970bdde7f3aaddaab0c223bd8e7e922e387cd9eb48aa89ccf2f1"   # 8.84 GB
+      simulator: "LIBERO (robosuite / MuJoCo)"
+      license: "LIBERO MIT; image built by the harness"
+  # Model servers: a config path inside the harness checkout (configs/model_servers/...). The checkpoint the
+  # config names is downloaded at hf_model_revision and passed as `--arg <checkpoint_arg>=<snapshot path>`.
+  model_servers:
+    lerobot-pi05-libero:
+      config: "configs/model_servers/lerobot/pi05_libero.yaml"
+      checkpoint_arg: checkpoint
+      # The config names lerobot/pi05_libero_finetuned, which the Hub redirects to this repo; its main = 7152f13e
+      # (2026-10-06) is what the 2026-11-08 run resolved. Downloaded by its canonical id (no redirect needed).
+      hf_repo: "lerobot/pi05_libero_finetuned_v044"
+      hf_model_revision: "7152f13e34c6c115d808aea0e5d08aca74eac14b"
+      # pi0.5 loads its tokenizer from this gated repo: the HF token in SSM /vla-simulator/hf-token must belong
+      # to an account that accepted its license (checked before anything is installed).
+      gated_repos: ["google/paligemma-3b-pt-224"]
+      license: "Gemma terms (checkpoint card: gemma); PaliGemma tokenizer gated"
+      published: "LeRobot: Spatial 97.0 / Object 99.0 / Goal 98.0 / Long 96.0 (50 episodes per task)"
+  # Values written into every rendered eval config (all documented harness config keys).
+  run:
+    server_timeout: 900     # cold first episode warmed up for 216 s; the harness default of 30 s fails it
+    docker_user: host       # results not owned by root
+    record_video: true      # off by default in the harness
+    port: 8000
+
+instance:
+  preferred: [g6e.2xlarge, g6e.4xlarge, g6e.xlarge]   # g6e.2xlarge measured (1x L40S 46 GB, ~10 GB used)
+  ebs_gb: 250              # measured volume; libero image 8.8 GB + server venv + 7 GB checkpoint
+  creationpolicy_timeout: PT120M   # measured 36 min launch -> terminate
+  min_gpu_mib: 22000
+  min_host_mib: 30000
+
+# Per entry: suite (benchmark params.suite / subname), benchmark, model_server, episodes_per_task, seed,
+# optional max_tasks / max_steps / params (extra benchmark params), condition, description, published. No
+# action_type: a suite row mixes motions, so it is tagged from the suite name like other suite-level entries.
+tasks:
+  - &spatial
+    suite: libero_spatial
+    benchmark: libero
+    model_server: lerobot-pi05-libero
+    episodes_per_task: 5
+    seed: 7
+    params: {num_steps_wait: 10}
+    description: "LIBERO-Spatial, 10 tasks x 5 episodes (LeRobot pi0.5 through vla-eval)"
+    published: "97.0 (LeRobot, 50 episodes per task)"
+
+task_sets:
+  probe:
+    description: "LIBERO-Spatial task 0 x 1 episode (cold-start timing)"
+    tasks:
+      - {<<: *spatial, max_tasks: 1, episodes_per_task: 1, description: "LIBERO-Spatial probe, 1 task x 1 episode"}
+  object:
+    description: "LIBERO-Object, 10 tasks x 5 episodes"
+    tasks:
+      - {<<: *spatial, suite: libero_object, description: "LIBERO-Object, 10 tasks x 5 episodes",
+         published: "99.0 (LeRobot, 50 episodes per task)"}
+  goal:
+    description: "LIBERO-Goal, 10 tasks x 5 episodes"
+    tasks:
+      - {<<: *spatial, suite: libero_goal, description: "LIBERO-Goal, 10 tasks x 5 episodes",
+         published: "98.0 (LeRobot, 50 episodes per task)"}
+  long:
+    description: "LIBERO-10 (long horizon), 10 tasks x 5 episodes"
+    tasks:
+      - {<<: *spatial, suite: libero_10, description: "LIBERO-10, 10 tasks x 5 episodes",
+         published: "96.0 (LeRobot, 50 episodes per task)"}
+
+bridge:
+  enabled: false

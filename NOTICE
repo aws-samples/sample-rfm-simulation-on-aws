@@ -80,6 +80,20 @@ Policies / models (code and weights)
 - openarm-lift-act runs a scripted state machine (no third-party policy weights).
 
 ------------------------------------------------------------------------------
+Evaluation harness
+------------------------------------------------------------------------------
+- vla-evaluation-harness (vla-eval), Allen Institute for AI (target vlaeval)
+  — github.com/allenai/vla-evaluation-harness — Apache-2.0.
+    * Installed from PyPI (vla-eval==0.9.0) and its configs/ cloned at tag v0.9.0 on the
+      instance at run time; no harness code is copied into this repository and the
+      harness is not modified.
+    * Its benchmark images (ghcr.io/allenai/vla-evaluation-harness/*, pulled by digest)
+      bundle the benchmark and simulator, each under its own license (LIBERO: MIT).
+    * Default model server checkpoint lerobot/pi05_libero_finetuned (LeRobot pi0.5):
+      Gemma terms per the model card; its tokenizer google/paligemma-3b-pt-224 is gated
+      (Gemma terms; accept on Hugging Face).
+
+------------------------------------------------------------------------------
 Simulators and benchmarks
 ------------------------------------------------------------------------------
 - LIBERO — MIT. github.com/Lifelong-Robot-Learning/LIBERO

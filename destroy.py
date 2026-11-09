@@ -80,6 +80,7 @@ STACK_NAMES = {
     "dino-wm": "DINO-WM-Demo",
     "jepa-wms": "JEPA-WMs-Demo",
     "vla-jepa": "VLA-JEPA-Demo",
+    "vlaeval": "VLA-Eval-Demo",
 }
 
 

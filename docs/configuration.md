@@ -32,7 +32,7 @@ Supported regions: `us-east-1`, `us-west-2`, `ap-northeast-1`, `ap-northeast-2`,
 ## Hugging Face token (gated models)
 
 `gr00t` (backbone `nvidia/Cosmos-Reason2-2B`),
-`gr00t-g1` (the N1.7 adapter in `server.hf_repo`) and `openarm-isaac` (tokenizer
+`gr00t-g1` (the N1.7 adapter in `server.hf_repo`), `openarm-isaac` and `vlaeval` (both: π0.5 tokenizer
 `google/paligemma-3b-pt-224`) download gated repos. Accept the model
 license on huggingface.co with your account, then store a read token in **each region you deploy
 to** (SSM parameters are regional). `cosmos-policy` (gated base `nvidia/Cosmos-Predict2-2B-Video2World`) and `aspire` (SAM3) also need a token whose account has been granted access; see [note 9](targets.md#note-9-cosmos-policy) and [note 10](targets.md#note-10-aspire).

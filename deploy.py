@@ -89,7 +89,7 @@ OTHER_LOCAL_STACKS = {"vla-adapter": "VLA-Adapter-Demo", "cosmos-policy": "Cosmo
                       "robolab-pi05": "RoboLab-Pi05-Demo", "rlinf-oft-libero": "RLinf-OFT-LIBERO-Demo",
                       "lerobot-gym": "LeRobot-Gym-Demo", "spatialvla": "SpatialVLA-Demo", "magma": "Magma-Demo",
                       "univla": "UniVLA-Demo", "ge-act": "GE-Act-Demo", "dino-wm": "DINO-WM-Demo",
-                      "jepa-wms": "JEPA-WMs-Demo"}
+                      "jepa-wms": "JEPA-WMs-Demo", "vlaeval": "VLA-Eval-Demo"}
 # RLinf RL post-training targets (evaluate -> GRPO -> re-evaluate); --rl-profile picks models/<vla>.yaml profiles.
 RLINF_TARGETS = ("rlinf-oft-libero",)
 RL_PROFILES = ("smoke", "full")
@@ -1033,6 +1033,10 @@ def main():
         elif args.vla == "lerobot-gym":
             print("  Estimated time: ~30-60 min (uv sync LeRobot source ~10-20 min + 3 small checkpoints + "
                   "lerobot-eval per task, 10 episodes each; estimate, not measured yet)")
+        elif args.vla == "vlaeval":
+            print("  Estimated time: ~40 min for the default LIBERO-Spatial 10 tasks x 5 ep (measured by hand 2026-11-08 on "
+                  "g6e.2xlarge: install ~1 min + image pull ~3 min + server load ~2 min + cold first episode ~4 min + "
+                  "50 episodes in 453 s; ~36 min launch to terminate)")
         elif args.vla == "spatialvla":
             print("  Estimated time: ~60-90 min (venv from the lock ~10-20 min + 8 GB checkpoint + 4 SimplerEnv tasks, "
                   "93 episodes; estimate, not measured yet)")

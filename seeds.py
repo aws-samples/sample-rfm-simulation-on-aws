@@ -86,6 +86,11 @@ SEED_CONTROL: dict[str, dict] = {
     "ge-act": dict(where=None, env=_LIBERO_FIXED, policy="no",
                    reason="the authors' pipeline call fixes noise_seed=42 for every action chunk; there is no seed "
                           "flag to vary"),
+    # vla-eval LIBERO benchmark: params.seed -> env.seed() in the benchmark container; init states are LIBERO's files.
+    # The model server gets no seed from the tool (the harness has no server-side seed argument).
+    "vlaeval": dict(where="tasks", env=_LIBERO_FIXED, policy="no",
+                    via="vla-eval LIBERO benchmark params.seed (env.seed)",
+                    reason="the vla-eval model server takes no seed; start states are LIBERO's fixed init states"),
     # latent world-model planners: the task seed picks the start / goal pairs and seeds the CEM sampling
     "dino-wm": dict(where="tasks", env="yes", policy="yes",
                     via="plan.py seed= (episode i: env seed seed*i+1; start / goal sampling and CEM noise)"),

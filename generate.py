@@ -29,6 +29,7 @@ Usage:
     python generate.py --vla univla      [--task-set actions]   # also: ge-act (LIBERO, authors' eval loop)
     python generate.py --vla dino-wm     [--task-set pusht|wall]   # also: jepa-wms (latent world-model planners)
     python generate.py --vla rlinf-oft-libero [--rl-profile smoke|full] [--rl-steps N] [--rl-eval-run RUN_ID]
+    python generate.py --vla vlaeval     [--task-set probe|object|goal|long]   # allenai vla-eval, unmodified
     python generate.py --judge-target flora-judge [--dry-run]   # post-run judge (deploy.py --judge)
 """
 
@@ -1735,6 +1736,180 @@ def generate_latent_wm(config: dict, dry_run: bool, vla: str) -> str:
     return env.get_template("latent-wm-userdata.sh.j2").render(**_with_protocol(ctx, config, card))
 
 
+# vla-eval (allenai/vla-evaluation-harness) run unmodified: one tasks: entry = one (benchmark suite x model server)
+# pair = one vla-eval benchmark entry with its own output dir and summary.txt. See models/vlaeval.yaml.
+VLAEVAL_TARGETS = ("vlaeval",)
+VLAEVAL_ADAPTER = BASE_DIR / "assets" / "vlaeval" / "vlaeval_results.py"
+VLAEVAL_EVAL_DIR = "/home/ubuntu/vlaeval-eval"
+_VLAEVAL_KEY_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
+_VLAEVAL_IMPORT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_.]*:[A-Za-z_][A-Za-z0-9_]*$")
+_VLAEVAL_IMAGE_RE = re.compile(r"^[a-z0-9][a-z0-9.-]*(:[0-9]+)?(/[a-z0-9][a-z0-9._-]*)+$")
+_VLAEVAL_CONFIG_RE = re.compile(r"^configs/model_servers/[A-Za-z0-9_./-]+\.ya?ml$")
+_VLAEVAL_TASK_KEYS = {"suite", "benchmark", "model_server", "episodes_per_task", "seed", "max_tasks", "max_steps",
+                      "params", "action_type", "description", "published", "condition"}
+
+
+def _vlaeval_int(value, where, minimum):
+    if not isinstance(value, int) or isinstance(value, bool) or value < minimum:
+        raise ValueError(f"{where} must be an integer >= {minimum}")
+    return value
+
+
+def vlaeval_plan(config: dict, vla: str = "vlaeval") -> tuple:
+    """(benchmarks used, model servers used, task entries) of a vlaeval model yaml, validated.
+
+    Each task gets `eval_config`, the vla-eval run config written on the instance (JSON, which is YAML), with the
+    benchmark image by digest and the `vlaeval.run` overrides. Raises ValueError naming the offending key."""
+    model = config.get("model") or {}
+    block = config.get("vlaeval") or {}
+    benches, servers, run = block.get("benchmarks") or {}, block.get("model_servers") or {}, block.get("run") or {}
+    for key in ("harness_repo", "harness_version", "harness_commit", "python_version", "huggingface_hub_version"):
+        if not model.get(key):
+            raise ValueError(f"models/{vla}.yaml: model.{key} is required")
+    if not _COMMIT_RE.match(str(model["harness_commit"])):
+        raise ValueError(f"models/{vla}.yaml: model.harness_commit must be a 40-hex commit")
+    for key in ("harness_version", "python_version", "huggingface_hub_version"):
+        if not re.fullmatch(r"[0-9]+(\.[0-9]+){1,2}", str(model[key])):
+            raise ValueError(f"models/{vla}.yaml: model.{key} must be a version like 0.9.0")
+    if not re.fullmatch(r"https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+\.git", str(model["harness_repo"])):
+        raise ValueError(f"models/{vla}.yaml: model.harness_repo must be https://github.com/<org>/<repo>.git")
+    for name, b in benches.items():
+        where = f"models/{vla}.yaml vlaeval.benchmarks.{name}"
+        if not _VLAEVAL_KEY_RE.match(str(name)) or not isinstance(b, dict):
+            raise ValueError(f"{where}: name must be [a-z0-9_-] and the entry a mapping")
+        if not _VLAEVAL_IMPORT_RE.match(str(b.get("benchmark", ""))):
+            raise ValueError(f"{where}.benchmark must be a module:Class import string")
+        if not _VLAEVAL_IMAGE_RE.match(str(b.get("image", ""))):
+            raise ValueError(f"{where}.image must be a registry/repository name without tag")
+        if not re.fullmatch(r"sha256:[0-9a-f]{64}", str(b.get("image_digest", ""))):
+            raise ValueError(f"{where}.image_digest must be sha256:<64 hex> (images are pulled by digest)")
+    for name, s in servers.items():
+        where = f"models/{vla}.yaml vlaeval.model_servers.{name}"
+        if not _VLAEVAL_KEY_RE.match(str(name)) or not isinstance(s, dict):
+            raise ValueError(f"{where}: name must be [a-z0-9_-] and the entry a mapping")
+        if not _VLAEVAL_CONFIG_RE.match(str(s.get("config", ""))) or ".." in str(s.get("config", "")):
+            raise ValueError(f"{where}.config must be a path under configs/model_servers/ of the harness checkout")
+        if s.get("hf_repo") or s.get("hf_model_revision"):
+            if not _HF_REPO_RE.match(str(s.get("hf_repo", ""))):
+                raise ValueError(f"{where}.hf_repo must be <org>/<name>")
+            if not _COMMIT_RE.match(str(s.get("hf_model_revision", ""))):
+                raise ValueError(f"{where}.hf_model_revision must be a 40-hex commit")
+            if not re.fullmatch(r"[a-z_][a-z0-9_]*", str(s.get("checkpoint_arg", ""))):
+                raise ValueError(f"{where}.checkpoint_arg (the server arg that takes the checkpoint) is required")
+        for g in s.get("gated_repos") or []:
+            if not _HF_REPO_RE.match(str(g)):
+                raise ValueError(f"{where}.gated_repos: {g!r} is not <org>/<name>")
+    timeout = _vlaeval_int(run.get("server_timeout", 900), f"models/{vla}.yaml vlaeval.run.server_timeout", 30)
+    port = _vlaeval_int(run.get("port", 8000), f"models/{vla}.yaml vlaeval.run.port", 1024)
+    if port != 8000:
+        # the model server binds the port of its own config (8000 in the harness configs); only the client side
+        # would move, and the health check would wait an hour for a server that is not there
+        raise ValueError(f"models/{vla}.yaml vlaeval.run.port must be 8000, the port the harness model servers bind")
+    user = str(run.get("docker_user", "host"))
+    if not re.fullmatch(r"host|[0-9]+:[0-9]+", user):
+        raise ValueError(f"models/{vla}.yaml vlaeval.run.docker_user must be host or <uid>:<gid>")
+    tasks = config.get("tasks") or []
+    if not isinstance(tasks, list) or not tasks:
+        raise ValueError(f"models/{vla}.yaml has no tasks entry")
+    out, used_b, used_s = [], [], []
+    for i, t in enumerate(tasks):
+        where = f"models/{vla}.yaml tasks[{i}]"
+        if not isinstance(t, dict):
+            raise ValueError(f"{where}: not a mapping")
+        unknown = sorted(set(t) - _VLAEVAL_TASK_KEYS)
+        if unknown:
+            raise ValueError(f"{where}: unknown key(s) {', '.join(unknown)}")
+        suite = str(t.get("suite") or "")
+        if not re.fullmatch(r"[a-z0-9][a-z0-9_]*", suite):
+            raise ValueError(f"{where}: suite {suite!r} must be [a-z0-9_]")
+        if t.get("benchmark") not in benches:
+            raise ValueError(f"{where}: benchmark {t.get('benchmark')!r} is not in vlaeval.benchmarks")
+        if t.get("model_server") not in servers:
+            raise ValueError(f"{where}: model_server {t.get('model_server')!r} is not in vlaeval.model_servers")
+        eps = _vlaeval_int(t.get("episodes_per_task", 5), f"{where}.episodes_per_task", 1)
+        seed = _vlaeval_int(t.get("seed", 7), f"{where}.seed", 0)
+        params = t.get("params") or {}
+        if not isinstance(params, dict) or "suite" in params or "seed" in params:
+            raise ValueError(f"{where}.params must be a mapping without suite / seed (set by the entry)")
+        for k, v in params.items():
+            if not re.fullmatch(r"[a-z_][a-z0-9_]*", str(k)) or isinstance(v, (dict, list)) \
+                    or not re.fullmatch(r"[A-Za-z0-9_.-]{1,64}", str(v)):
+                raise ValueError(f"{where}.params.{k}: plain scalar values only")
+        cond = str(t.get("condition") or "S0")
+        if not re.fullmatch(r"[A-Za-z0-9_./-]{1,64}", cond):
+            raise ValueError(f"{where}.condition {cond!r}: plain token only")
+        bench, server = benches[t["benchmark"]], servers[t["model_server"]]
+        entry = {"benchmark": bench["benchmark"], "subname": suite, "episodes_per_task": eps,
+                 "params": {"suite": suite, "seed": seed, **params},
+                 "recording": {"record_video": bool(run.get("record_video", True))}}
+        for key in ("max_tasks", "max_steps"):
+            if t.get(key) is not None:
+                entry[key] = _vlaeval_int(t[key], f"{where}.{key}", 1)
+        eval_config = {
+            "server": {"url": f"ws://localhost:{port}", "timeout": timeout},
+            "docker": {"image": f"{bench['image']}@{bench['image_digest']}", "user": user},
+            "output_dir": f"{VLAEVAL_EVAL_DIR}/task-{i}",
+            "benchmarks": [entry],
+        }
+        if t["benchmark"] not in used_b:
+            used_b.append(t["benchmark"])
+        if t["model_server"] not in used_s:
+            used_s.append(t["model_server"])
+        out.append(dict(
+            suite=suite, benchmark=t["benchmark"], model_server=t["model_server"], episodes_per_task=eps, seed=seed,
+            max_tasks=t.get("max_tasks"), condition=cond, action_type=task_sets.action_type(t),
+            description=str(t.get("description") or ""), published=str(t.get("published") or ""),
+            image=f"{bench['image']}@{bench['image_digest']}", server_config=str(server["config"]),
+            hf_repo=str(server.get("hf_repo") or ""), hf_model_revision=str(server.get("hf_model_revision") or ""),
+            checkpoint_arg=str(server.get("checkpoint_arg") or ""), eval_config=eval_config))
+    bench_list = [dict(name=n, image=f"{benches[n]['image']}@{benches[n]['image_digest']}",
+                       simulator=str(benches[n].get("simulator") or n)) for n in used_b]
+    server_list = [dict(name=n, config=str(servers[n]["config"]), hf_repo=str(servers[n].get("hf_repo") or ""),
+                        hf_model_revision=str(servers[n].get("hf_model_revision") or ""),
+                        gated_repos=[str(g) for g in servers[n].get("gated_repos") or []]) for n in used_s]
+    return bench_list, server_list, out
+
+
+def generate_vlaeval(config: dict, dry_run: bool, vla: str = "vlaeval") -> str:
+    """allenai/vla-evaluation-harness (vla-eval) run unmodified: `vla-eval serve` + `vla-eval run` on one host."""
+    model = config.get("model", {})
+    instance = config.get("instance", {})
+    run = (config.get("vlaeval") or {}).get("run") or {}
+    try:
+        benches, servers, tasks = vlaeval_plan(config, vla)
+    except ValueError as e:
+        print(f"[error] {e}", file=sys.stderr)
+        sys.exit(1)
+    gated = sorted({g for s in servers for g in s["gated_repos"]})
+    ctx = {
+        "vla": vla,
+        "task_set": config.get("task_set") or "",
+        "tasks_json": _tasks_json_for_bash(tasks),
+        "tasks": tasks,
+        "benches": benches,
+        "servers": servers,
+        "gated_repos": gated,
+        "display_name": _shell_safe(model.get("display_name", vla), "display_name"),
+        "policy_desc": _shell_safe(model.get("policy_desc", vla), "policy_desc"),
+        "license": _shell_safe(model.get("license", "see model card"), "license"),
+        "harness_repo": model["harness_repo"],
+        "harness_version": model["harness_version"],
+        "harness_commit": model["harness_commit"],
+        "harness_tag": "v" + str(model["harness_version"]),
+        "python_version": model["python_version"],
+        "hf_hub_version": model["huggingface_hub_version"],
+        "port": int(run.get("port", 8000)),
+        "eval_dir": VLAEVAL_EVAL_DIR,
+        "adapter_b64": base64.encodebytes(VLAEVAL_ADAPTER.read_bytes()).decode(),
+        "min_gpu_mib": int(instance.get("min_gpu_mib", 22000)),
+        "min_host_mib": int(instance.get("min_host_mib", 30000)),
+    }
+    card = {"checkpoints": [dict(repo=s["hf_repo"], revision=s["hf_model_revision"]) for s in servers if s["hf_repo"]],
+            "start_states": "the benchmark's fixed init states (LIBERO: episode i = init state i of the task)"}
+    env = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)), keep_trailing_newline=True)  # nosec B701 - shell script template
+    return env.get_template("vlaeval-userdata.sh.j2").render(**_with_protocol(ctx, config, card))
+
+
 # Targets that run an upstream-LeRobot policy through `lerobot-eval --env.type=robotwin` (RoboTwin 2.0,
 # SAPIEN + CuRobo) with the shared lerobot-robotwin template. Adding one = models/<id>.yaml + the name maps.
 LEROBOT_ROBOTWIN_TARGETS = ("smolvla-robotwin", "lingbot-vla2")
@@ -2693,6 +2868,8 @@ def main():
         rendered = generate_lerobot_libero(config, args.dry_run, vla=args.vla, plus=plus)
     elif args.vla == "lerobot-gym":
         rendered = generate_lerobot_gym(config, args.dry_run, vla=args.vla)
+    elif args.vla in VLAEVAL_TARGETS:
+        rendered = generate_vlaeval(config, args.dry_run, vla=args.vla)
     elif args.vla in SIMPLER_TARGETS:
         rendered = generate_simpler(config, args.dry_run, vla=args.vla)
     elif args.vla in LIBERO_OWN_TARGETS:

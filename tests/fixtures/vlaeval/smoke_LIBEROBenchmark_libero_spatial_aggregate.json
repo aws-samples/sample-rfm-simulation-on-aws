@@ -1,0 +1,106 @@
+{
+  "benchmark": "LIBEROBenchmark_libero_spatial",
+  "mode": "sync",
+  "harness_version": "0.9.0",
+  "created_at": "2026-11-08T16:18:25.405583+00:00",
+  "tasks": [
+    {
+      "task": "pick up the black bowl between the plate and the ramekin and place it on the plate",
+      "episodes": [
+        {
+          "sid": "fe155ca2-62d6-4439-8a24-5486f023ea61",
+          "eid": "db41534e-f642-4731-ba5d-5439b4d0ee49",
+          "episode_id": 0,
+          "metrics": {
+            "success": false
+          },
+          "steps": 0,
+          "elapsed_sec": 0.0,
+          "name": "pick up the black bowl between the plate and the ramekin and place it on the plate",
+          "suite": "libero_spatial",
+          "task_id": 0,
+          "episode_idx": 0,
+          "task_idx": 0,
+          "failure_reason": "timeout",
+          "failure_detail": "timeout=30.0s: "
+        }
+      ],
+      "num_episodes": 1,
+      "avg_steps": 0.0,
+      "num_errors": 1,
+      "mean_success": 0.0
+    }
+  ],
+  "config": {
+    "benchmark": "vla_eval.benchmarks.libero.benchmark:LIBEROBenchmark",
+    "mode": "sync",
+    "name": null,
+    "subname": "libero_spatial",
+    "episodes_per_task": 1,
+    "max_steps": null,
+    "max_tasks": 1,
+    "tasks": null,
+    "params": {
+      "num_steps_wait": 10,
+      "seed": 7,
+      "suite": "libero_spatial"
+    },
+    "recording": {
+      "record_video": true
+    },
+    "hz": 10.0,
+    "throughput_mode": false,
+    "paced": true
+  },
+  "eval_id": "8e119d84-124f-42f1-87d0-3cf94977099a-LIBEROBenchmark_libero_spatial",
+  "server_info": {
+    "harness_version": "0.9.0",
+    "protocol_version": 1,
+    "model_server": "LeRobotModelServer",
+    "capabilities": {
+      "vector_step": true,
+      "episode_ready": true,
+      "publish": true,
+      "episode_error": true
+    },
+    "observation_params": {
+      "send_state": true,
+      "send_wrist_image": true
+    },
+    "action_spec": {
+      "actions": {
+        "name": "raw",
+        "dims": 0,
+        "format": "raw"
+      }
+    },
+    "observation_spec": {
+      "image": {
+        "name": "image",
+        "dims": 0,
+        "format": "rgb_hwc_uint8"
+      },
+      "language": {
+        "name": "language",
+        "dims": 0,
+        "format": "language"
+      },
+      "state": {
+        "name": "raw",
+        "dims": 0,
+        "format": "raw"
+      }
+    }
+  },
+  "render": {
+    "requested": "gpu",
+    "applied_env": {}
+  },
+  "seed": 7,
+  "metric_keys": {
+    "success": "mean"
+  },
+  "mean_success": 0.0,
+  "num_episodes_total": 1,
+  "num_errors": 1
+}

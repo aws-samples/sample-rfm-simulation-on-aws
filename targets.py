@@ -18,7 +18,7 @@ VLA_TARGETS = (
     "molmoact2", "xvla", "smolvla", "lingbot-va", "vla-adapter", "fastwam", "cosmos-policy", "aspire",
     "real2sim", "robolab-cosmos3", "robolab-pi05", "smolvla-robotwin", "lingbot-vla2",
     "rlinf-oft-libero", "lerobot-gym", "multitask-dit", "spatialvla", "magma", "univla", "ge-act",
-    "dino-wm", "jepa-wms", "vla-jepa",
+    "dino-wm", "jepa-wms", "vla-jepa", "vlaeval",
 )
 
 JUDGE_TARGETS = ("flora-judge",)

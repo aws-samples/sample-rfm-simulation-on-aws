@@ -384,6 +384,7 @@ HF_TOKEN_TARGETS = {
     "gr00t-g1": "the N1.7 server.hf_repo in models/gr00t-g1.yaml",
     "openarm-isaac": "google/paligemma-3b-pt-224",
     "cosmos-policy": "nvidia/Cosmos-Predict2-2B-Video2World",
+    "vlaeval": "google/paligemma-3b-pt-224 (tokenizer of the pi0.5 model server)",
 }
 
 

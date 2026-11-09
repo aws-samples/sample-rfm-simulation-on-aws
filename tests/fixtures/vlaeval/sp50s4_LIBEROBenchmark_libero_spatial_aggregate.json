@@ -1,0 +1,1010 @@
+{
+  "benchmark": "LIBEROBenchmark_libero_spatial",
+  "mode": "sync",
+  "harness_version": "0.9.0",
+  "created_at": "2026-11-08T16:37:51.935472+00:00",
+  "tasks": [
+    {
+      "task": "pick up the black bowl between the plate and the ramekin and place it on the plate",
+      "episodes": [
+        {
+          "sid": "a14dd49e-c144-4e30-95a4-6cfde350e50a",
+          "eid": "284b5734-8b50-4958-8669-ce2f38bcb04d",
+          "episode_id": 0,
+          "metrics": {
+            "success": true
+          },
+          "steps": 75,
+          "elapsed_sec": 23.029,
+          "name": "pick up the black bowl between the plate and the ramekin and place it on the plate",
+          "suite": "libero_spatial",
+          "task_id": 0,
+          "episode_idx": 0,
+          "shard_id": 0,
+          "num_shards": 4,
+          "task_idx": 0
+        },
+        {
+          "sid": "a14dd49e-c144-4e30-95a4-6cfde350e50a",
+          "eid": "73f1c9c3-eaed-4d62-8214-e0407f28eaef",
+          "episode_id": 1,
+          "metrics": {
+            "success": true
+          },
+          "steps": 77,
+          "elapsed_sec": 7.473,
+          "name": "pick up the black bowl between the plate and the ramekin and place it on the plate",
+          "suite": "libero_spatial",
+          "task_id": 0,
+          "episode_idx": 1,
+          "shard_id": 0,
+          "num_shards": 4,
+          "task_idx": 0
+        },
+        {
+          "sid": "a14dd49e-c144-4e30-95a4-6cfde350e50a",
+          "eid": "c8810bd8-763d-4733-ab1a-c0d7d3ccfd17",
+          "episode_id": 2,
+          "metrics": {
+            "success": true
+          },
+          "steps": 84,
+          "elapsed_sec": 7.939,
+          "name": "pick up the black bowl between the plate and the ramekin and place it on the plate",
+          "suite": "libero_spatial",
+          "task_id": 0,
+          "episode_idx": 2,
+          "shard_id": 0,
+          "num_shards": 4,
+          "task_idx": 0
+        },
+        {
+          "sid": "a14dd49e-c144-4e30-95a4-6cfde350e50a",
+          "eid": "80546455-8c9b-484f-968c-99891214c5c6",
+          "episode_id": 3,
+          "metrics": {
+            "success": true
+          },
+          "steps": 78,
+          "elapsed_sec": 7.535,
+          "name": "pick up the black bowl between the plate and the ramekin and place it on the plate",
+          "suite": "libero_spatial",
+          "task_id": 0,
+          "episode_idx": 3,
+          "shard_id": 0,
+          "num_shards": 4,
+          "task_idx": 0
+        },
+        {
+          "sid": "a14dd49e-c144-4e30-95a4-6cfde350e50a",
+          "eid": "68c16015-65c5-4f18-90cd-8506368cc6b6",
+          "episode_id": 4,
+          "metrics": {
+            "success": true
+          },
+          "steps": 75,
+          "elapsed_sec": 7.222,
+          "name": "pick up the black bowl between the plate and the ramekin and place it on the plate",
+          "suite": "libero_spatial",
+          "task_id": 0,
+          "episode_idx": 4,
+          "shard_id": 0,
+          "num_shards": 4,
+          "task_idx": 0
+        }
+      ],
+      "num_episodes": 5,
+      "avg_steps": 77.8,
+      "mean_success": 1.0
+    },
+    {
+      "task": "pick up the black bowl from table center and place it on the plate",
+      "episodes": [
+        {
+          "sid": "dfd5c4c8-6bc1-4678-8d57-90374d311257",
+          "eid": "b41a4876-acc7-4288-9c01-9e7e23228066",
+          "episode_id": 0,
+          "metrics": {
+            "success": true
+          },
+          "steps": 95,
+          "elapsed_sec": 8.804,
+          "name": "pick up the black bowl from table center and place it on the plate",
+          "suite": "libero_spatial",
+          "task_id": 2,
+          "episode_idx": 0,
+          "shard_id": 1,
+          "num_shards": 4,
+          "task_idx": 2
+        },
+        {
+          "sid": "dfd5c4c8-6bc1-4678-8d57-90374d311257",
+          "eid": "c146699d-8821-411d-82ce-bb834e34cb8b",
+          "episode_id": 1,
+          "metrics": {
+            "success": true
+          },
+          "steps": 89,
+          "elapsed_sec": 8.423,
+          "name": "pick up the black bowl from table center and place it on the plate",
+          "suite": "libero_spatial",
+          "task_id": 2,
+          "episode_idx": 1,
+          "shard_id": 1,
+          "num_shards": 4,
+          "task_idx": 2
+        },
+        {
+          "sid": "dfd5c4c8-6bc1-4678-8d57-90374d311257",
+          "eid": "7eb6bf9d-8e87-4cd3-b892-7215a45393b5",
+          "episode_id": 2,
+          "metrics": {
+            "success": true
+          },
+          "steps": 93,
+          "elapsed_sec": 8.754,
+          "name": "pick up the black bowl from table center and place it on the plate",
+          "suite": "libero_spatial",
+          "task_id": 2,
+          "episode_idx": 2,
+          "shard_id": 1,
+          "num_shards": 4,
+          "task_idx": 2
+        },
+        {
+          "sid": "dfd5c4c8-6bc1-4678-8d57-90374d311257",
+          "eid": "2fc198c3-37c1-415d-a5ea-a930314ccac8",
+          "episode_id": 3,
+          "metrics": {
+            "success": true
+          },
+          "steps": 91,
+          "elapsed_sec": 24.523,
+          "name": "pick up the black bowl from table center and place it on the plate",
+          "suite": "libero_spatial",
+          "task_id": 2,
+          "episode_idx": 3,
+          "shard_id": 1,
+          "num_shards": 4,
+          "task_idx": 2
+        },
+        {
+          "sid": "dfd5c4c8-6bc1-4678-8d57-90374d311257",
+          "eid": "b3e1c64c-eb35-435f-bd95-736f50228c73",
+          "episode_id": 4,
+          "metrics": {
+            "success": true
+          },
+          "steps": 98,
+          "elapsed_sec": 9.129,
+          "name": "pick up the black bowl from table center and place it on the plate",
+          "suite": "libero_spatial",
+          "task_id": 2,
+          "episode_idx": 4,
+          "shard_id": 1,
+          "num_shards": 4,
+          "task_idx": 2
+        }
+      ],
+      "num_episodes": 5,
+      "avg_steps": 93.2,
+      "mean_success": 1.0
+    },
+    {
+      "task": "pick up the black bowl in the top drawer of the wooden cabinet and place it on the plate",
+      "episodes": [
+        {
+          "sid": "dfd5c4c8-6bc1-4678-8d57-90374d311257",
+          "eid": "aaf0d018-ba3d-49b1-99eb-2e4a97d3c238",
+          "episode_id": 0,
+          "metrics": {
+            "success": false
+          },
+          "steps": 220,
+          "elapsed_sec": 20.446,
+          "name": "pick up the black bowl in the top drawer of the wooden cabinet and place it on the plate",
+          "suite": "libero_spatial",
+          "task_id": 4,
+          "episode_idx": 0,
+          "shard_id": 1,
+          "num_shards": 4,
+          "task_idx": 4
+        },
+        {
+          "sid": "dfd5c4c8-6bc1-4678-8d57-90374d311257",
+          "eid": "e1b031e9-928e-47f3-ac24-3084ee344d98",
+          "episode_id": 1,
+          "metrics": {
+            "success": true
+          },
+          "steps": 125,
+          "elapsed_sec": 11.499,
+          "name": "pick up the black bowl in the top drawer of the wooden cabinet and place it on the plate",
+          "suite": "libero_spatial",
+          "task_id": 4,
+          "episode_idx": 1,
+          "shard_id": 1,
+          "num_shards": 4,
+          "task_idx": 4
+        },
+        {
+          "sid": "30b0e326-9095-4867-91c1-67fcb9834d5d",
+          "eid": "240d35ff-6516-4bf3-beae-02cdce9e9152",
+          "episode_id": 2,
+          "metrics": {
+            "success": false
+          },
+          "steps": 220,
+          "elapsed_sec": 19.062,
+          "name": "pick up the black bowl in the top drawer of the wooden cabinet and place it on the plate",
+          "suite": "libero_spatial",
+          "task_id": 4,
+          "episode_idx": 2,
+          "shard_id": 2,
+          "num_shards": 4,
+          "task_idx": 4
+        },
+        {
+          "sid": "a934c710-f2b6-4353-9944-02cc7a803f5d",
+          "eid": "2bc7575a-be9a-4011-9bab-bb99d53010b8",
+          "episode_id": 3,
+          "metrics": {
+            "success": true
+          },
+          "steps": 129,
+          "elapsed_sec": 12.134,
+          "name": "pick up the black bowl in the top drawer of the wooden cabinet and place it on the plate",
+          "suite": "libero_spatial",
+          "task_id": 4,
+          "episode_idx": 3,
+          "shard_id": 3,
+          "num_shards": 4,
+          "task_idx": 4
+        },
+        {
+          "sid": "a14dd49e-c144-4e30-95a4-6cfde350e50a",
+          "eid": "f0b9c8dc-f213-4584-9bd9-416951ed13e8",
+          "episode_id": 4,
+          "metrics": {
+            "success": true
+          },
+          "steps": 132,
+          "elapsed_sec": 13.195,
+          "name": "pick up the black bowl in the top drawer of the wooden cabinet and place it on the plate",
+          "suite": "libero_spatial",
+          "task_id": 4,
+          "episode_idx": 4,
+          "shard_id": 0,
+          "num_shards": 4,
+          "task_idx": 4
+        }
+      ],
+      "num_episodes": 5,
+      "avg_steps": 165.2,
+      "mean_success": 0.6
+    },
+    {
+      "task": "pick up the black bowl next to the cookie box and place it on the plate",
+      "episodes": [
+        {
+          "sid": "30b0e326-9095-4867-91c1-67fcb9834d5d",
+          "eid": "b6c1740a-b8e3-40e4-a30a-8e78a2785c55",
+          "episode_id": 0,
+          "metrics": {
+            "success": true
+          },
+          "steps": 110,
+          "elapsed_sec": 10.986,
+          "name": "pick up the black bowl next to the cookie box and place it on the plate",
+          "suite": "libero_spatial",
+          "task_id": 6,
+          "episode_idx": 0,
+          "shard_id": 2,
+          "num_shards": 4,
+          "task_idx": 6
+        },
+        {
+          "sid": "30b0e326-9095-4867-91c1-67fcb9834d5d",
+          "eid": "962b913c-5bcd-494b-a3ee-67e08665efbf",
+          "episode_id": 1,
+          "metrics": {
+            "success": true
+          },
+          "steps": 106,
+          "elapsed_sec": 9.598,
+          "name": "pick up the black bowl next to the cookie box and place it on the plate",
+          "suite": "libero_spatial",
+          "task_id": 6,
+          "episode_idx": 1,
+          "shard_id": 2,
+          "num_shards": 4,
+          "task_idx": 6
+        },
+        {
+          "sid": "30b0e326-9095-4867-91c1-67fcb9834d5d",
+          "eid": "42ce2193-68c0-4338-b68d-6041809f832a",
+          "episode_id": 2,
+          "metrics": {
+            "success": true
+          },
+          "steps": 106,
+          "elapsed_sec": 9.533,
+          "name": "pick up the black bowl next to the cookie box and place it on the plate",
+          "suite": "libero_spatial",
+          "task_id": 6,
+          "episode_idx": 2,
+          "shard_id": 2,
+          "num_shards": 4,
+          "task_idx": 6
+        },
+        {
+          "sid": "30b0e326-9095-4867-91c1-67fcb9834d5d",
+          "eid": "80d7d6dd-fc4e-4562-9a4c-3840d2a84879",
+          "episode_id": 3,
+          "metrics": {
+            "success": true
+          },
+          "steps": 92,
+          "elapsed_sec": 8.534,
+          "name": "pick up the black bowl next to the cookie box and place it on the plate",
+          "suite": "libero_spatial",
+          "task_id": 6,
+          "episode_idx": 3,
+          "shard_id": 2,
+          "num_shards": 4,
+          "task_idx": 6
+        },
+        {
+          "sid": "30b0e326-9095-4867-91c1-67fcb9834d5d",
+          "eid": "307467d9-c08b-4e10-8469-c4aa0cac2cf5",
+          "episode_id": 4,
+          "metrics": {
+            "success": true
+          },
+          "steps": 98,
+          "elapsed_sec": 9.051,
+          "name": "pick up the black bowl next to the cookie box and place it on the plate",
+          "suite": "libero_spatial",
+          "task_id": 6,
+          "episode_idx": 4,
+          "shard_id": 2,
+          "num_shards": 4,
+          "task_idx": 6
+        }
+      ],
+      "num_episodes": 5,
+      "avg_steps": 102.4,
+      "mean_success": 1.0
+    },
+    {
+      "task": "pick up the black bowl next to the plate and place it on the plate",
+      "episodes": [
+        {
+          "sid": "a934c710-f2b6-4353-9944-02cc7a803f5d",
+          "eid": "774b7ab3-a62e-40e4-a4f4-4dd8398a070c",
+          "episode_id": 0,
+          "metrics": {
+            "success": true
+          },
+          "steps": 104,
+          "elapsed_sec": 10.728,
+          "name": "pick up the black bowl next to the plate and place it on the plate",
+          "suite": "libero_spatial",
+          "task_id": 8,
+          "episode_idx": 0,
+          "shard_id": 3,
+          "num_shards": 4,
+          "task_idx": 8
+        },
+        {
+          "sid": "a934c710-f2b6-4353-9944-02cc7a803f5d",
+          "eid": "f9e44da3-3a52-43a1-883b-7a4b828c98d6",
+          "episode_id": 1,
+          "metrics": {
+            "success": true
+          },
+          "steps": 100,
+          "elapsed_sec": 9.266,
+          "name": "pick up the black bowl next to the plate and place it on the plate",
+          "suite": "libero_spatial",
+          "task_id": 8,
+          "episode_idx": 1,
+          "shard_id": 3,
+          "num_shards": 4,
+          "task_idx": 8
+        },
+        {
+          "sid": "a934c710-f2b6-4353-9944-02cc7a803f5d",
+          "eid": "7c3ab825-9ad0-4daa-a2ac-b13f08c73a8d",
+          "episode_id": 2,
+          "metrics": {
+            "success": true
+          },
+          "steps": 93,
+          "elapsed_sec": 8.526,
+          "name": "pick up the black bowl next to the plate and place it on the plate",
+          "suite": "libero_spatial",
+          "task_id": 8,
+          "episode_idx": 2,
+          "shard_id": 3,
+          "num_shards": 4,
+          "task_idx": 8
+        },
+        {
+          "sid": "a934c710-f2b6-4353-9944-02cc7a803f5d",
+          "eid": "e15469b1-ad70-462a-81af-faf7cd226018",
+          "episode_id": 3,
+          "metrics": {
+            "success": true
+          },
+          "steps": 94,
+          "elapsed_sec": 8.802,
+          "name": "pick up the black bowl next to the plate and place it on the plate",
+          "suite": "libero_spatial",
+          "task_id": 8,
+          "episode_idx": 3,
+          "shard_id": 3,
+          "num_shards": 4,
+          "task_idx": 8
+        },
+        {
+          "sid": "a934c710-f2b6-4353-9944-02cc7a803f5d",
+          "eid": "869bea98-d631-4db2-91a6-f2d693dacd08",
+          "episode_id": 4,
+          "metrics": {
+            "success": true
+          },
+          "steps": 91,
+          "elapsed_sec": 8.346,
+          "name": "pick up the black bowl next to the plate and place it on the plate",
+          "suite": "libero_spatial",
+          "task_id": 8,
+          "episode_idx": 4,
+          "shard_id": 3,
+          "num_shards": 4,
+          "task_idx": 8
+        }
+      ],
+      "num_episodes": 5,
+      "avg_steps": 96.4,
+      "mean_success": 1.0
+    },
+    {
+      "task": "pick up the black bowl next to the ramekin and place it on the plate",
+      "episodes": [
+        {
+          "sid": "a14dd49e-c144-4e30-95a4-6cfde350e50a",
+          "eid": "04f3736d-4325-4369-9bbd-765b8b4afc7a",
+          "episode_id": 0,
+          "metrics": {
+            "success": true
+          },
+          "steps": 113,
+          "elapsed_sec": 11.609,
+          "name": "pick up the black bowl next to the ramekin and place it on the plate",
+          "suite": "libero_spatial",
+          "task_id": 1,
+          "episode_idx": 0,
+          "shard_id": 0,
+          "num_shards": 4,
+          "task_idx": 1
+        },
+        {
+          "sid": "a14dd49e-c144-4e30-95a4-6cfde350e50a",
+          "eid": "8c18113b-653f-4297-bd26-11f69c826d7b",
+          "episode_id": 1,
+          "metrics": {
+            "success": true
+          },
+          "steps": 101,
+          "elapsed_sec": 9.402,
+          "name": "pick up the black bowl next to the ramekin and place it on the plate",
+          "suite": "libero_spatial",
+          "task_id": 1,
+          "episode_idx": 1,
+          "shard_id": 0,
+          "num_shards": 4,
+          "task_idx": 1
+        },
+        {
+          "sid": "a14dd49e-c144-4e30-95a4-6cfde350e50a",
+          "eid": "f2c129a0-4887-456f-bc5d-85f3f49164a4",
+          "episode_id": 2,
+          "metrics": {
+            "success": true
+          },
+          "steps": 108,
+          "elapsed_sec": 9.962,
+          "name": "pick up the black bowl next to the ramekin and place it on the plate",
+          "suite": "libero_spatial",
+          "task_id": 1,
+          "episode_idx": 2,
+          "shard_id": 0,
+          "num_shards": 4,
+          "task_idx": 1
+        },
+        {
+          "sid": "a14dd49e-c144-4e30-95a4-6cfde350e50a",
+          "eid": "1bfb9712-578c-4bc7-98f3-ba9c57dc7088",
+          "episode_id": 3,
+          "metrics": {
+            "success": true
+          },
+          "steps": 107,
+          "elapsed_sec": 9.883,
+          "name": "pick up the black bowl next to the ramekin and place it on the plate",
+          "suite": "libero_spatial",
+          "task_id": 1,
+          "episode_idx": 3,
+          "shard_id": 0,
+          "num_shards": 4,
+          "task_idx": 1
+        },
+        {
+          "sid": "a14dd49e-c144-4e30-95a4-6cfde350e50a",
+          "eid": "e0533903-0d36-4140-b420-86ccec3e14b1",
+          "episode_id": 4,
+          "metrics": {
+            "success": true
+          },
+          "steps": 111,
+          "elapsed_sec": 10.163,
+          "name": "pick up the black bowl next to the ramekin and place it on the plate",
+          "suite": "libero_spatial",
+          "task_id": 1,
+          "episode_idx": 4,
+          "shard_id": 0,
+          "num_shards": 4,
+          "task_idx": 1
+        }
+      ],
+      "num_episodes": 5,
+      "avg_steps": 108.0,
+      "mean_success": 1.0
+    },
+    {
+      "task": "pick up the black bowl on the cookie box and place it on the plate",
+      "episodes": [
+        {
+          "sid": "dfd5c4c8-6bc1-4678-8d57-90374d311257",
+          "eid": "cb4acaa6-b79d-4615-9acf-90dfb7a23494",
+          "episode_id": 0,
+          "metrics": {
+            "success": true
+          },
+          "steps": 87,
+          "elapsed_sec": 9.364,
+          "name": "pick up the black bowl on the cookie box and place it on the plate",
+          "suite": "libero_spatial",
+          "task_id": 3,
+          "episode_idx": 0,
+          "shard_id": 1,
+          "num_shards": 4,
+          "task_idx": 3
+        },
+        {
+          "sid": "dfd5c4c8-6bc1-4678-8d57-90374d311257",
+          "eid": "bcb53af5-4e60-4246-9d60-07ccab9ff3e4",
+          "episode_id": 1,
+          "metrics": {
+            "success": true
+          },
+          "steps": 83,
+          "elapsed_sec": 7.951,
+          "name": "pick up the black bowl on the cookie box and place it on the plate",
+          "suite": "libero_spatial",
+          "task_id": 3,
+          "episode_idx": 1,
+          "shard_id": 1,
+          "num_shards": 4,
+          "task_idx": 3
+        },
+        {
+          "sid": "dfd5c4c8-6bc1-4678-8d57-90374d311257",
+          "eid": "58b1fd96-d592-40e4-b498-096494597d19",
+          "episode_id": 2,
+          "metrics": {
+            "success": true
+          },
+          "steps": 82,
+          "elapsed_sec": 8.063,
+          "name": "pick up the black bowl on the cookie box and place it on the plate",
+          "suite": "libero_spatial",
+          "task_id": 3,
+          "episode_idx": 2,
+          "shard_id": 1,
+          "num_shards": 4,
+          "task_idx": 3
+        },
+        {
+          "sid": "dfd5c4c8-6bc1-4678-8d57-90374d311257",
+          "eid": "4991d93f-128f-434b-a0f7-da6644f088a4",
+          "episode_id": 3,
+          "metrics": {
+            "success": true
+          },
+          "steps": 86,
+          "elapsed_sec": 8.237,
+          "name": "pick up the black bowl on the cookie box and place it on the plate",
+          "suite": "libero_spatial",
+          "task_id": 3,
+          "episode_idx": 3,
+          "shard_id": 1,
+          "num_shards": 4,
+          "task_idx": 3
+        },
+        {
+          "sid": "dfd5c4c8-6bc1-4678-8d57-90374d311257",
+          "eid": "35e7eaec-008b-45d3-88cb-abad4e767acb",
+          "episode_id": 4,
+          "metrics": {
+            "success": true
+          },
+          "steps": 90,
+          "elapsed_sec": 8.212,
+          "name": "pick up the black bowl on the cookie box and place it on the plate",
+          "suite": "libero_spatial",
+          "task_id": 3,
+          "episode_idx": 4,
+          "shard_id": 1,
+          "num_shards": 4,
+          "task_idx": 3
+        }
+      ],
+      "num_episodes": 5,
+      "avg_steps": 85.6,
+      "mean_success": 1.0
+    },
+    {
+      "task": "pick up the black bowl on the ramekin and place it on the plate",
+      "episodes": [
+        {
+          "sid": "30b0e326-9095-4867-91c1-67fcb9834d5d",
+          "eid": "46ec6208-f665-47e7-be87-99d4f69b9377",
+          "episode_id": 0,
+          "metrics": {
+            "success": true
+          },
+          "steps": 91,
+          "elapsed_sec": 24.73,
+          "name": "pick up the black bowl on the ramekin and place it on the plate",
+          "suite": "libero_spatial",
+          "task_id": 5,
+          "episode_idx": 0,
+          "shard_id": 2,
+          "num_shards": 4,
+          "task_idx": 5
+        },
+        {
+          "sid": "30b0e326-9095-4867-91c1-67fcb9834d5d",
+          "eid": "c0d08895-0d2f-4af3-9154-6622da5e1690",
+          "episode_id": 1,
+          "metrics": {
+            "success": true
+          },
+          "steps": 94,
+          "elapsed_sec": 9.427,
+          "name": "pick up the black bowl on the ramekin and place it on the plate",
+          "suite": "libero_spatial",
+          "task_id": 5,
+          "episode_idx": 1,
+          "shard_id": 2,
+          "num_shards": 4,
+          "task_idx": 5
+        },
+        {
+          "sid": "30b0e326-9095-4867-91c1-67fcb9834d5d",
+          "eid": "e3220612-bc5e-40bf-b414-131cfc1d0dd4",
+          "episode_id": 2,
+          "metrics": {
+            "success": true
+          },
+          "steps": 84,
+          "elapsed_sec": 8.433,
+          "name": "pick up the black bowl on the ramekin and place it on the plate",
+          "suite": "libero_spatial",
+          "task_id": 5,
+          "episode_idx": 2,
+          "shard_id": 2,
+          "num_shards": 4,
+          "task_idx": 5
+        },
+        {
+          "sid": "30b0e326-9095-4867-91c1-67fcb9834d5d",
+          "eid": "fa1a6dc6-a068-4be8-86e4-d71ebd517022",
+          "episode_id": 3,
+          "metrics": {
+            "success": true
+          },
+          "steps": 86,
+          "elapsed_sec": 8.341,
+          "name": "pick up the black bowl on the ramekin and place it on the plate",
+          "suite": "libero_spatial",
+          "task_id": 5,
+          "episode_idx": 3,
+          "shard_id": 2,
+          "num_shards": 4,
+          "task_idx": 5
+        },
+        {
+          "sid": "30b0e326-9095-4867-91c1-67fcb9834d5d",
+          "eid": "a0184e76-4f79-4bbc-9739-3b5ae58197c3",
+          "episode_id": 4,
+          "metrics": {
+            "success": true
+          },
+          "steps": 95,
+          "elapsed_sec": 9.272,
+          "name": "pick up the black bowl on the ramekin and place it on the plate",
+          "suite": "libero_spatial",
+          "task_id": 5,
+          "episode_idx": 4,
+          "shard_id": 2,
+          "num_shards": 4,
+          "task_idx": 5
+        }
+      ],
+      "num_episodes": 5,
+      "avg_steps": 90.0,
+      "mean_success": 1.0
+    },
+    {
+      "task": "pick up the black bowl on the stove and place it on the plate",
+      "episodes": [
+        {
+          "sid": "a934c710-f2b6-4353-9944-02cc7a803f5d",
+          "eid": "78cc5575-8b48-490c-ac15-5b086bf9bccd",
+          "episode_id": 0,
+          "metrics": {
+            "success": true
+          },
+          "steps": 117,
+          "elapsed_sec": 10.902,
+          "name": "pick up the black bowl on the stove and place it on the plate",
+          "suite": "libero_spatial",
+          "task_id": 7,
+          "episode_idx": 0,
+          "shard_id": 3,
+          "num_shards": 4,
+          "task_idx": 7
+        },
+        {
+          "sid": "a934c710-f2b6-4353-9944-02cc7a803f5d",
+          "eid": "c7d89f75-18ed-42b3-b46a-94c3f843d3a4",
+          "episode_id": 1,
+          "metrics": {
+            "success": true
+          },
+          "steps": 116,
+          "elapsed_sec": 10.791,
+          "name": "pick up the black bowl on the stove and place it on the plate",
+          "suite": "libero_spatial",
+          "task_id": 7,
+          "episode_idx": 1,
+          "shard_id": 3,
+          "num_shards": 4,
+          "task_idx": 7
+        },
+        {
+          "sid": "a934c710-f2b6-4353-9944-02cc7a803f5d",
+          "eid": "cd750186-c728-44ce-8572-6188fb017356",
+          "episode_id": 2,
+          "metrics": {
+            "success": true
+          },
+          "steps": 127,
+          "elapsed_sec": 11.708,
+          "name": "pick up the black bowl on the stove and place it on the plate",
+          "suite": "libero_spatial",
+          "task_id": 7,
+          "episode_idx": 2,
+          "shard_id": 3,
+          "num_shards": 4,
+          "task_idx": 7
+        },
+        {
+          "sid": "a934c710-f2b6-4353-9944-02cc7a803f5d",
+          "eid": "ce08f4d0-7cce-448a-8427-194f186a53e9",
+          "episode_id": 3,
+          "metrics": {
+            "success": true
+          },
+          "steps": 118,
+          "elapsed_sec": 27.105,
+          "name": "pick up the black bowl on the stove and place it on the plate",
+          "suite": "libero_spatial",
+          "task_id": 7,
+          "episode_idx": 3,
+          "shard_id": 3,
+          "num_shards": 4,
+          "task_idx": 7
+        },
+        {
+          "sid": "a934c710-f2b6-4353-9944-02cc7a803f5d",
+          "eid": "2b3abcd6-e757-492e-a211-aa26c2439054",
+          "episode_id": 4,
+          "metrics": {
+            "success": true
+          },
+          "steps": 115,
+          "elapsed_sec": 11.057,
+          "name": "pick up the black bowl on the stove and place it on the plate",
+          "suite": "libero_spatial",
+          "task_id": 7,
+          "episode_idx": 4,
+          "shard_id": 3,
+          "num_shards": 4,
+          "task_idx": 7
+        }
+      ],
+      "num_episodes": 5,
+      "avg_steps": 118.6,
+      "mean_success": 1.0
+    },
+    {
+      "task": "pick up the black bowl on the wooden cabinet and place it on the plate",
+      "episodes": [
+        {
+          "sid": "a934c710-f2b6-4353-9944-02cc7a803f5d",
+          "eid": "18e8461f-1c95-47bc-a0f7-c5e9264b3867",
+          "episode_id": 0,
+          "metrics": {
+            "success": true
+          },
+          "steps": 121,
+          "elapsed_sec": 12.147,
+          "name": "pick up the black bowl on the wooden cabinet and place it on the plate",
+          "suite": "libero_spatial",
+          "task_id": 9,
+          "episode_idx": 0,
+          "shard_id": 3,
+          "num_shards": 4,
+          "task_idx": 9
+        },
+        {
+          "sid": "30b0e326-9095-4867-91c1-67fcb9834d5d",
+          "eid": "a001b436-cd77-49fe-b461-cd994c694361",
+          "episode_id": 1,
+          "metrics": {
+            "success": true
+          },
+          "steps": 117,
+          "elapsed_sec": 10.677,
+          "name": "pick up the black bowl on the wooden cabinet and place it on the plate",
+          "suite": "libero_spatial",
+          "task_id": 9,
+          "episode_idx": 1,
+          "shard_id": 2,
+          "num_shards": 4,
+          "task_idx": 9
+        },
+        {
+          "sid": "a14dd49e-c144-4e30-95a4-6cfde350e50a",
+          "eid": "f267b61b-ee31-4c24-9913-065dff12c49d",
+          "episode_id": 2,
+          "metrics": {
+            "success": true
+          },
+          "steps": 120,
+          "elapsed_sec": 10.69,
+          "name": "pick up the black bowl on the wooden cabinet and place it on the plate",
+          "suite": "libero_spatial",
+          "task_id": 9,
+          "episode_idx": 2,
+          "shard_id": 0,
+          "num_shards": 4,
+          "task_idx": 9
+        },
+        {
+          "sid": "30b0e326-9095-4867-91c1-67fcb9834d5d",
+          "eid": "1d57ed81-3d8f-4173-9938-4740bfe36c40",
+          "episode_id": 3,
+          "metrics": {
+            "success": true
+          },
+          "steps": 113,
+          "elapsed_sec": 11.587,
+          "name": "pick up the black bowl on the wooden cabinet and place it on the plate",
+          "suite": "libero_spatial",
+          "task_id": 9,
+          "episode_idx": 3,
+          "shard_id": 2,
+          "num_shards": 4,
+          "task_idx": 9
+        },
+        {
+          "sid": "a14dd49e-c144-4e30-95a4-6cfde350e50a",
+          "eid": "60276e99-9138-47bc-aec8-1308e32f782e",
+          "episode_id": 4,
+          "metrics": {
+            "success": true
+          },
+          "steps": 112,
+          "elapsed_sec": 11.6,
+          "name": "pick up the black bowl on the wooden cabinet and place it on the plate",
+          "suite": "libero_spatial",
+          "task_id": 9,
+          "episode_idx": 4,
+          "shard_id": 0,
+          "num_shards": 4,
+          "task_idx": 9
+        }
+      ],
+      "num_episodes": 5,
+      "avg_steps": 116.6,
+      "mean_success": 1.0
+    }
+  ],
+  "config": {
+    "benchmark": "vla_eval.benchmarks.libero.benchmark:LIBEROBenchmark",
+    "mode": "sync",
+    "name": null,
+    "subname": "libero_spatial",
+    "episodes_per_task": 5,
+    "max_steps": null,
+    "max_tasks": null,
+    "tasks": null,
+    "params": {
+      "num_steps_wait": 10,
+      "seed": 7,
+      "suite": "libero_spatial"
+    },
+    "recording": {
+      "record_video": true
+    },
+    "hz": 10.0,
+    "throughput_mode": false,
+    "paced": true
+  },
+  "eval_id": "5ab560b7-da87-4478-89da-97bfc199483e-LIBEROBenchmark_libero_spatial",
+  "server_info": {
+    "harness_version": "0.9.0",
+    "protocol_version": 1,
+    "model_server": "LeRobotModelServer",
+    "capabilities": {
+      "vector_step": true,
+      "episode_ready": true,
+      "publish": true,
+      "episode_error": true
+    },
+    "observation_params": {
+      "send_state": true,
+      "send_wrist_image": true
+    },
+    "action_spec": {
+      "actions": {
+        "name": "raw",
+        "dims": 0,
+        "format": "raw"
+      }
+    },
+    "observation_spec": {
+      "image": {
+        "name": "image",
+        "dims": 0,
+        "format": "rgb_hwc_uint8"
+      },
+      "language": {
+        "name": "language",
+        "dims": 0,
+        "format": "language"
+      },
+      "state": {
+        "name": "raw",
+        "dims": 0,
+        "format": "raw"
+      }
+    }
+  },
+  "render": {
+    "requested": "gpu",
+    "applied_env": {}
+  },
+  "seed": 7,
+  "metric_keys": {
+    "success": "mean"
+  },
+  "mean_success": 0.96,
+  "num_episodes_total": 50,
+  "num_errors": 0
+}

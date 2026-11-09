@@ -361,6 +361,33 @@ done
 # Model server: `vla-eval serve` from the harness checkout (its config paths are relative to it). The server's
 # PEP 723 script resolves its own env with uv on first start (torch + LeRobot ~2 min). Started per server name,
 # kept up while consecutive tasks use the same one.
+{%- if provenance_servers %}
+# A server that downloads its checkpoint itself, outside the pinned HF cache (openpi: gs://openpi-assets, and its
+# tokenizer from gs://big_vision), pins nothing: record what it fetched once it is healthy, as file list + size +
+# md5 (hex and the base64 form GCS lists as md5Hash), into /tmp/{{ vla }}_provenance_<server>.txt -> each task's
+# checkpoint-provenance.txt.
+record_provenance() {
+    local _name=$1
+    shift
+    python3 - "$@" > "/tmp/{{ vla }}_provenance_${_name}.txt" 2>&1 <<'PYEOF' || log "[warn] provenance of ${_name} incomplete"
+import base64, hashlib, os, sys
+print("# md5_hex  md5_base64  bytes  path")
+for root in sys.argv[1:]:
+    if not os.path.exists(root):
+        print(f"MISSING {root}")
+        continue
+    files = [root] if os.path.isfile(root) else sorted(
+        os.path.join(d, f) for d, _, fs in os.walk(root) for f in fs if not f.endswith(".lock"))
+    for path in files:
+        h = hashlib.md5()
+        with open(path, "rb") as f:
+            for block in iter(lambda: f.read(1 << 20), b""):
+                h.update(block)
+        print(f"{h.hexdigest()}  {base64.b64encode(h.digest()).decode()}  {os.path.getsize(path)}  {path}")
+PYEOF
+    log "  provenance ${_name}: $(grep -vcE '^(#|MISSING )' "/tmp/{{ vla }}_provenance_${_name}.txt" || true) files, $(grep -c '^MISSING ' "/tmp/{{ vla }}_provenance_${_name}.txt" || true) missing"
+}
+{%- endif %}
 CURRENT_SERVER=""
 start_server() {
     local _name=$1 _config=$2 _ckpt_arg=$3 _ckpt=$4{% if offline_servers %} _pass=${5:-path}{% endif %}
@@ -378,13 +405,23 @@ start_server() {
     local _args=(serve --config "${_config}")
     [ -z "${_ckpt_arg}" ] || _args+=(--arg "${_ckpt_arg}=${_ckpt}")
     log "  vla-eval ${_args[*]}"
+{%- if env_servers %}
+    # server_env (models/{{ vla }}.yaml): environment of this server's process only
+    local _env=()
+    case "${_name}" in
+{%- for s in env_servers %}
+        {{ s.name }}) _env=({% for e in s.server_env %}"{{ e }}"{{ ' ' if not loop.last else '' }}{% endfor %}) ;;
+{%- endfor %}
+    esac
+    [ -z "${_env[*]:-}" ] || log "  server env: ${_env[*]}"
+{%- endif %}
 {%- if offline_servers %}
     # checkpoint_pass repo_id: the server gets the repo id and resolves it from the pinned cache only
     [ "${_pass}" != "repo_id" ] || log "  (HF_HUB_OFFLINE=1: ${_ckpt} and the server's other Hub repos from the cache)"
     ( cd "${HARNESS_DIR}" && if [ "${_pass}" = "repo_id" ]; then export HF_HUB_OFFLINE=1; fi \
-        && exec setsid "${VENV}/bin/vla-eval" "${_args[@]}" ) \
+        && exec setsid {% if env_servers %}env ${_env[@]+"${_env[@]}"} {% endif %}"${VENV}/bin/vla-eval" "${_args[@]}" ) \
 {%- else %}
-    ( cd "${HARNESS_DIR}" && exec setsid "${VENV}/bin/vla-eval" "${_args[@]}" ) \
+    ( cd "${HARNESS_DIR}" && exec setsid {% if env_servers %}env ${_env[@]+"${_env[@]}"} {% endif %}"${VENV}/bin/vla-eval" "${_args[@]}" ) \
 {%- endif %}
         > "/tmp/{{ vla }}_server_${_name}.log" 2>&1 < /dev/null &
     SERVER_PID=$!
@@ -403,6 +440,13 @@ start_server() {
         sleep 5
     done
     log "  server ${_name} healthy after $((SECONDS - _t0)) s"
+{%- if provenance_servers %}
+    case "${_name}" in
+{%- for s in provenance_servers %}
+        {{ s.name }}) record_provenance "${_name}"{% for x in s.provenance_paths %} "{{ x }}"{% endfor %} ;;
+{%- endfor %}
+    esac
+{%- endif %}
     CURRENT_SERVER="${_name}"
 }
 
@@ -429,6 +473,15 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
     PUBLISHED=$(echo "$TASK" | jq -r '.published')
     EXPECT_VIDEOS=$(echo "$TASK" | jq -r 'if .expect_videos == false then "false" else "true" end')
     INIT_STATES=$(echo "$TASK" | jq -r '.init_states // ""')
+{%- if eval_timeouts %}
+    EVAL_TIMEOUT=$(echo "$TASK" | jq -r '.eval_timeout // {{ eval_timeout_default }}')
+{%- endif %}
+{%- if extra_meta %}
+    # reference score / matrix row of the entry (models/{{ vla }}.yaml), as extra summary.txt lines
+    EXTRA_META=()
+    while IFS= read -r _m; do [ -z "${_m}" ] || EXTRA_META+=(--meta "${_m}"); done \
+        < <(echo "$TASK" | jq -r '(.extra_meta // [])[]')
+{%- endif %}
 {%- if echo_tasks %}
     KIND=$(echo "$TASK" | jq -r '.kind // "run"')
     ADAPTER_PY="${WORK}/vlaeval_results.py"
@@ -489,12 +542,12 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
         ADAPTER_MODE=(--echo-log "/tmp/{{ vla }}_task${TASK_IDX}.log"
                       --meta "seed=$(jq -r '.benchmarks[0].params.seed // "none (the benchmark takes no seed)"' "${EVAL_CONFIG}")")
     else
-        ( cd "${HARNESS_DIR}" && timeout --kill-after=120 5400 "${VENV}/bin/vla-eval" run --config "${EVAL_CONFIG}" --yes ) \
+        ( cd "${HARNESS_DIR}" && timeout --kill-after=120 {{ '"${EVAL_TIMEOUT}"' if eval_timeouts else '5400' }} "${VENV}/bin/vla-eval" run --config "${EVAL_CONFIG}" --yes ) \
             < /dev/null > "/tmp/{{ vla }}_task${TASK_IDX}.log" 2>&1
         EVAL_EXIT=$?
     fi
 {%- else %}
-    ( cd "${HARNESS_DIR}" && timeout --kill-after=120 5400 "${VENV}/bin/vla-eval" run --config "${EVAL_CONFIG}" --yes ) \
+    ( cd "${HARNESS_DIR}" && timeout --kill-after=120 {{ '"${EVAL_TIMEOUT}"' if eval_timeouts else '5400' }} "${VENV}/bin/vla-eval" run --config "${EVAL_CONFIG}" --yes ) \
         < /dev/null > "/tmp/{{ vla }}_task${TASK_IDX}.log" 2>&1
     EVAL_EXIT=$?
 {%- endif %}
@@ -526,7 +579,8 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
         --meta "stack_vla_eval_server_config=${SERVER_CONFIG}" \
         --meta "stack_vla_eval_benchmark_image=${IMAGE}" \
         --meta "stack_nvidia_driver=${DRIVER_VERSION}" \
-        --meta "stack_torch_constraint=${TORCH_CONSTRAINT}" \
+        --meta "stack_torch_constraint=${TORCH_CONSTRAINT}"{% if extra_meta %} ${EXTRA_META[@]+"${EXTRA_META[@]}"}{% endif %}{% if provenance_servers %} \
+        $([ ! -f "/tmp/{{ vla }}_provenance_${SERVER_NAME}.txt" ] || echo "--meta checkpoint_provenance=checkpoint-provenance.txt"){% endif %} \
         2>> "/tmp/{{ vla }}_task${TASK_IDX}.log" | tail -1) || KN=""
     log "  result: ${KN:-no aggregate}"
 
@@ -549,6 +603,12 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
     aws s3 cp "${EVAL_CONFIG}" "${S3_TASK_PREFIX}/eval-config.json" --region "$REGION" > /dev/null 2>&1 || true
     aws s3 cp "/tmp/{{ vla }}_task${TASK_IDX}.log" "${S3_TASK_PREFIX}/eval.log" --region "$REGION" > /dev/null 2>&1 || true
     aws s3 cp "/tmp/{{ vla }}_server_${SERVER_NAME}.log" "${S3_TASK_PREFIX}/server.log" --region "$REGION" > /dev/null 2>&1 || true
+{%- if provenance_servers %}
+    if [ -f "/tmp/{{ vla }}_provenance_${SERVER_NAME}.txt" ]; then
+        aws s3 cp "/tmp/{{ vla }}_provenance_${SERVER_NAME}.txt" "${S3_TASK_PREFIX}/checkpoint-provenance.txt" \
+            --region "$REGION" > /dev/null 2>&1 || log "[warn] checkpoint-provenance.txt upload failed"
+    fi
+{%- endif %}
     SUMMARY_UP=0
     if [ -f "${SUMMARY_FILE}" ]; then
         for _try in 1 2 3; do

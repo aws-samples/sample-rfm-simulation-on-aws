@@ -1396,3 +1396,314 @@ def test_git_https_rewrite_only_with_a_git_https_server(task_set, rewrites, tmp_
     assert (line in text) is rewrites
     if rewrites:
         assert text.index(line) < text.index("[5/8] docker pull") < text.index("start_server()")
+
+
+# --- bundle 4A: DB-CogACT, OpenVLA, openpi pi0.5 / pi0-FAST on LIBERO-Spatial ----------------------------------------
+
+DBC_LIBERO_SHA = "2cb20bcaa1e2e39d431b7e3d40a2d7a696388a10"
+OPENVLA_SHA = "962318cec55ac10993ff0f5f43eda9a270b4c873"
+OPENPI_CACHE = "/root/.cache/openpi/openpi-assets/checkpoints/"
+PALIGEMMA_TOK = "/root/.cache/openpi/big_vision/paligemma_tokenizer.model"
+SETS_4A = ("libero-dbcogact", "libero-openvla", "libero-openpi", "batch-4a")
+SPATIAL_PARAMS = {"suite": "libero_spatial", "seed": 7, "num_steps_wait": 10}   # configs/benchmarks/libero/spatial.yaml
+
+
+def test_batch_4a_sets_render_the_harness_configs():
+    benches, servers, tasks = generate.vlaeval_plan(_set("batch-4a"))
+    assert [b["name"] for b in benches] == ["libero"] and benches[0]["image"].endswith(DIGEST)
+    assert servers == [
+        dict(name="openpi-pi05-libero", config="configs/model_servers/pi0/libero.yaml", hf_repo="",
+             hf_model_revision="", gated_repos=[], server_env=["XLA_PYTHON_CLIENT_MEM_FRACTION=0.5"],
+             provenance_paths=[OPENPI_CACHE + "pi05_libero", PALIGEMMA_TOK]),
+        dict(name="openpi-pi0fast-libero", config="configs/model_servers/pi0/libero_fast.yaml", hf_repo="",
+             hf_model_revision="", gated_repos=[], server_env=["XLA_PYTHON_CLIENT_MEM_FRACTION=0.5"],
+             provenance_paths=[OPENPI_CACHE + "pi0_fast_libero", PALIGEMMA_TOK]),
+        dict(name="db-cogact-libero", config="configs/model_servers/db_cogact/libero.yaml",
+             hf_repo="Dexmal/libero-db-cogact", hf_model_revision=DBC_LIBERO_SHA, gated_repos=[]),
+        dict(name="openvla-libero-spatial", config="configs/model_servers/openvla/libero_spatial.yaml",
+             hf_repo="openvla/openvla-7b-finetuned-libero-spatial", hf_model_revision=OPENVLA_SHA, gated_repos=[])]
+    # pi0.py's `uv lock --script` resolves on CUDA 12 (measured 2026-11-09): no server leaves the lock check
+    assert not any("torch_lock" in s or "checkpoint_pass" in s for s in servers)
+    pi05, fast, dbc, ovla = tasks
+    for t, eps in ((pi05, 10), (fast, 10), (dbc, 50), (ovla, 20)):
+        (e,) = t["eval_config"]["benchmarks"]
+        assert (e["subname"], e["params"], e["episodes_per_task"]) == ("libero_spatial", SPATIAL_PARAMS, eps)
+        assert "max_tasks" not in e and t["max_tasks"] is None      # all 10 tasks of the suite
+        assert "env" not in t["eval_config"]["docker"] and "render" not in t["eval_config"]
+    assert [t["checkpoint_arg"] for t in tasks] == ["", "", "model_path", "model_path"]
+    assert [t.get("eval_timeout") for t in tasks] == [None, None, 10800, 10800]
+    assert [t["extra_meta"][-1] for t in tasks] == [
+        "matrix_row=vlaeval:openpi-pi05-libero", "matrix_row=vlaeval:openpi-pi0fast-libero",
+        "matrix_row=vlaeval:db-cogact-libero", "matrix_row=vlaeval:openvla-libero-spatial"]
+    # reference = the harness's reproduced LIBERO-Spatial score (500 episodes); pi0-FAST has none in the harness
+    assert pi05["extra_meta"][:4] == ["reference_value=0.98", "reference_n=500", "reference_metric=success",
+                                      "reference_source=docs/reproductions/openpi.md:27"]
+    assert dbc["extra_meta"][:4] == ["reference_value=0.938", "reference_n=500", "reference_metric=success",
+                                     "reference_source=docs/reproductions/dexbotic.md:27"]
+    assert ovla["extra_meta"][:4] == ["reference_value=0.866", "reference_n=500", "reference_metric=success",
+                                      "reference_source=docs/reproductions/openvla.md:25"]
+    assert len(fast["extra_meta"]) == 1
+    # each single set is the same entry as in batch-4a
+    for name, sel in (("libero-dbcogact", [dbc]), ("libero-openvla", [ovla]), ("libero-openpi", [pi05, fast])):
+        single = generate.vlaeval_plan(_set(name))[2]
+        assert [{k: v for k, v in s.items() if k != "eval_config"} for s in single] == \
+            [{k: v for k, v in t.items() if k != "eval_config"} for t in sel]
+        assert [s["eval_config"]["benchmarks"] for s in single] == [t["eval_config"]["benchmarks"] for t in sel]
+
+
+def test_batch_4a_references_match_the_harness_reports():
+    # the cited lines of the pinned harness checkout (when it is there) hold the score the yaml says
+    harness = ROOT.parent / "vlaeh" / "v090"
+    if not (harness / "docs" / "reproductions").is_dir():
+        pytest.skip("harness checkout v0.9.0 not next to this worktree")
+    for t in generate.vlaeval_plan(_set("batch-4a"))[2]:
+        meta = dict(m.split("=", 1) for m in t["extra_meta"])
+        if "reference_source" not in meta:
+            continue
+        path, line = meta["reference_source"].rsplit(":", 1)
+        text = (harness / path).read_text().splitlines()[int(line) - 1]
+        assert f"{float(meta['reference_value']) * 100:.1f}%" in text and text.startswith("| Spatial"), text
+
+
+def test_batch_4a_instance_overrides_only_for_their_sets():
+    assert task_sets.instance_overrides(_set("batch-4a")) == {"ebs_gb": 300, "creationpolicy_timeout": "PT420M"}
+    assert task_sets.instance_overrides(_set("libero-dbcogact")) == {"creationpolicy_timeout": "PT240M"}
+    assert task_sets.instance_overrides(_set("libero-openvla")) == {"creationpolicy_timeout": "PT240M"}
+    assert task_sets.instance_overrides(_set("libero-openpi")) == {}
+
+
+@pytest.mark.skipif(BASH is None, reason="bash not on PATH")
+@pytest.mark.parametrize("task_set", SETS_4A)
+def test_batch_4a_render_and_bash_n(task_set, tmp_path):
+    _render(tmp_path, "--task-set", task_set)
+    text = (tmp_path / "vlaeval.sh").read_text()
+    assert subprocess.run([BASH, "-n", str(tmp_path / "vlaeval.sh")]).returncode == 0
+    tasks = _tasks_json(text)
+    assert tasks == json.loads(json.dumps(generate.vlaeval_plan(_set(task_set))[2]))
+    assert ":latest" not in text and text.count("docker pull -q") == 1
+    openpi = task_set in ("libero-openpi", "batch-4a")
+    dbc = task_set in ("libero-dbcogact", "batch-4a")
+    ovla = task_set in ("libero-openvla", "batch-4a")
+    assert (f'print(snapshot_download("Dexmal/libero-db-cogact", revision="{DBC_LIBERO_SHA}"))' in text) == dbc
+    assert (f'print(snapshot_download("openvla/openvla-7b-finetuned-libero-spatial", revision="{OPENVLA_SHA}"))'
+            in text) == ovla
+    # openpi: no HF download; server env and provenance only for it; every server is in the CUDA 12 lock check
+    assert ('openpi-pi05-libero) _env=("XLA_PYTHON_CLIENT_MEM_FRACTION=0.5") ;;' in text) == openpi
+    assert ('exec setsid env ${_env[@]+"${_env[@]}"} "${VENV}/bin/vla-eval"' in text) == openpi
+    assert (f'openpi-pi05-libero) record_provenance "${{_name}}" "{OPENPI_CACHE}pi05_libero" "{PALIGEMMA_TOK}" ;;'
+            in text) == openpi
+    assert ('"${S3_TASK_PREFIX}/checkpoint-provenance.txt"' in text) == openpi
+    assert "not lock-checked" not in text and "HF_HUB_OFFLINE" not in text
+    lock_args = next(ln for ln in text.splitlines() if ln.startswith('    SERVER_SCRIPTS=$('))
+    assert ("pi0/libero.yaml" in lock_args) == openpi and ("db_cogact/libero.yaml" in lock_args) == dbc
+    # eval_timeout (DB-CogACT 500 episodes, OpenVLA 200 at one 7B pass per step) and reference / row meta lines
+    assert ('EVAL_TIMEOUT=$(echo "$TASK" | jq -r \'.eval_timeout // 5400\')' in text) == (dbc or ovla)
+    assert ('timeout --kill-after=120 "${EVAL_TIMEOUT}" "${VENV}/bin/vla-eval" run' in text) == (dbc or ovla)
+    assert ("timeout --kill-after=120 5400" in text) == (not (dbc or ovla))
+    assert 'EXTRA_META+=(--meta "${_m}")' in text and '${EXTRA_META[@]+"${EXTRA_META[@]}"}' in text
+
+
+def test_earlier_renders_have_no_batch_4a_lines(tmp_path):
+    # every 4A line renders only for a set that uses it; the default / batch A / B / C renders of every target were
+    # also diffed against the pre-4A renders (identical but for the tool_commit line)
+    for extra in ([], ["--task-set", "batch-a"], ["--task-set", "batch-b"], ["--task-set", "batch-c"]):
+        _render(tmp_path, *extra)
+        text = (tmp_path / "vlaeval.sh").read_text()
+        for needle in ("EVAL_TIMEOUT", "EXTRA_META", "record_provenance", "provenance", "local _env", "server env",
+                       "reference_", "matrix_row"):
+            assert needle not in text, (extra, needle)
+        assert "timeout --kill-after=120 5400" in text
+
+
+def _ref(c, i=0):
+    return c["tasks"][i]["reference"]
+
+
+@pytest.mark.parametrize("mutate,msg", [
+    (lambda c: _ref(c).update(value=93.8), r"reference.value must be a rate in \[0, 1\]"),
+    (lambda c: _ref(c).update(value=True), "reference.value"),
+    (lambda c: _ref(c).update(value="0.938"), "reference.value"),
+    (lambda c: _ref(c).update(n=0), "reference.n must be an integer >= 1"),
+    (lambda c: _ref(c).update(n=500.0), "reference.n"),
+    (lambda c: _ref(c).update(metric="avg_len"), "reference.metric must be one of success"),
+    (lambda c: _ref(c).update(source="dexbotic.md"), "reference.source must be <file>:<line>"),
+    (lambda c: _ref(c).update(source="docs/a b.md:27"), "reference.source"),
+    (lambda c: _ref(c).update(source="x.md:27;rm"), "reference.source"),
+    (lambda c: _ref(c).pop("source"), "must map exactly value, n, metric, source"),
+    (lambda c: _ref(c).update(extra=1), "must map exactly"),
+    (lambda c: c["tasks"][0].update(reference=0.938), "must map exactly"),
+    (lambda c: c["tasks"][0].update(matrix_row="Vlaeval Row"), "matrix_row must be"),
+    (lambda c: c["tasks"][0].update(matrix_row="x" * 65), "matrix_row must be"),
+    (lambda c: c["tasks"][0].update(eval_timeout=599), "eval_timeout must be"),
+    (lambda c: c["tasks"][0].update(eval_timeout=86401), "eval_timeout must be"),
+    (lambda c: c["tasks"][0].update(eval_timeout="10800"), "eval_timeout must be"),
+    (lambda c: _server(c, "openpi-pi05-libero").update(server_env=[]), "server_env must be a non-empty list"),
+    (lambda c: _server(c, "openpi-pi05-libero").update(server_env="X=1"), "server_env must be"),
+    (lambda c: _server(c, "openpi-pi05-libero").update(server_env=["x=1"]), "is not NAME=value"),
+    (lambda c: _server(c, "openpi-pi05-libero").update(server_env=["X=1 2"]), "is not NAME=value"),
+    (lambda c: _server(c, "openpi-pi05-libero").update(server_env=["X=$(id)"]), "is not NAME=value"),
+    (lambda c: _server(c, "openpi-pi05-libero").update(server_env=["X=1", "X=2"]), "set twice"),
+    (lambda c: _server(c, "openpi-pi05-libero").update(server_env=["HF_HUB_OFFLINE=1"]), "by checkpoint_pass"),
+    (lambda c: _server(c, "openpi-pi05-libero").update(provenance_paths=[]), "provenance_paths must be"),
+    (lambda c: _server(c, "openpi-pi05-libero").update(provenance_paths=["root/.cache"]), "provenance_paths must be"),
+    (lambda c: _server(c, "openpi-pi05-libero").update(provenance_paths=["/root/../etc"]), "provenance_paths must be"),
+    (lambda c: _server(c, "openpi-pi05-libero").update(provenance_paths=["/a b"]), "provenance_paths must be"),
+    (lambda c: _server(c, "openpi-pi05-libero").update(provenance_paths="/root/.cache"), "provenance_paths must be"),
+])
+def test_plan_rejects_bad_batch_4a_settings(mutate, msg):
+    cfg = copy.deepcopy(_set("libero-openpi"))
+    mutate(cfg)
+    with pytest.raises(ValueError, match=msg):
+        generate.vlaeval_plan(cfg)
+
+
+def test_reference_and_eval_timeout_not_on_an_echo_task():
+    for key, value, msg in (("reference", {"value": 0.5, "n": 1, "metric": "success", "source": "a.md:1"},
+                             "not on an echo task"), ("eval_timeout", 3600, "not on an echo task")):
+        cfg = copy.deepcopy(_set("echo-smokes"))
+        cfg["tasks"][0][key] = value
+        with pytest.raises(ValueError, match=msg):
+            generate.vlaeval_plan(cfg)
+
+
+def test_reference_value_one_and_zero_are_rates():
+    for v in (0, 1, 0.0, 1.0):
+        cfg = copy.deepcopy(_set("libero-dbcogact"))
+        _ref(cfg).update(value=v)
+        assert generate.vlaeval_plan(cfg)[2][0]["extra_meta"][0] == f"reference_value={v}"
+
+
+# the task loop of batch-4a: server env, provenance, eval timeout and the reference lines in summary.txt. uv, docker
+# and timeout are shell functions here (the loop must not call uv or docker; timeout records its limit)
+
+STUB_4A = STUB_MULTI.replace('if [ "$1" = serve ]; then\n',
+                             'if [ "$1" = serve ]; then\n    echo "serve-env XLA=${XLA_PYTHON_CLIENT_MEM_FRACTION:-unset} '
+                             'OFFLINE=${HF_HUB_OFFLINE:-unset}" >> "$CALLS"\n'
+                             '    case "$3" in *pi0/libero.yaml) d=pi05_libero ;; *pi0/libero_fast.yaml) d=pi0_fast_libero ;; '
+                             '*) d="" ;; esac\n'
+                             '    if [ -n "$d" ]; then d="$STUB_OPENPI/openpi-assets/checkpoints/$d"; mkdir -p "$d/params"; '
+                             'printf abc > "$d/params/_METADATA"; : > "$d/params/x.lock"; fi\n')
+STUB_SHELL_4A = """uv() { echo "UV CALLED $*" >> "$CALLS"; return 99; }
+docker() { echo "DOCKER CALLED $*" >> "$CALLS"; return 99; }
+timeout() {
+    local _a=()
+    while [ "$#" -gt 0 ] && { [ "${1#--kill-after=}" != "$1" ] || [[ "$1" =~ ^[0-9]+$ ]]; }; do _a+=("$1"); shift; done
+    echo "timeout ${_a[*]} $1 $2" >> "$CALLS"
+    "$@"
+}
+"""
+
+
+def _batch_4a_loop(tmp_path, task_set="batch-4a"):
+    _render(tmp_path / "r", "--task-set", task_set)
+    text = (tmp_path / "r" / "vlaeval.sh").read_text()
+    start = text.index("record_provenance() {")
+    prov_fn = text[start:text.index('CURRENT_SERVER=""\nstart_server()', start)]
+    script = _loop_script(text, tmp_path)
+    assert STUB_4A != STUB_MULTI and "record_provenance() {" not in script
+    (tmp_path / "work" / "venv" / "bin" / "vla-eval").write_text(STUB_4A)
+    ms = tmp_path / "work" / "harness" / "configs" / "model_servers"
+    for rel, chunk in (("pi0/libero.yaml", 10), ("pi0/libero_fast.yaml", 10), ("db_cogact/libero.yaml", 12),
+                       ("openvla/libero_spatial.yaml", 1)):
+        (ms / rel).parent.mkdir(parents=True, exist_ok=True)
+        (ms / rel).write_text(f"args:\n  chunk_size: {chunk}\n")
+    (tmp_path / "ckpt_db-cogact-libero.path").write_text(f"/hf/snapshots/{DBC_LIBERO_SHA[:8]}\n")
+    (tmp_path / "ckpt_openvla-libero-spatial.path").write_text(f"/hf/snapshots/{OPENVLA_SHA[:8]}\n")
+    openpi = tmp_path / "openpi"
+    (openpi / "big_vision").mkdir(parents=True)
+    (openpi / "big_vision" / "paligemma_tokenizer.model").write_bytes(b"tok")
+    prov_fn = prov_fn.replace("/tmp/vlaeval_", f"{tmp_path}/vlaeval_")
+    script = script.replace('CURRENT_SERVER=""\nstart_server()', prov_fn + 'CURRENT_SERVER=""\nstart_server()', 1)
+    script = script.replace("/root/.cache/openpi", str(openpi))
+    script = script.replace("curl() { return 0; }",
+                            'curl() { [ -n "$SERVER_PID" ] && kill -0 "$SERVER_PID" 2>/dev/null; }\n' + STUB_SHELL_4A)
+    return script, {"PATH": os.environ["PATH"], "HOME": str(tmp_path), "NO_VIDEO_BENCH": "", "STUB_OPENPI": str(openpi)}
+
+
+@pytest.mark.skipif(None in (BASH, JQ, SETSID), reason="bash / jq / setsid not on PATH")
+def test_batch_4a_loop_env_provenance_timeout_and_reference(tmp_path):
+    script, env = _batch_4a_loop(tmp_path)
+    proc = subprocess.run([BASH, "-c", script], capture_output=True, text=True, timeout=120, env=env)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    lines = (tmp_path / "calls").read_text().splitlines()
+    assert not any(ln.startswith(("UV CALLED", "DOCKER CALLED")) for ln in lines)
+    calls = [ln for ln in lines if ln.startswith(("serve-env", "vla-eval serve", "timeout"))]
+    vla = f"{tmp_path}/work/venv/bin/vla-eval"
+    assert calls == [
+        "vla-eval serve --config configs/model_servers/pi0/libero.yaml",
+        "serve-env XLA=0.5 OFFLINE=unset",
+        f"timeout --kill-after=120 5400 {vla} run",
+        "vla-eval serve --config configs/model_servers/pi0/libero_fast.yaml",
+        "serve-env XLA=0.5 OFFLINE=unset",
+        f"timeout --kill-after=120 5400 {vla} run",
+        f"vla-eval serve --config configs/model_servers/db_cogact/libero.yaml --arg model_path=/hf/snapshots/{DBC_LIBERO_SHA[:8]}",
+        "serve-env XLA=unset OFFLINE=unset",     # server_env is per server, not inherited by the next one
+        f"timeout --kill-after=120 10800 {vla} run",
+        f"vla-eval serve --config configs/model_servers/openvla/libero_spatial.yaml --arg model_path=/hf/snapshots/{OPENVLA_SHA[:8]}",
+        "serve-env XLA=unset OFFLINE=unset",
+        f"timeout --kill-after=120 10800 {vla} run"]
+    assert "FAILED=[]" in proc.stdout and "server env: XLA_PYTHON_CLIENT_MEM_FRACTION=0.5" in proc.stdout
+    # provenance: file list + size + md5 (hex and base64) of what the openpi server fetched, lock files left out
+    prov = (tmp_path / "vlaeval_provenance_openpi-pi05-libero.txt").read_text().splitlines()
+    assert prov == ["# md5_hex  md5_base64  bytes  path",
+                    f"900150983cd24fb0d6963f7d28e17f72  kAFQmDzST7DWlj99KOF/cg==  3  {tmp_path}/openpi/openpi-assets/checkpoints/pi05_libero/params/_METADATA",
+                    f"60ae136e5d49fbdf037fab5f1d805634  YK4Tbl1J+98Df6tfHYBWNA==  3  {tmp_path}/openpi/big_vision/paligemma_tokenizer.model"]
+    assert "provenance openpi-pi05-libero: 2 files, 0 missing" in proc.stdout
+    assert "pi0_fast_libero/params/_METADATA" in (tmp_path / "vlaeval_provenance_openpi-pi0fast-libero.txt").read_text()
+    assert "s3://b/R/task-0/checkpoint-provenance.txt" in (tmp_path / "calls").read_text()
+    assert "s3://b/R/task-2/checkpoint-provenance.txt" not in (tmp_path / "calls").read_text()
+    kvs = [dict(results.KV_RE.findall((tmp_path / f"vlaeval_task{i}_summary.txt").read_text())) for i in range(4)]
+    assert [kv.get("checkpoint_provenance") for kv in kvs] == ["checkpoint-provenance.txt"] * 2 + [None, None]
+    assert [kv.get("matrix_row") for kv in kvs] == ["vlaeval:openpi-pi05-libero", "vlaeval:openpi-pi0fast-libero",
+                                                    "vlaeval:db-cogact-libero", "vlaeval:openvla-libero-spatial"]
+    assert [(kv.get("reference_value"), kv.get("reference_n"), kv.get("reference_source")) for kv in kvs] == [
+        ("0.98", "500", "docs/reproductions/openpi.md:27"), (None, None, None),
+        ("0.938", "500", "docs/reproductions/dexbotic.md:27"), ("0.866", "500", "docs/reproductions/openvla.md:25")]
+    assert [kv["n_action_steps"] for kv in kvs] == ["10", "10", "12", "1"]
+    assert kvs[0]["checkpoint"] == "from server config@" and kvs[2]["checkpoint"] == f"Dexmal/libero-db-cogact@{DBC_LIBERO_SHA[:8]}"
+
+
+@pytest.mark.skipif(None in (BASH, JQ, SETSID), reason="bash / jq / setsid not on PATH")
+def test_provenance_marks_a_path_the_server_did_not_fetch(tmp_path):
+    script, env = _batch_4a_loop(tmp_path, "libero-openpi")
+    (tmp_path / "openpi" / "big_vision" / "paligemma_tokenizer.model").unlink()
+    proc = subprocess.run([BASH, "-c", script], capture_output=True, text=True, timeout=120, env=env)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    prov = (tmp_path / "vlaeval_provenance_openpi-pi0fast-libero.txt").read_text()
+    assert f"MISSING {tmp_path}/openpi/big_vision/paligemma_tokenizer.model" in prov
+    assert "provenance openpi-pi0fast-libero: 1 files, 1 missing" in proc.stdout
+
+
+def test_results_keeps_one_row_per_matrix_row(tmp_path):
+    body = "suite: libero_spatial\ncondition: S0\nn_success: {k}\nn_episodes: 10\nsuccess_rate: 0.{k}\nmatrix_row: {row}\n"
+    s3 = FakeS3({BUCKET: {"R/task-0/summary.txt": body.format(k=9, row="vlaeval:a"),
+                          "R/task-1/summary.txt": body.format(k=5, row="vlaeval:b"),
+                          "R/task-2/summary.txt": body.format(k=7, row="vlaeval:b").replace("matrix_row: vlaeval:b\n", "")}})
+    rows = [results.task_row(s3, "us-east-1", BUCKET, "R", f"R/task-{i}/") for i in range(3)]
+    assert [r.get("matrix_row") for r in rows] == ["vlaeval:a", "vlaeval:b", None]
+    for r in rows:
+        r.update(bucket_stack="vlaeval-demo", region="us-east-1")
+    agg = results.aggregate(rows)
+    assert [(k[3], g["k"], g["n"]) for k, g in agg.items()] == [
+        ("libero_spatial [vlaeval:a]", 9, 10), ("libero_spatial [vlaeval:b]", 5, 10), ("libero_spatial", 7, 10)]
+
+
+def test_deploy_prints_a_time_estimate_for_the_4a_sets():
+    src = (ROOT / "deploy.py").read_text()
+    assert 'args.task_set in ("libero-dbcogact", "libero-openvla", "libero-openpi", "batch-4a")' in src
+
+
+def test_4a_keys_combine_with_offline_servers_and_echo_tasks():
+    # server_env on a repo_id (HF_HUB_OFFLINE) server and eval_timeout in a set with echo tasks use the other branches
+    # of the template; no shipped set combines them, so render a modified batch-c
+    cfg = copy.deepcopy(_set("batch-c"))
+    _server(cfg, "mme-vla-pi05")["server_env"] = ["XLA_PYTHON_CLIENT_MEM_FRACTION=0.5"]
+    cfg["tasks"][0]["eval_timeout"] = 7200
+    text = generate.generate_vlaeval(cfg, True)
+    assert 'mme-vla-pi05) _env=("XLA_PYTHON_CLIENT_MEM_FRACTION=0.5") ;;' in text
+    assert text.count('exec setsid env ${_env[@]+"${_env[@]}"} "${VENV}/bin/vla-eval"') == 1
+    assert 'export HF_HUB_OFFLINE=1; fi \\\n        && exec setsid env ${_env[@]+"${_env[@]}"} "${VENV}/bin/vla-eval"' in text
+    assert text.count('timeout --kill-after=120 "${EVAL_TIMEOUT}" "${VENV}/bin/vla-eval" run') == 1
+    assert "timeout --kill-after=120 5400" not in text
+    assert subprocess.run([BASH, "-n"], input=text, text=True).returncode == 0
+    assert json.loads(json.dumps(_tasks_json(text)))[0]["eval_timeout"] == 7200

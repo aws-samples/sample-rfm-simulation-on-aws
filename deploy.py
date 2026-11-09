@@ -1045,6 +1045,12 @@ def main():
         elif args.vla == "lerobot-gym":
             print("  Estimated time: ~30-60 min (uv sync LeRobot source ~10-20 min + 3 small checkpoints + "
                   "lerobot-eval per task, 10 episodes each; estimate, not measured yet)")
+        elif args.vla == "vlaeval" and args.task_set in ("libero-dbcogact", "libero-openvla", "libero-openpi", "batch-4a"):
+            print("  Estimated time: ~1.8-2.3 h (libero-dbcogact: 16 GB checkpoint, 500 episodes at ~9-12 s), ~2-2.5 h "
+                  "(libero-openvla: 15 GB checkpoint, 200 episodes at ~25-30 s, one 7B pass per step), ~1-1.3 h "
+                  "(libero-openpi: 12.4 + 10.9 GB from gs://openpi-assets, 2 x 100 episodes), ~4-5 h for --task-set "
+                  "batch-4a on one instance (estimates, not measured yet; the LIBERO-Spatial default ran 50 episodes in "
+                  "453 s, 2026-11-08)")
         elif args.vla == "vlaeval" and args.task_set in ("robomme", "robocasa365", "echo-smokes", "batch-c"):
             print("  Estimated time: ~45-55 min (robomme: 9.5 GB image, 11.6 GB checkpoint zip, CPU-rendered episodes), "
                   "~55-75 min (robocasa365: 16.7 GB image, GR00T env with flash-attn; +1 h or more if flash-attn has "

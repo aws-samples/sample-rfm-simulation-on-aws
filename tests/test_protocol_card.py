@@ -128,7 +128,8 @@ def test_no_aws_env_leaks_into_card(tmp_path):
     """The card lists only what the run recorded; it never copies credentials or the account id."""
     os.environ.pop("AWS_ACCESS_KEY_ID", None)
     card, _ = _run_card(tmp_path, "n_episodes: 1\nn_success: 1\n")
-    assert not any(re.search(r"\b\d{12}\b", str(v)) for v in card.values())
+    # tool_commit is a git hash: its first 12 hex characters are all digits for ~0.4 % of commits (691497153648)
+    assert not any(re.search(r"\b\d{12}\b", str(v)) for k, v in card.items() if k != "tool_commit")
 
 
 def test_card_reads_cli_flags_recorded_in_the_summary(tmp_path):

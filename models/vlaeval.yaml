@@ -10,7 +10,8 @@
 #                       (pulled by digest) and talks to the server over WebSocket
 # Nothing of the harness is patched. The only overrides are config values the harness documents
 # (server.timeout, docker.user, recording.record_video) and the model-server `--arg checkpoint=<path>` that
-# points the server at a checkpoint snapshot downloaded at a pinned Hugging Face revision.
+# points the server at a checkpoint snapshot downloaded at a pinned Hugging Face revision (or, for a server that
+# downloads by repo id itself, `--arg <arg>=<repo id>` under HF_HUB_OFFLINE=1 with the cache's main = the pin).
 #
 # One (benchmark suite x model server) pair = one `tasks:` entry = one `task-N/summary.txt`. Adding a pair:
 # add the benchmark image under vlaeval.benchmarks (if new), the server under vlaeval.model_servers (if new) and
@@ -21,7 +22,9 @@
 # terminate, ~USD 1.65. See docs/targets.md Note 23.
 #
 # Licenses: harness Apache-2.0. Each benchmark, simulator image and checkpoint keeps its own license
-# (LIBERO MIT; lerobot/pi05_libero_finetuned: Gemma terms, its PaliGemma tokenizer repo is gated).
+# (LIBERO MIT; lerobot/pi05_libero_finetuned: Gemma terms, its PaliGemma tokenizer repo is gated;
+# Dexmal/maniskill2-db-cogact (task set maniskill2): card license `cc` without a variant -> NON-COMMERCIAL until
+# confirmed). See docs/licenses.md.
 model:
   id: vlaeval
   display_name: "vla-eval (allenai/vla-evaluation-harness)"
@@ -76,6 +79,39 @@ vlaeval:
       docker_env: ["XLA_PYTHON_CLIENT_PREALLOCATE=false"]
       expect_videos: false                               # symbolic observations have no frame to record
       init_states: "episode i = PRNGKey(params.seed + i) on the RTC level (Kinetix protocol)"
+    # Batch B. robocerebra and maniskill2 are the 0.9.0 tag (= latest) of ghcr.io/allenai/vla-evaluation-harness;
+    # the allenai molmospaces package is not anonymously readable (HTTP 403 on 2026-11-09), so it comes from
+    # ghcr.io/worv-ai/vla-evaluation-harness-public, the mirror the harness itself falls back to on a failed pull
+    # (src/vla_eval/cli/_docker.py _REGISTRY_MIRRORS, issue #73). Digests read anonymously on 2026-11-09.
+    #   render                    gpu | cpu -> the run config's top-level render: (unset = the harness default, gpu)
+    robocerebra:
+      benchmark: "vla_eval.benchmarks.robocerebra.benchmark:RoboCerebraBenchmark"
+      image: "ghcr.io/allenai/vla-evaluation-harness/robocerebra"
+      image_digest: "sha256:89ad3218a46e1b3d2e4926ef788a9d3bce312bbe900c37e75a27b93e1be80c34"   # 3.02 GB compressed
+      simulator: "RoboCerebra (LIBERO fork, robosuite / MuJoCo)"
+      license: "RoboCerebra code: no license file detected [unverified]; RoboCerebraBench data (HF qiukingballball/RoboCerebraBench, baked in): no license stated; LIBERO MIT"
+      suite_param: null                                  # RoboCerebraBenchmark takes no suite (it does take seed)
+      init_states: "every episode of a task starts from demo_1 state 0 of its demo.hdf5, env seeded with params.seed"
+    molmospaces:
+      benchmark: "vla_eval.benchmarks.molmospaces.benchmark:MolmoSpacesBenchmark"
+      image: "ghcr.io/worv-ai/vla-evaluation-harness-public/molmospaces"
+      image_digest: "sha256:ca13e61b0b67031298c4e1347c33e0b853abc35caaad4169961a3b14ea07e141"   # 12.32 GB compressed
+      simulator: "MolmoSpaces (MuJoCo, Franka FR3)"
+      license: "molmospaces code: GitHub reports Other; assets from HF allenai/molmospaces (ODC-BY, CC-BY-4.0), baked in; image from the worv-ai mirror"
+      suite_param: null                                  # MolmoSpacesBenchmark takes neither suite nor seed
+      seed_param: null
+      init_states: "task i = episode i of the JSON benchmark (fixed scene and poses; the harness sets exp_config.seed 42)"
+    maniskill2:
+      benchmark: "vla_eval.benchmarks.maniskill2.benchmark:ManiSkill2Benchmark"
+      image: "ghcr.io/allenai/vla-evaluation-harness/maniskill2"
+      image_digest: "sha256:3c4d35caae55a3eec6daa608fcb095354bbbde8fd905b6d714d40bb9d8192191"   # 4.90 GB compressed
+      simulator: "ManiSkill2 (SAPIEN 2.2.2, Vulkan)"
+      license: "ManiSkill2: no license detected by GitHub [unverified]; YCB / EGAD assets baked into the image [unverified]"
+      suite_param: null                                  # ManiSkill2Benchmark takes neither suite nor seed
+      seed_param: null
+      # render: cpu  = the harness's lavapipe fallback if SAPIEN finds no NVIDIA Vulkan ICD in the container (the
+      #                image's base sets NVIDIA_DRIVER_CAPABILITIES=all and ships the NVIDIA ICD; not run on AWS yet)
+      init_states: "env.reset() without a seed (the benchmark passes none): episode start states are not reproducible"
   # Model servers: a config path inside the harness checkout (configs/model_servers/...). The checkpoint the
   # config names is downloaded at hf_model_revision and passed as `--arg <checkpoint_arg>=<snapshot path>`.
   model_servers:
@@ -106,6 +142,31 @@ vlaeval:
       # has no object versions pinned here; its md5 list as read on 2026-11-09 is in docs/targets.md Note 23.
       license: "MIT (real-time-chunking-kinetix); the checkpoint bucket states no license"
       published: "RTC 12-level average 0.922 at d=0 (paper Fig. 5, 2048 rollouts per level)"
+    molmobot-droid:
+      config: "configs/model_servers/molmobot/droid.yaml"
+      checkpoint_arg: hf_repo
+      hf_repo: "allenai/MolmoBot-DROID"                  # the config's own hf_repo; ungated (HF API 2026-11-09)
+      hf_model_revision: "cbe6ec358958d07ddfb20d3aa54e560e9e1b18c9"   # = main, 19.99 GB: model.pt + config.yaml
+      checkpoint_marker: model.pt                        # no config.json in this repo
+      # molmobot.py calls require_model_available(hf_repo) and snapshot_download(hf_repo) itself, so a local path is
+      # not a valid argument: it gets the repo id and runs with HF_HUB_OFFLINE=1 against the pinned cache.
+      checkpoint_pass: repo_id
+      # olmo's build_tokenizer loads AutoTokenizer.from_pretrained("Qwen/Qwen3-4B-Instruct-2507") (the checkpoint's
+      # config.yaml model.llm.tokenizer.identifier): offline, it has to be in the cache too.
+      hf_offline_repos:
+        - {repo: "Qwen/Qwen3-4B-Instruct-2507", revision: "cdbee75f17c01a7cc42f958dc650907174af0554",
+           allow_patterns: ["*.json", "*.txt"], license: "Apache-2.0"}
+      license: "Apache-2.0 (MolmoBot code and weights); Qwen3 tokenizer Apache-2.0"
+      published: "MolmoSpaces pick-and-place 57.0 % (harness reproduction) / 57.7 % (paper)"
+    db-cogact-maniskill2:
+      config: "configs/model_servers/db_cogact/maniskill2.yaml"
+      checkpoint_arg: model_path      # cogact.py from_pretrained(model_path) + <model_path>/norm_stats.json: a snapshot dir works
+      hf_repo: "Dexmal/maniskill2-db-cogact"              # the config's own model_path; ungated (HF API 2026-11-09)
+      hf_model_revision: "d4af8d4e8a07ef4c9f982f52d446d14f2039e81c"   # = main, 16.06 GB
+      # At load, dexbotic also reads Qwen/Qwen2.5-7B (config) and openai/clip-vit-large-patch14-336 from the Hub at
+      # main (named in the checkpoint's config.json); those two are not pinned here.
+      license: "checkpoint card license: cc (variant not stated, treated as non-commercial until confirmed); dexbotic MIT; base Qwen2.5-7B Apache-2.0"
+      published: "ManiSkill2 5-task average 58 (PickCube 90 / StackCube 65; Dexmal card, not reproduced by the harness)"
   # Values written into every rendered eval config (all documented harness config keys).
   run:
     server_timeout: 900     # cold first episode warmed up for 216 s; the harness default of 30 s fails it
@@ -197,6 +258,54 @@ task_sets:
   batch-a:
     description: "LIBERO-Mem + CALVIN + Kinetix smokes on one instance (servers switched per task)"
     tasks: [*libero_mem, *calvin, *kinetix]
+  # Batch B: RoboCerebra (zero-shot), MolmoSpaces x MolmoBot, ManiSkill2 x DB-CogACT, smoke sizes. Rendered and
+  # unit-tested; not yet run on AWS.
+  robocerebra:
+    description: "RoboCerebra Ideal 2 tasks x 2 episodes, LeRobot pi0.5 (LIBERO fine-tune) zero-shot"
+    tasks:
+      - &robocerebra
+        suite: robocerebra_ideal
+        benchmark: robocerebra
+        model_server: lerobot-pi05-libero
+        episodes_per_task: 2
+        max_tasks: 2
+        seed: 7
+        params: {robocerebra_root: /workspace/RoboCerebra_Bench, task_types: [Ideal]}
+        description: "RoboCerebra Ideal, 2 tasks x 2 episodes (pi0.5 LIBERO checkpoint, zero-shot)"
+        published: "none (checkpoint not trained on RoboCerebra)"
+  molmospaces:
+    description: "MolmoSpaces-Bench pick-and-place, 4 of 200 episodes, MolmoBot-DROID"
+    tasks:
+      - &molmospaces
+        suite: molmospaces_pick_and_place
+        benchmark: molmospaces
+        model_server: molmobot-droid
+        episodes_per_task: 1
+        max_tasks: 4
+        max_steps: 600
+        seed: 0
+        params: {benchmark_dir: /assets/benchmarks/molmospaces-bench-v2/procthor-objaverse/FrankaPickandPlaceHardBench/FrankaPickandPlaceHardBench_20260212_200ep_json_benchmark,
+                 eval_config_cls: "molmo_spaces.evaluation.configs.evaluation_configs:DummyPickPlaceEvalConfig",
+                 task_horizon: 600, send_wrist_image: true, send_state: true}
+        description: "MolmoSpaces pick-and-place, 4 episodes (MolmoBot-DROID through vla-eval)"
+        published: "57.0 % (harness reproduction, 200 episodes; a 4-episode subset is not comparable)"
+  maniskill2:
+    description: "ManiSkill2 PickCube + StackCube x 3 episodes, DB-CogACT"
+    tasks:
+      - &maniskill2
+        suite: maniskill2_pick_stack
+        benchmark: maniskill2
+        model_server: db-cogact-maniskill2
+        episodes_per_task: 3
+        max_steps: 400
+        seed: 0
+        params: {tasks: [PickCube-v0, StackCube-v0], max_episode_steps: 400, render_resolution: [256, 256],
+                 enabled_cameras: [base_camera]}
+        description: "ManiSkill2 PickCube-v0 + StackCube-v0, 3 episodes each (DB-CogACT through vla-eval)"
+        published: "PickCube 90 / StackCube 65 (Dexmal card; not reproduced by the harness)"
+  batch-b:
+    description: "RoboCerebra + MolmoSpaces + ManiSkill2 smokes on one instance (servers switched per task)"
+    tasks: [*robocerebra, *molmospaces, *maniskill2]
 
 bridge:
   enabled: false

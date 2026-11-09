@@ -1050,7 +1050,7 @@ def main():
                   "~55-75 min (robocasa365: 16.7 GB image, GR00T env with flash-attn; +1 h or more if flash-attn has "
                   "to compile), ~25-30 min (echo-smokes: three images, one zero-action episode each), ~2-2.5 h for "
                   "--task-set batch-c on one instance (estimates; measured 2026-11-09 in ap-northeast-1: robomme 22 min, "
-                  "batch-c ~60 min)")
+                  "batch-c 50 min with RoboMME failing at start, ~60 min with it running extrapolated from both runs)")
         elif args.vla == "vlaeval" and args.task_set in ("robocerebra", "molmospaces", "maniskill2", "batch-b"):
             print("  Estimated time: ~28 min (robocerebra), ~35-40 min (molmospaces: 12 GB image + 20 GB checkpoint), "
                   "~31 min (maniskill2: 16 GB checkpoint), ~65-80 min for --task-set batch-b on one instance "

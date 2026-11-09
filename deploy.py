@@ -1045,6 +1045,11 @@ def main():
         elif args.vla == "lerobot-gym":
             print("  Estimated time: ~30-60 min (uv sync LeRobot source ~10-20 min + 3 small checkpoints + "
                   "lerobot-eval per task, 10 episodes each; estimate, not measured yet)")
+        elif args.vla == "vlaeval" and args.task_set in ("robomme", "robocasa365", "echo-smokes", "batch-c"):
+            print("  Estimated time: ~45-55 min (robomme: 9.5 GB image, 11.6 GB checkpoint zip, CPU-rendered episodes), "
+                  "~55-75 min (robocasa365: 16.7 GB image, GR00T env with flash-attn; +1 h or more if flash-attn has "
+                  "to compile), ~25-30 min (echo-smokes: three images, one zero-action episode each), ~2-2.5 h for "
+                  "--task-set batch-c on one instance (estimates, batch C has not been run on AWS yet)")
         elif args.vla == "vlaeval" and args.task_set in ("robocerebra", "molmospaces", "maniskill2", "batch-b"):
             print("  Estimated time: ~28 min (robocerebra), ~35-40 min (molmospaces: 12 GB image + 20 GB checkpoint), "
                   "~31 min (maniskill2: 16 GB checkpoint), ~65-80 min for --task-set batch-b on one instance "

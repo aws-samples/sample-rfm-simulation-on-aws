@@ -227,24 +227,47 @@ fi
 HARNESS_COMMIT=$(git -C "${HARNESS_DIR}" rev-parse HEAD)
 [ "${HARNESS_COMMIT}" = "{{ harness_commit }}" ] || die "harness tag {{ harness_tag }} is ${HARNESS_COMMIT}, pinned {{ harness_commit }}"
 log "  vla-eval ${VLAEVAL_VERSION}, harness ${HARNESS_COMMIT:0:8}, $("${VENV}/bin/python" --version)"
-# torch >= 2.11 wheels on PyPI are built for CUDA 13 (driver >= 580); the DLAMI ships 570 (CUDA 12.8). Server
-# scripts that leave torch open (xvla.py: torch>=2.2) then resolve 2.15 and fail at model load with "NVIDIA
-# driver on your system is too old" (measured 2026-11-09, X-VLA x CALVIN). On such drivers only, add a uv
-# constraint to the PEP 723 headers that have [tool.uv] and no constraints of their own; recorded per task.
-TORCH_CONSTRAINT="none"
-DRIVER_MAJOR="${DRIVER_VERSION%%.*}"
-if [[ "${DRIVER_MAJOR}" =~ ^[0-9]+$ ]] && [ "${DRIVER_MAJOR}" -lt 580 ]; then
-    TORCH_CONSTRAINT="torch<2.11"
-    for _f in "${HARNESS_DIR}"/src/vla_eval/model_servers/*.py; do
-        grep -q '^# \[tool\.uv\]$' "${_f}" || continue
-        grep -q 'constraint-dependencies' "${_f}" && continue
-        sed -i 's|^# \[tool\.uv\]$|# [tool.uv]\n# constraint-dependencies = ["torch<2.11"]|' "${_f}"
-    done
-    log "  driver ${DRIVER_VERSION} (< 580, CUDA 12): server scripts constrained to ${TORCH_CONSTRAINT}"
-fi
 {%- for s in servers %}
 [ -f "${HARNESS_DIR}/{{ s.config }}" ] || die "model-server config {{ s.config }} not in the harness checkout"
 {%- endfor %}
+# torch >= 2.11 wheels on PyPI are built for CUDA 13 (driver >= 580); the DLAMI ships 570 (CUDA 12.8). A server
+# script that leaves torch open (xvla.py: torch>=2.2) then resolves 2.15 and dies at model load with "NVIDIA driver
+# on your system is too old" (measured 2026-11-09, X-VLA x CALVIN). On such drivers, lock each script this run
+# uses and add a torch<2.11 constraint only where the lock pulls CUDA 13 wheels: lerobot.py already resolves
+# 2.11.0+cu128 and stays as published (a blanket constraint moved it to 2.10, measured). Goes into every summary.
+TORCH_CONSTRAINT="none"
+DRIVER_MAJOR="${DRIVER_VERSION%%.*}"
+if [[ "${DRIVER_MAJOR}" =~ ^[0-9]+$ ]] && [ "${DRIVER_MAJOR}" -lt 580 ]; then
+    _patched=""
+    for _rel in $("${VENV}/bin/python" - "${HARNESS_DIR}" {% for s in servers %}"{{ s.config }}" {% endfor %}<<'PYEOF'
+import pathlib, sys, yaml
+root, found = pathlib.Path(sys.argv[1]), set()
+for cfg in sys.argv[2:]:
+    p = root / cfg
+    while p is not None:
+        d = yaml.safe_load(p.read_text()) or {}
+        if "script" in d:
+            found.add(d["script"])
+            break
+        p = p.parent / d["extends"] if "extends" in d else None
+print("\n".join(sorted(found)))
+PYEOF
+    ); do
+        _f="${HARNESS_DIR}/${_rel}"
+        grep -q '^# \[tool\.uv\]$' "${_f}" || continue
+        grep -q 'constraint-dependencies' "${_f}" && continue
+        rm -f "${_f}.lock"
+        ( cd "${HARNESS_DIR}" && uv lock -q --script "${_f}" ) > "/tmp/{{ vla }}_lock_$(basename "${_f}" .py).log" 2>&1 \
+            || die "uv lock --script ${_rel} failed (see /tmp/{{ vla }}_lock_$(basename "${_f}" .py).log)"
+        if grep -qE '^name = "nvidia-[a-z-]+-cu13"$|nvidia_cuda_runtime-13\.' "${_f}.lock"; then
+            sed -i 's|^# \[tool\.uv\]$|# [tool.uv]\n# constraint-dependencies = ["torch<2.11"]|' "${_f}"
+            _patched="${_patched:+${_patched},}$(basename "${_f}")"
+        fi
+        rm -f "${_f}.lock"     # `uv run` resolves from the header as before
+    done
+    [ -z "${_patched}" ] || TORCH_CONSTRAINT="torch<2.11 (${_patched})"
+    log "  driver ${DRIVER_VERSION} (< 580, CUDA 12): torch constraint ${TORCH_CONSTRAINT}"
+fi
 
 # Results adapter (assets/vlaeval/vlaeval_results.py, stdlib only): aggregate JSON -> summary.txt + videos.
 base64 -d > "${WORK}/vlaeval_results.py" <<'B64EOF'

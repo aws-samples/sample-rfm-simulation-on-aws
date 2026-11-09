@@ -638,29 +638,58 @@ def _constraint_block(text):
 
 
 HEADER_OPEN = '# /// script\n# dependencies = [\n#     "torch>=2.2",\n# ]\n#\n# [tool.uv]\n# exclude-newer = "x"\n# ///\n'
+HEADER_CU128 = '# /// script\n# dependencies = [\n#     "torch>=2.7,<2.12",\n# ]\n#\n# [tool.uv]\n# exclude-newer = "x"\n# ///\n'
 HEADER_OWN = '# /// script\n# [tool.uv]\n# constraint-dependencies = ["numpy<2"]\n# ///\n'
+# stub of `uv lock --script`: an open torch pin locks CUDA 13 wheels (as torch 2.15 on PyPI), a capped one cu128
+STUB_UV = """uv() {
+    echo "uv $*" >> "$CALLS"
+    local f="${@: -1}"
+    if grep -q '"torch>=2.2",' "$f" && ! grep -q 'torch<2.11' "$f"; then
+        printf '[[package]]\\nname = "nvidia-cudnn-cu13"\\n' > "$f.lock"
+    else
+        printf '[[package]]\\nname = "torch"\\nversion = "2.11.0+cu128"\\n' > "$f.lock"
+    fi
+}
+"""
 
 
 @pytest.mark.skipif(BASH is None, reason="bash not on PATH")
-@pytest.mark.parametrize("driver,expect", [("570.133.20", "torch<2.11"), ("595.112.07", "none"), ("", "none")])
-def test_torch_constraint_only_on_cuda12_drivers(tmp_path, driver, expect):
-    # torch >= 2.11 PyPI wheels need CUDA 13 (driver >= 580); xvla.py leaves torch open (measured 2026-11-09)
-    _render(tmp_path / "r")
+@pytest.mark.parametrize("driver,expect", [("570.133.20", "torch<2.11 (xvla.py)"), ("595.112.07", "none"),
+                                           ("", "none")])
+def test_torch_constraint_only_where_the_lock_needs_cuda13(tmp_path, driver, expect):
+    # torch >= 2.11 PyPI wheels need CUDA 13 (driver >= 580); xvla.py leaves torch open (measured 2026-11-09),
+    # lerobot.py locks 2.11.0+cu128 and must stay as published
+    _render(tmp_path / "r", "--task-set", "batch-a")
     block = _constraint_block((tmp_path / "r" / "vlaeval.sh").read_text())
-    ms = tmp_path / "h" / "src" / "vla_eval" / "model_servers"
+    h = tmp_path / "h"
+    ms = h / "src" / "vla_eval" / "model_servers"
     ms.mkdir(parents=True)
     (ms / "xvla.py").write_text(HEADER_OPEN)
-    (ms / "own.py").write_text(HEADER_OWN)
-    (ms / "plain.py").write_text("# no header\n")
-    script = (f'set -euo pipefail\nHARNESS_DIR={tmp_path}/h; DRIVER_VERSION="{driver}"\nlog() {{ :; }}\n'
-              + block + block + 'echo "TC=${TORCH_CONSTRAINT}"\n')   # twice: a re-run must not stack the line
-    proc = subprocess.run([BASH, "-c", script], capture_output=True, text=True, timeout=30)
+    (ms / "lerobot.py").write_text(HEADER_CU128)
+    (ms / "rtc.py").write_text(HEADER_OWN)
+    (ms / "unused.py").write_text(HEADER_OPEN)
+    cfg = h / "configs" / "model_servers"
+    for rel, body in (("lerobot/_base.yaml", 'script: "src/vla_eval/model_servers/lerobot.py"\n'),
+                      ("lerobot/pi05_libero.yaml", "extends: _base.yaml\n"),
+                      ("xvla/_base.yaml", 'script: "src/vla_eval/model_servers/xvla.py"\n'),
+                      ("xvla/calvin.yaml", "extends: _base.yaml\n"),
+                      ("rtc/rtc.yaml", 'script: "src/vla_eval/model_servers/rtc.py"\n')):
+        (cfg / rel).parent.mkdir(parents=True, exist_ok=True)
+        (cfg / rel).write_text(body)
+    script = (f'set -euo pipefail\nHARNESS_DIR={h}; VENV={Path(sys.executable).parent.parent}; '
+              f'DRIVER_VERSION="{driver}"; CALLS={tmp_path}/calls\nlog() {{ :; }}\ndie() {{ echo "DIE $*"; exit 9; }}\n'
+              + STUB_UV + block + 'echo "TC1=${TORCH_CONSTRAINT}"\n' + block + 'echo "TC=${TORCH_CONSTRAINT}"\n')
+    proc = subprocess.run([BASH, "-c", script], capture_output=True, text=True, timeout=60)
     assert proc.returncode == 0, proc.stdout + proc.stderr
-    assert f"TC={expect}" in proc.stdout
+    assert f"TC1={expect}" in proc.stdout
     xvla = (ms / "xvla.py").read_text()
     if expect == "none":
-        assert xvla == HEADER_OPEN
+        assert xvla == HEADER_OPEN and not (tmp_path / "calls").exists()
     else:
-        assert xvla.count('# constraint-dependencies = ["torch<2.11"]') == 1
+        assert xvla.count('# constraint-dependencies = ["torch<2.11"]') == 1      # a re-run does not stack it
         assert xvla.index("# [tool.uv]") < xvla.index("constraint-dependencies") < xvla.index("exclude-newer")
-    assert (ms / "own.py").read_text() == HEADER_OWN and (ms / "plain.py").read_text() == "# no header\n"
+        locked = (tmp_path / "calls").read_text()
+        assert "lerobot.py" in locked and "unused.py" not in locked and "rtc.py" not in locked
+    assert (ms / "lerobot.py").read_text() == HEADER_CU128          # resolves cu128 on its own
+    assert (ms / "rtc.py").read_text() == HEADER_OWN and (ms / "unused.py").read_text() == HEADER_OPEN
+    assert not list(ms.glob("*.lock"))                               # `uv run` resolves from the header as before

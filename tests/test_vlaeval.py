@@ -295,6 +295,7 @@ export EVAL_BASE_DIR={tmp_path}/eval; VIDEO_BASE_DIR={tmp_path}/videos; RUN_ID=R
 export CALLS={tmp_path}/calls FIXTURE={SP50S4} VIDEO_LIST={FIX / 'sp50s4_episode_videos.txt'}
 LOG={tmp_path}/userdata.log
 VLAEVAL_VERSION=0.9.0; HARNESS_COMMIT=8798464b2e3317f49b259dca8861aea04f75bb59; DRIVER_VERSION=595.112.07
+TORCH_CONSTRAINT=none
 mkdir -p "$EVAL_BASE_DIR"
 log() {{ echo "LOG $*"; }}
 die() {{ echo "DIE $*"; exit 9; }}
@@ -336,6 +337,7 @@ def test_task_loop_with_stub_harness(tmp_path, stub_rc):
                                     "revision": "7152f13e34c6c115d808aea0e5d08aca74eac14b"}]
     assert ("FAILED=[ task-0]" in proc.stdout) == (stub_rc != 0)
     assert "48/50" in proc.stdout
+    assert kv["stack_torch_constraint"] == "none"
 
 
 # --- results.py reads the summary -------------------------------------------------------------------------------
@@ -551,7 +553,10 @@ STUB_MULTI = """#!/bin/bash
 # stub of `vla-eval` for several benchmarks: run = the fixture aggregate under the entry's own file name; videos only
 # where the benchmark records frames (not Kinetix symbolic) and not for $NO_VIDEO_BENCH
 echo "vla-eval $*" >> "$CALLS"
-if [ "$1" = serve ]; then exec sleep 300; fi
+if [ "$1" = serve ]; then
+    case "$3" in *"${STUB_SERVE_FAIL:-none}"*) echo "RuntimeError: NVIDIA driver too old"; exit 1 ;; esac
+    exec sleep 300
+fi
 cfg="$3"
 dest="$EVAL_BASE_DIR/$(basename "$(jq -r .output_dir "$cfg")")"
 b=$(jq -r '.benchmarks[0].benchmark | split(":")[1]' "$cfg")_$(jq -r '.benchmarks[0].subname' "$cfg")
@@ -603,3 +608,59 @@ def test_batch_a_loop_stops_when_the_old_server_keeps_answering(tmp_path):
     assert proc.returncode == 9 and "DIE model server lerobot-pi05-libero still answers on :8000" in proc.stdout
     serves = [ln for ln in (tmp_path / "calls").read_text().splitlines() if ln.startswith("vla-eval serve")]
     assert len(serves) == 1    # the CALVIN server was never started against a stale health check
+
+
+@pytest.mark.skipif(None in (BASH, JQ, SETSID), reason="bash / jq / setsid not on PATH")
+def test_batch_a_loop_continues_past_a_server_that_does_not_start(tmp_path):
+    # measured 2026-11-09 batch A: the X-VLA server died at model load and the whole run stopped before Kinetix
+    # health = alive and not the failing server (start_server's local _config is visible here: bash scoping);
+    # a process-alive check alone races the stub's exit
+    script = _batch_loop(tmp_path, '[ -n "$SERVER_PID" ] && kill -0 "$SERVER_PID" 2>/dev/null'
+                                   ' && local _c="${_config:-}" && [ "${_c}" = "${_c#*xvla/}" ];')
+    env = {"PATH": os.environ["PATH"], "HOME": str(tmp_path), "NO_VIDEO_BENCH": "", "STUB_SERVE_FAIL": "xvla/"}
+    proc = subprocess.run([BASH, "-c", script], capture_output=True, text=True, timeout=120, env=env)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert "DIE" not in proc.stdout
+    calls = (tmp_path / "calls").read_text().splitlines()
+    assert [ln.split("--config ")[1].split()[0] for ln in calls if ln.startswith("vla-eval serve")] == [
+        "configs/model_servers/lerobot/pi05_libero.yaml", "configs/model_servers/xvla/calvin.yaml",
+        "configs/model_servers/rtc/rtc.yaml"]
+    assert sum(ln.startswith("vla-eval run") for ln in calls) == 2      # CALVIN never reached `run`
+    assert "FAILED=[ task-1]" in proc.stdout and "model server did not start" in proc.stdout
+    assert any("s3://b/R/task-1/server.log" in ln for ln in calls)
+    assert (tmp_path / "vlaeval_task2_summary.txt").exists()            # Kinetix still ran and reported
+
+
+def _constraint_block(text):
+    start = text.index('TORCH_CONSTRAINT="none"\n')
+    end = text.index("\nfi\n", start) + 4
+    return text[start:end]
+
+
+HEADER_OPEN = '# /// script\n# dependencies = [\n#     "torch>=2.2",\n# ]\n#\n# [tool.uv]\n# exclude-newer = "x"\n# ///\n'
+HEADER_OWN = '# /// script\n# [tool.uv]\n# constraint-dependencies = ["numpy<2"]\n# ///\n'
+
+
+@pytest.mark.skipif(BASH is None, reason="bash not on PATH")
+@pytest.mark.parametrize("driver,expect", [("570.133.20", "torch<2.11"), ("595.112.07", "none"), ("", "none")])
+def test_torch_constraint_only_on_cuda12_drivers(tmp_path, driver, expect):
+    # torch >= 2.11 PyPI wheels need CUDA 13 (driver >= 580); xvla.py leaves torch open (measured 2026-11-09)
+    _render(tmp_path / "r")
+    block = _constraint_block((tmp_path / "r" / "vlaeval.sh").read_text())
+    ms = tmp_path / "h" / "src" / "vla_eval" / "model_servers"
+    ms.mkdir(parents=True)
+    (ms / "xvla.py").write_text(HEADER_OPEN)
+    (ms / "own.py").write_text(HEADER_OWN)
+    (ms / "plain.py").write_text("# no header\n")
+    script = (f'set -euo pipefail\nHARNESS_DIR={tmp_path}/h; DRIVER_VERSION="{driver}"\nlog() {{ :; }}\n'
+              + block + block + 'echo "TC=${TORCH_CONSTRAINT}"\n')   # twice: a re-run must not stack the line
+    proc = subprocess.run([BASH, "-c", script], capture_output=True, text=True, timeout=30)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert f"TC={expect}" in proc.stdout
+    xvla = (ms / "xvla.py").read_text()
+    if expect == "none":
+        assert xvla == HEADER_OPEN
+    else:
+        assert xvla.count('# constraint-dependencies = ["torch<2.11"]') == 1
+        assert xvla.index("# [tool.uv]") < xvla.index("constraint-dependencies") < xvla.index("exclude-newer")
+    assert (ms / "own.py").read_text() == HEADER_OWN and (ms / "plain.py").read_text() == "# no header\n"

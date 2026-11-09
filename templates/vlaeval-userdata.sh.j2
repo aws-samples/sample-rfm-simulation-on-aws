@@ -227,6 +227,21 @@ fi
 HARNESS_COMMIT=$(git -C "${HARNESS_DIR}" rev-parse HEAD)
 [ "${HARNESS_COMMIT}" = "{{ harness_commit }}" ] || die "harness tag {{ harness_tag }} is ${HARNESS_COMMIT}, pinned {{ harness_commit }}"
 log "  vla-eval ${VLAEVAL_VERSION}, harness ${HARNESS_COMMIT:0:8}, $("${VENV}/bin/python" --version)"
+# torch >= 2.11 wheels on PyPI are built for CUDA 13 (driver >= 580); the DLAMI ships 570 (CUDA 12.8). Server
+# scripts that leave torch open (xvla.py: torch>=2.2) then resolve 2.15 and fail at model load with "NVIDIA
+# driver on your system is too old" (measured 2026-11-09, X-VLA x CALVIN). On such drivers only, add a uv
+# constraint to the PEP 723 headers that have [tool.uv] and no constraints of their own; recorded per task.
+TORCH_CONSTRAINT="none"
+DRIVER_MAJOR="${DRIVER_VERSION%%.*}"
+if [[ "${DRIVER_MAJOR}" =~ ^[0-9]+$ ]] && [ "${DRIVER_MAJOR}" -lt 580 ]; then
+    TORCH_CONSTRAINT="torch<2.11"
+    for _f in "${HARNESS_DIR}"/src/vla_eval/model_servers/*.py; do
+        grep -q '^# \[tool\.uv\]$' "${_f}" || continue
+        grep -q 'constraint-dependencies' "${_f}" && continue
+        sed -i 's|^# \[tool\.uv\]$|# [tool.uv]\n# constraint-dependencies = ["torch<2.11"]|' "${_f}"
+    done
+    log "  driver ${DRIVER_VERSION} (< 580, CUDA 12): server scripts constrained to ${TORCH_CONSTRAINT}"
+fi
 {%- for s in servers %}
 [ -f "${HARNESS_DIR}/{{ s.config }}" ] || die "model-server config {{ s.config }} not in the harness checkout"
 {%- endfor %}
@@ -292,8 +307,16 @@ start_server() {
     SERVER_PID=$!
     local _t0=$SECONDS
     until curl -sf -o /dev/null "http://localhost:{{ port }}/health"; do
-        kill -0 "${SERVER_PID}" 2>/dev/null || die "model server ${_name} exited before it was healthy (see /tmp/{{ vla }}_server_${_name}.log)"
-        [ $((SECONDS - _t0)) -lt 3600 ] || die "model server ${_name} not healthy after 60 min (see /tmp/{{ vla }}_server_${_name}.log)"
+        # a server that cannot start fails its tasks only: the other servers' tasks still run
+        if ! kill -0 "${SERVER_PID}" 2>/dev/null; then
+            log "ERROR: model server ${_name} exited before it was healthy (see /tmp/{{ vla }}_server_${_name}.log)"
+            return 1
+        fi
+        if [ $((SECONDS - _t0)) -ge 3600 ]; then
+            log "ERROR: model server ${_name} not healthy after 60 min (see /tmp/{{ vla }}_server_${_name}.log)"
+            stop_server
+            return 1
+        fi
         sleep 5
     done
     log "  server ${_name} healthy after $((SECONDS - _t0)) s"
@@ -335,7 +358,13 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
         CKPT_PATH=$(tail -1 "/tmp/{{ vla }}_ckpt_${SERVER_NAME}.path")
     fi
     if [ "${CURRENT_SERVER}" != "${SERVER_NAME}" ]; then
-        start_server "${SERVER_NAME}" "${SERVER_CONFIG}" "${CKPT_ARG}" "${CKPT_PATH}"
+        if ! start_server "${SERVER_NAME}" "${SERVER_CONFIG}" "${CKPT_ARG}" "${CKPT_PATH}"; then
+            FAILED="${FAILED} task-${TASK_IDX}"
+            SUMMARY_ALL="${SUMMARY_ALL}
+[Task $((TASK_IDX+1))] ${SUITE} x ${SERVER_NAME} — model server did not start (${S3_TASK_PREFIX}/server.log)"
+            aws s3 cp "/tmp/{{ vla }}_server_${SERVER_NAME}.log" "${S3_TASK_PREFIX}/server.log" --quiet || true
+            continue
+        fi
     fi
 
     EVAL_CONFIG="${WORK}/eval-task-${TASK_IDX}.json"   # JSON is YAML: the harness's loader reads it as is
@@ -375,6 +404,7 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
         --meta "stack_vla_eval_server_config=${SERVER_CONFIG}" \
         --meta "stack_vla_eval_benchmark_image=${IMAGE}" \
         --meta "stack_nvidia_driver=${DRIVER_VERSION}" \
+        --meta "stack_torch_constraint=${TORCH_CONSTRAINT}" \
         2>> "/tmp/{{ vla }}_task${TASK_IDX}.log" | tail -1) || KN=""
     log "  result: ${KN:-no aggregate}"
 

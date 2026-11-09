@@ -334,7 +334,9 @@ def run_groups(run, targets=None):
         if t["status"] != "done":
             continue
         col = benchmark_label(t["suite"], t["condition"])
-        g = groups.setdefault((col, t["condition"]), dict(k=0, n=0, rates=[], tasks=[], kvs=[], suites=[]))
+        # matrix_row (vlaeval): several model servers of one target in one column stay separate rows
+        g = groups.setdefault((col, t["condition"], t.get("matrix_row")),
+                              dict(k=0, n=0, rates=[], tasks=[], kvs=[], suites=[]))
         g["suites"].append(t["suite"])
         g["tasks"].append(t)
         g["kvs"].append(t["kv"])
@@ -344,11 +346,11 @@ def run_groups(run, targets=None):
         else:
             g["rates"].append(t["rate"])
     out = []
-    for (col, cond), g in groups.items():
+    for (col, cond, mrow), g in groups.items():
         model = next((kv.get("model") for kv in g["kvs"] if kv.get("model")), None)
         suites = sorted(set(g["suites"]))
         suite = suites[0] if len(suites) == 1 else f"{suites[0].split('/', 1)[0]}/* ({len(suites)})"
-        out.append(dict(g, suite=suite, condition=cond, run=run, target=target_of(run["stack"], model, targets),
+        out.append(dict(g, suite=suite, condition=cond, run=run, target=mrow or target_of(run["stack"], model, targets),
                         column=col, baseline=is_baseline(cond, suites[0]), fp=fingerprint(g["kvs"])))
     return out
 
@@ -552,6 +554,40 @@ def cell_cost(groups):
 
 # --- rendering --------------------------------------------------------------------------------------
 
+# Verdict labels of the harness's reproduction legend (vla-evaluation-harness v0.9.0 docs/reproductions/README.md:62:
+# within 95% CI / outside CI but <= 5pp / > 5pp), applied to the Newcombe interval of ours - reference.
+REFERENCE_LEGEND = "vla-evaluation-harness v0.9.0 docs/reproductions/README.md:62"
+
+
+def reference_of(groups):
+    """{value, n, metric, source} of a cell when every task of it wrote the same reference_* lines, else None."""
+    refs = {tuple((kv.get(f"reference_{x}") or "").strip() for x in ("value", "n", "metric", "source"))
+            for g in groups for kv in g["kvs"]}
+    if len(refs) != 1:
+        return None
+    value, n, metric, source = refs.pop()
+    v, nn = results._float(value), results._int(n)
+    if v is None or not nn or not 0 <= v <= 1:
+        return None
+    return dict(value=v, n=nn, metric=metric or "success", source=source)
+
+
+def reference_comparison(st, ref):
+    """ours - reference: diff in pp, Newcombe 95% CI of the difference, verdict in the harness legend's terms."""
+    out = dict(ref, k=round(ref["value"] * ref["n"]))
+    if not st["n"]:
+        return dict(out, diff_pp=None, ci95_lo_pp=None, ci95_hi_pp=None, verdict="no k/n")
+    lo, hi = results.newcombe_diff(st["k"], st["n"], out["k"], ref["n"])
+    diff = (st["k"] / st["n"] - out["k"] / ref["n"]) * 100
+    if lo <= 0 <= hi:
+        verdict = "within 95% CI"
+    elif abs(diff) <= 5:
+        verdict = "outside CI, <=5pp"
+    else:
+        verdict = "outside CI, >5pp"
+    return dict(out, diff_pp=diff, ci95_lo_pp=lo * 100, ci95_hi_pp=hi * 100, verdict=verdict)
+
+
 def fmt_cell(st, marks=""):
     if st["rate"] is None:
         return "-"
@@ -589,6 +625,9 @@ def build(cells, with_cost=True):
                    fingerprint=groups[0]["fp"])
         if with_cost:
             rec.update(cell_cost(groups))
+        ref = reference_of(groups)
+        if ref:  # only when the tasks wrote a reference (vlaeval reference:), so other cells are unchanged
+            rec["reference"] = reference_comparison(st, ref)
         out.append(rec)
     return dict(rows=rows, columns=cols, cells=out, stack_differences=diffs)
 
@@ -647,6 +686,20 @@ def render_markdown(data, with_cost=True, generated=None):
                      "(all suites of a run share its instance); stack create/delete, NAT gateway, EBS and data transfer are not included. "
                      "USD/run is per pooled run. s/episode comes from `episode_wall_s`, LeRobot `eval_info.json` "
                      "(`eval_ep_s`) or the GR00T rollout log; ms/step only from `policy_ms_per_step`.")
+    refs = [c for c in data["cells"] if c.get("reference")]
+    if refs:
+        lines.append("")
+        lines.append(f"Ours vs reference (Newcombe 95% CI of the difference; verdict in the terms of {REFERENCE_LEGEND}; "
+                     "reference sources are files of that harness checkout):")
+        lines.append("")
+        lines.append("| Target | Benchmark | Ours | Reference | Diff (pp) | 95% CI of diff (pp) | Verdict | Source |")
+        lines.append("|---|---|---|---|---:|---|---|---|")
+        for c in refs:
+            r = c["reference"]
+            ours = "-" if not c["n"] else f"{c['rate']:.3f} ({c['k']}/{c['n']})"
+            ci = "-" if r["ci95_lo_pp"] is None else f"{r['ci95_lo_pp']:+.1f} to {r['ci95_hi_pp']:+.1f}"
+            lines.append(f"| `{c['target']}` | {c['benchmark']} | {ours} | {r['value']:.3f} ({r['k']}/{r['n']}) "
+                         f"| {_f(r['diff_pp'], '+.1f')} | {ci} | {r['verdict']} | {r['source']} |")
     lines.append("")
     lines.append("Sources: " + "; ".join(f"`{c['target']}` {c['benchmark']}: {', '.join(c['sources'])}"
                                           for c in data["cells"]) + ".")

@@ -61,6 +61,18 @@ def wilson(k, n, z=1.96):
     return max(0.0, c - h), min(1.0, c + h)
 
 
+def newcombe_diff(k1, n1, k2, n2, z=1.96):
+    """95% interval of p1 - p2 for two independent binomial rates: Newcombe's hybrid score interval (method 10 of
+    Newcombe 1998), built from the two Wilson intervals. (None, None) without episodes on either side."""
+    if not n1 or not n2:
+        return None, None
+    p1, p2 = k1 / n1, k2 / n2
+    l1, u1 = wilson(k1, n1, z)
+    l2, u2 = wilson(k2, n2, z)
+    d = p1 - p2
+    return d - math.sqrt((p1 - l1) ** 2 + (u2 - p2) ** 2), d + math.sqrt((u1 - p1) ** 2 + (p2 - l2) ** 2)
+
+
 def _int(v):
     try:
         return int(str(v).strip())
@@ -132,6 +144,8 @@ def task_row(s3, region, bucket, run, task_prefix, episodes=False):
                condition=(kv.get("condition") or "-").split()[0], k=k, n=n, rate=rate, stack=stack_fp)
     if kv.get("benchmark"):
         row.update(benchmark=kv["benchmark"], perturbation=kv.get("perturbation", "-"))
+    if kv.get("matrix_row"):  # one row per model server of one target (vlaeval matrix_row), only when written
+        row["matrix_row"] = kv["matrix_row"].strip()
     row["task_name"] = kv.get("robotwin_task") or kv.get("env_name") or row["suite"]
     # summary.txt carries action_type since the task-set change; older runs get it from the task name.
     tag = (kv.get("action_type") or "").strip()
@@ -229,7 +243,8 @@ def collect(args, boto3):
 def aggregate(rows):
     agg = collections.OrderedDict()
     for r in sorted(rows, key=lambda x: (x["bucket_stack"], x["region"], x["run"])):
-        key = (r["bucket_stack"], r["region"], r["run"], r.get("suite", "-"), r.get("condition", "-"))
+        suite = r.get("suite", "-") + (f" [{r['matrix_row']}]" if r.get("matrix_row") else "")
+        key = (r["bucket_stack"], r["region"], r["run"], suite, r.get("condition", "-"))
         g = agg.setdefault(key, dict(k=0, n=0, rates=[], tasks=0, not_done=0, stack={}))
         g["tasks"] += 1
         if r.get("action_type"):

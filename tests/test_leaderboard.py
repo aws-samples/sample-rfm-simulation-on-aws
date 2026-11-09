@@ -445,3 +445,88 @@ def test_unreadable_protocol_card_is_ignored():
     assert results.read_protocol_card(V(), "r", "b", "a/") is None
     assert results.read_protocol_card(V(), "r", "b", "b/") is None
     assert results.read_protocol_card(V(), "r", "b", "c/") is None
+
+
+# --- reference comparison (vlaeval reference: -> reference_* summary lines) and matrix_row --------------------
+
+def _vlaeval_objects(run="2026-11-10-0100"):
+    o = fixture_objects()
+    rows = (("vlaeval:openpi-pi05-libero", 98, 100, "0.98", "docs/reproductions/openpi.md:27"),
+            ("vlaeval:openpi-pi0fast-libero", 61, 100, None, None),
+            ("vlaeval:db-cogact-libero", 440, 500, "0.938", "docs/reproductions/dexbotic.md:27"),
+            ("vlaeval:openvla-libero-spatial", 160, 200, "0.866", "docs/reproductions/openvla.md:25"))
+    for i, (row, k, n, ref, src) in enumerate(rows):
+        kv = dict(model=row.split(":")[1], suite="libero_spatial", condition="S0", n_success=k, n_episodes=n,
+                  success_rate=k / n, stack_vla_eval_version="0.9.0", matrix_row=row)
+        if ref:
+            kv.update(reference_value=ref, reference_n=500, reference_metric="success", reference_source=src)
+        put(o, "vlaeval-demo", run, f"task-{i}/summary.txt", summary(**kv), 30 + i)
+    return o
+
+
+def _cells(objs):
+    args = argparse.Namespace(region=None, vla=None, since=None)
+    runs = lb.collect_runs(args, _FakeBoto3(list(objs)), s3=FakeS3(objs), workers=2)
+    return lb.build(lb.select_cells(runs, targets=TARGETS_FX + ["vlaeval"]))
+
+
+def test_matrix_row_keeps_one_row_per_server_and_compares_with_the_reference():
+    d = _cells(_vlaeval_objects())
+    c = by_cell(d)
+    rows = [r for r in d["rows"] if r.startswith("vlaeval")]
+    assert rows == ["vlaeval:db-cogact-libero", "vlaeval:openpi-pi05-libero", "vlaeval:openpi-pi0fast-libero",
+                    "vlaeval:openvla-libero-spatial"]
+    pi05 = c[("vlaeval:openpi-pi05-libero", "LIBERO-Spatial")]
+    assert (pi05["k"], pi05["n"]) == (98, 100)
+    r = pi05["reference"]
+    lo, hi = results.newcombe_diff(98, 100, 490, 500)
+    assert (r["value"], r["n"], r["k"], r["metric"]) == (0.98, 500, 490, "success")
+    assert abs(r["diff_pp"]) < 1e-9 and (r["ci95_lo_pp"], r["ci95_hi_pp"]) == (lo * 100, hi * 100)
+    assert r["verdict"] == "within 95% CI" and r["source"] == "docs/reproductions/openpi.md:27"
+    # 0.88 vs 0.938 (469/500): outside the CI and > 5pp; 0.80 vs 0.866 (433/500): -6.6pp
+    dbc = c[("vlaeval:db-cogact-libero", "LIBERO-Spatial")]["reference"]
+    assert dbc["verdict"] == "outside CI, >5pp" and round(dbc["diff_pp"], 1) == -5.8 and dbc["ci95_hi_pp"] < 0
+    assert "reference" not in c[("vlaeval:openpi-pi0fast-libero", "LIBERO-Spatial")]
+    md = lb.render_markdown(d, with_cost=False)
+    assert "Ours vs reference (Newcombe 95% CI of the difference; verdict in the terms of " \
+           "vla-evaluation-harness v0.9.0 docs/reproductions/README.md:62" in md
+    assert "| `vlaeval:openpi-pi05-libero` | LIBERO-Spatial | 0.980 (98/100) | 0.980 (490/500) | +0.0 | " \
+           f"{lo * 100:+.1f} to {hi * 100:+.1f} | within 95% CI | docs/reproductions/openpi.md:27 |" in md
+    assert md.count("| `vlaeval:") == 4 + 3      # 4 matrix rows + 3 reference rows (pi0-FAST has no reference)
+
+
+@pytest.mark.parametrize("k,n,ref_n,verdict", [
+    (469, 500, 500, "within 95% CI"), (90, 100, 500, "within 95% CI"),          # -3.8pp, but n = 100: inside the CI
+    (1820, 2000, 500, "outside CI, <=5pp"), (9200, 10000, 100000, "outside CI, <=5pp"),   # -1.8pp, outside
+    (88, 100, 500, "outside CI, >5pp"), (400, 500, 500, "outside CI, >5pp")])
+def test_reference_verdicts_follow_the_harness_legend(k, n, ref_n, verdict):
+    st = dict(k=k, n=n, rate=k / n)
+    r = lb.reference_comparison(st, dict(value=0.938, n=ref_n, metric="success", source="a.md:1"))
+    assert r["verdict"] == verdict
+    lo, hi = results.newcombe_diff(k, n, round(0.938 * ref_n), ref_n)
+    assert (lo <= 0 <= hi) == (verdict == "within 95% CI")
+
+
+def test_reference_k_is_the_rounded_count():
+    # 0.29 * 100 = 28.999999999999996 in floating point: the reference count is 29, not 28
+    r = lb.reference_comparison(dict(k=29, n=100, rate=0.29), dict(value=0.29, n=100, metric="success", source="a:1"))
+    assert r["k"] == 29 and r["diff_pp"] == 0
+
+
+def test_reference_without_k_n_and_mixed_references():
+    r = lb.reference_comparison(dict(k=None, n=None, rate=0.9), dict(value=0.9, n=10, metric="success", source="a:1"))
+    assert r["verdict"] == "no k/n" and r["diff_pp"] is None
+    g = [dict(kvs=[{"reference_value": "0.9", "reference_n": "10"}, {"reference_value": "0.8", "reference_n": "10"}])]
+    assert lb.reference_of(g) is None                              # two tasks of one cell disagree
+    assert lb.reference_of([dict(kvs=[{"reference_value": "x", "reference_n": "10"}])]) is None
+    assert lb.reference_of([dict(kvs=[{"reference_value": "1.5", "reference_n": "10"}])]) is None
+    assert lb.reference_of([dict(kvs=[{}])]) is None
+
+
+def test_matrix_without_references_is_unchanged(data):
+    # the reference section and the per-cell reference key exist only when a task wrote reference_* lines
+    runs, _ = data
+    d = lb.build(lb.select_cells(runs, targets=TARGETS_FX))
+    assert not any("reference" in c for c in d["cells"])
+    md = lb.render_markdown(d)
+    assert "Ours vs reference" not in md and "Newcombe" not in md

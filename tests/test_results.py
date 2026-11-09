@@ -254,3 +254,19 @@ def test_compare_prints_the_gpu_types_and_warns_when_they_differ(tmp_path, capsy
     csv_path.write_text("model,suite,condition,successes,episodes\na,LIBERO-Spatial,S0,40,50\nb,LIBERO-Spatial,S0,20,50\n")
     assert results.main(["--compare", "a", "b", "--from-csv", str(csv_path)]) == 0
     assert "GPU:" not in capsys.readouterr().out
+
+
+def test_newcombe_known_value():
+    # Newcombe (1998) Stat Med 17:873, Table II example (56/70 vs 48/80), method 10: 0.0524 to 0.3339
+    lo, hi = results.newcombe_diff(56, 70, 48, 80)
+    assert round(lo, 4) == 0.0524 and round(hi, 4) == 0.3339
+
+
+def test_newcombe_contains_the_difference_and_is_antisymmetric():
+    for k1, n1, k2, n2 in ((0, 10, 0, 10), (10, 10, 469, 500), (48, 50, 469, 500), (3, 7, 90, 100)):
+        lo, hi = results.newcombe_diff(k1, n1, k2, n2)
+        d = k1 / n1 - k2 / n2
+        assert -1 <= lo <= d <= hi <= 1
+        lo2, hi2 = results.newcombe_diff(k2, n2, k1, n1)
+        assert (round(lo2, 9), round(hi2, 9)) == (round(-hi, 9), round(-lo, 9))
+    assert results.newcombe_diff(1, 0, 1, 1) == (None, None) and results.newcombe_diff(1, 1, 1, 0) == (None, None)

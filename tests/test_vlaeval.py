@@ -903,7 +903,9 @@ def _download_block(tmp_path, marker):
     body = text[start:end].replace("/tmp/vlaeval_", f"{tmp_path}/vlaeval_")
     script = (f'set -euo pipefail\nexport HF_HOME={tmp_path}/hf CALLS={tmp_path}/calls PYTHONPATH={stub} '
               f'STUB_MARKER={marker}\nlog() {{ echo "LOG $*"; }}\ndie() {{ echo "DIE $*"; exit 9; }}\n'
-              f'uv() {{ while [ "$1" != python ]; do shift; done; shift; "{sys.executable}" "$@"; }}\n' + body)
+              f'uv() {{ while [ "$1" != python ]; do shift; done; shift; "{sys.executable}" "$@"; }}\n'
+              # `timeout` would exec the real uv binary (not the function above), which CI does not have
+              f'timeout() {{ while [ "$1" != uv ]; do shift; done; "$@"; }}\n' + body)
     return subprocess.run([BASH, "-c", script], capture_output=True, text=True, timeout=60)
 
 

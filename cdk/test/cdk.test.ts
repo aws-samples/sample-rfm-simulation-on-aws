@@ -97,7 +97,7 @@ test.each([
   // VLA-JEPA LeRobot port (lerobot-libero template): Qwen3-VL-2B + V-JEPA 2 ViT-L + DiT-B in bf16 on one L4.
   ['vla-jepa', 'VLA-JEPA-Demo', 'g6.xlarge,g5.xlarge,g6.2xlarge,g5.2xlarge', '150', 180],
   // vla-eval (allenai harness, unmodified): pi0.5 model server + LIBERO container on one L40S, as measured by hand.
-  ['vlaeval', 'VLA-Eval-Demo', 'g6e.2xlarge,g6e.4xlarge,g6e.xlarge', '250', 120],
+  ['vlaeval', 'VLAEval-Demo', 'g6e.2xlarge,g6e.4xlarge,g6e.xlarge', '250', 120],
 ])('%s launches its yaml instance list, EBS size and timeout', (vla, stackName, types, ebs, minutes) => {
   const app = new cdk.App({ context: { region: 'ap-northeast-2', vla, notify_email: 'test@example.com' } });
   const stack = new VlaSimulatorStack(app, stackName, {

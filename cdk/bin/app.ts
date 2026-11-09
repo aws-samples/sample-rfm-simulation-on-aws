@@ -29,7 +29,7 @@
  *   npx cdk deploy LeRobot-Gym-Demo            -c region=us-east-1 -c vla=lerobot-gym
  *   npx cdk deploy MultiTask-DiT-Demo          -c region=us-east-1 -c vla=multitask-dit
  *   npx cdk deploy VLA-JEPA-Demo               -c region=us-east-1 -c vla=vla-jepa
- *   npx cdk deploy VLA-Eval-Demo               -c region=us-east-1 -c vla=vlaeval
+ *   npx cdk deploy VLAEval-Demo               -c region=us-east-1 -c vla=vlaeval
  *   npx cdk deploy SpatialVLA-Demo             -c region=us-east-1 -c vla=spatialvla
  *   npx cdk deploy Magma-Demo                  -c region=us-east-1 -c vla=magma
  *   npx cdk deploy UniVLA-Demo                 -c region=us-east-1 -c vla=univla
@@ -125,7 +125,7 @@ const stackNameMap: Record<string, string> = {
   'dino-wm':     'DINO-WM-Demo',
   'jepa-wms':    'JEPA-WMs-Demo',
   'vla-jepa':    'VLA-JEPA-Demo',
-  'vlaeval': 'VLA-Eval-Demo',
+  'vlaeval': 'VLAEval-Demo',
 };
 // deploy.py --shard K/N [--shard-run R] (vlasim deploy --shards): one stack per shard, <base>-<token>.
 const shardToken: string = String(app.node.tryGetContext('shard') ?? '').trim();

@@ -89,7 +89,7 @@ OTHER_LOCAL_STACKS = {"vla-adapter": "VLA-Adapter-Demo", "cosmos-policy": "Cosmo
                       "robolab-pi05": "RoboLab-Pi05-Demo", "rlinf-oft-libero": "RLinf-OFT-LIBERO-Demo",
                       "lerobot-gym": "LeRobot-Gym-Demo", "spatialvla": "SpatialVLA-Demo", "magma": "Magma-Demo",
                       "univla": "UniVLA-Demo", "ge-act": "GE-Act-Demo", "dino-wm": "DINO-WM-Demo",
-                      "jepa-wms": "JEPA-WMs-Demo", "vlaeval": "VLA-Eval-Demo"}
+                      "jepa-wms": "JEPA-WMs-Demo", "vlaeval": "VLAEval-Demo"}
 # RLinf RL post-training targets (evaluate -> GRPO -> re-evaluate); --rl-profile picks models/<vla>.yaml profiles.
 RLINF_TARGETS = ("rlinf-oft-libero",)
 RL_PROFILES = ("smoke", "full")

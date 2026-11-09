@@ -337,3 +337,13 @@ def test_results_reads_the_adapter_summary(tmp_path):
         ("libero_spatial", "S0", 48, 50, "pick-place")
     assert row["stack"]["stack_vla_eval_harness_version"] == "0.9.0"
     assert "benchmark" not in row
+
+
+def test_every_stack_name_starts_with_its_target_id():
+    # `vlasim results --vla <id>` keeps the buckets whose stack name starts with <id>; the first vlaeval stack
+    # was named VLA-Eval-Demo and its results were not found (measured 2026-11-09)
+    import destroy
+
+    assert destroy.STACK_NAMES["vlaeval"] == "VLAEval-Demo"
+    bad = {k: s for k, s in destroy.STACK_NAMES.items() if not s.lower().startswith(k)}
+    assert not bad

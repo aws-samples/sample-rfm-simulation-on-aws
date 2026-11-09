@@ -1754,6 +1754,27 @@ _VLAEVAL_PARAM_VALUE_RE = re.compile(r"^[A-Za-z0-9_./:-]{1,256}$")
 _VLAEVAL_PARAM_NAME_RE = re.compile(r"^[a-z_][a-z0-9_]*$")
 # docker.env entries of the run config (`docker run -e`): an upper-case name and a plain value.
 _VLAEVAL_DOCKER_ENV_RE = re.compile(r"^([A-Z_][A-Z0-9_]*)=([A-Za-z0-9_.,:/=-]{0,256})$")
+_VLAEVAL_PARAM_LIST_MAX = 64
+# A file inside a checkpoint snapshot (checkpoint_marker) and a snapshot_download allow pattern (hf_allow_patterns).
+_VLAEVAL_MARKER_RE = re.compile(r"^[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)*$")
+_VLAEVAL_PATTERN_RE = re.compile(r"^[A-Za-z0-9_.*/-]{1,128}$")
+
+
+def _vlaeval_param_ok(v, in_list=False) -> bool:
+    """One plain scalar token, or a non-empty list (at most _VLAEVAL_PARAM_LIST_MAX) of them: ManiSkill2 `tasks` /
+    `render_resolution`, RoboCerebra `task_types`. No nested lists, no mappings, no nulls."""
+    if isinstance(v, list):
+        return not in_list and 0 < len(v) <= _VLAEVAL_PARAM_LIST_MAX and all(_vlaeval_param_ok(x, True) for x in v)
+    return not isinstance(v, dict) and v is not None and bool(_VLAEVAL_PARAM_VALUE_RE.match(str(v)))
+
+
+def _vlaeval_patterns(value, where) -> list:
+    if value is None:
+        return []
+    if not isinstance(value, list) or not value or \
+            not all(isinstance(x, str) and _VLAEVAL_PATTERN_RE.match(x) and ".." not in x for x in value):
+        raise ValueError(f"{where} must be a non-empty list of snapshot_download patterns ([A-Za-z0-9_.*/-])")
+    return list(value)
 
 
 def _vlaeval_int(value, where, minimum):
@@ -1813,6 +1834,9 @@ def vlaeval_plan(config: dict, vla: str = "vlaeval") -> tuple:
             raise ValueError(f"{where}.expect_videos must be true or false")
         if any(c in str(b.get("init_states", "")) for c in "\"'$`\\\n"):
             raise ValueError(f"{where}.init_states: quotes, $, backticks, backslashes and newlines are not allowed")
+        # top-level `render:` of the run config (harness docs/render-backends.md); unset = the harness default, gpu
+        if b.get("render") is not None and b["render"] not in ("gpu", "cpu"):
+            raise ValueError(f"{where}.render must be gpu or cpu")
     for name, s in servers.items():
         where = f"models/{vla}.yaml vlaeval.model_servers.{name}"
         if not _VLAEVAL_KEY_RE.match(str(name)) or not isinstance(s, dict):
@@ -1829,6 +1853,43 @@ def vlaeval_plan(config: dict, vla: str = "vlaeval") -> tuple:
         for g in s.get("gated_repos") or []:
             if not _HF_REPO_RE.match(str(g)):
                 raise ValueError(f"{where}.gated_repos: {g!r} is not <org>/<name>")
+        # How the server gets the checkpoint (all optional; defaults = the batch A behaviour):
+        #   checkpoint_marker  file the downloaded snapshot must contain (default config.json)
+        #   hf_allow_patterns  snapshot_download allow_patterns (default: the whole repo)
+        #   checkpoint_pass    path (default: --arg <checkpoint_arg>=<snapshot path>) or repo_id (--arg <arg>=<hf_repo>
+        #                      with HF_HUB_OFFLINE=1, for servers that call snapshot_download(<arg>) themselves)
+        #   hf_offline_repos   repo_id only: more repos the server loads by id, pre-downloaded at a pin
+        marker = s.get("checkpoint_marker")
+        if marker is not None and (not _VLAEVAL_MARKER_RE.match(str(marker)) or ".." in str(marker)):
+            raise ValueError(f"{where}.checkpoint_marker must be a relative file path inside the snapshot")
+        patterns = _vlaeval_patterns(s.get("hf_allow_patterns"), f"{where}.hf_allow_patterns")
+        if (marker is not None or patterns) and not s.get("hf_repo"):
+            raise ValueError(f"{where}: checkpoint_marker / hf_allow_patterns need hf_repo")
+        ck_pass = s.get("checkpoint_pass", "path")
+        if ck_pass not in ("path", "repo_id"):
+            raise ValueError(f"{where}.checkpoint_pass must be path or repo_id")
+        if ck_pass == "repo_id":
+            if not s.get("hf_repo"):
+                raise ValueError(f"{where}: checkpoint_pass repo_id needs hf_repo / hf_model_revision")
+            if patterns:
+                # the server's snapshot_download(<repo id>) wants the whole snapshot: offline, a partial one raises
+                # IncompleteSnapshotError (huggingface_hub 1.33, measured 2026-11-09)
+                raise ValueError(f"{where}: checkpoint_pass repo_id needs the whole snapshot (no hf_allow_patterns)")
+        extra = s.get("hf_offline_repos")
+        if extra is not None:
+            if ck_pass != "repo_id":
+                raise ValueError(f"{where}.hf_offline_repos: only with checkpoint_pass repo_id (HF_HUB_OFFLINE=1)")
+            if not isinstance(extra, list) or not extra:
+                raise ValueError(f"{where}.hf_offline_repos must be a non-empty list of {{repo, revision}}")
+            for j, x in enumerate(extra):
+                w = f"{where}.hf_offline_repos[{j}]"
+                if not isinstance(x, dict) or set(x) - {"repo", "revision", "allow_patterns", "license"}:
+                    raise ValueError(f"{w} must be a mapping of repo, revision, allow_patterns, license")
+                if not _HF_REPO_RE.match(str(x.get("repo", ""))):
+                    raise ValueError(f"{w}.repo must be <org>/<name>")
+                if not _COMMIT_RE.match(str(x.get("revision", ""))):
+                    raise ValueError(f"{w}.revision must be a 40-hex commit")
+                _vlaeval_patterns(x.get("allow_patterns"), f"{w}.allow_patterns")
     timeout = _vlaeval_int(run.get("server_timeout", 900), f"models/{vla}.yaml vlaeval.run.server_timeout", 30)
     port = _vlaeval_int(run.get("port", 8000), f"models/{vla}.yaml vlaeval.run.port", 1024)
     if port != 8000:
@@ -1866,10 +1927,9 @@ def vlaeval_plan(config: dict, vla: str = "vlaeval") -> tuple:
             raise ValueError(f"{where}.params must be a mapping without {' / '.join(injected) or 'suite / seed'} "
                              "(set by the entry)")
         for k, v in params.items():
-            if not _VLAEVAL_PARAM_NAME_RE.match(str(k)) or isinstance(v, (dict, list)) or v is None \
-                    or not _VLAEVAL_PARAM_VALUE_RE.match(str(v)):
-                raise ValueError(f"{where}.params.{k}: plain scalar values only (one token of [A-Za-z0-9_./:-], "
-                                 "at most 256 characters)")
+            if not _VLAEVAL_PARAM_NAME_RE.match(str(k)) or not _vlaeval_param_ok(v):
+                raise ValueError(f"{where}.params.{k}: plain scalar values or a list of them only (one token of "
+                                 f"[A-Za-z0-9_./:-], at most 256 characters; at most {_VLAEVAL_PARAM_LIST_MAX} items)")
         cond = str(t.get("condition") or "S0")
         if not re.fullmatch(r"[A-Za-z0-9_./-]{1,64}", cond):
             raise ValueError(f"{where}.condition {cond!r}: plain token only")
@@ -1888,6 +1948,8 @@ def vlaeval_plan(config: dict, vla: str = "vlaeval") -> tuple:
             "output_dir": f"{VLAEVAL_EVAL_DIR}/task-{i}",
             "benchmarks": [entry],
         }
+        if bench.get("render") is not None:
+            eval_config["render"] = bench["render"]   # run-level in the harness: one entry per run config here
         if t["benchmark"] not in used_b:
             used_b.append(t["benchmark"])
         if t["model_server"] not in used_s:
@@ -1904,11 +1966,40 @@ def vlaeval_plan(config: dict, vla: str = "vlaeval") -> tuple:
             out[-1]["expect_videos"] = False  # e.g. Kinetix symbolic observations: no frame to record
         if bench.get("init_states"):
             out[-1]["init_states"] = str(bench["init_states"])
+        if server.get("checkpoint_pass") == "repo_id":
+            out[-1]["checkpoint_pass"] = "repo_id"   # the task loop passes hf_repo and starts it with HF_HUB_OFFLINE=1
     bench_list = [dict(name=n, image=f"{benches[n]['image']}@{benches[n]['image_digest']}",
                        simulator=str(benches[n].get("simulator") or n)) for n in used_b]
-    server_list = [dict(name=n, config=str(servers[n]["config"]), hf_repo=str(servers[n].get("hf_repo") or ""),
-                        hf_model_revision=str(servers[n].get("hf_model_revision") or ""),
-                        gated_repos=[str(g) for g in servers[n].get("gated_repos") or []]) for n in used_s]
+    server_list = []
+    for n in used_s:
+        s = servers[n]
+        server_list.append(dict(name=n, config=str(s["config"]), hf_repo=str(s.get("hf_repo") or ""),
+                                hf_model_revision=str(s.get("hf_model_revision") or ""),
+                                gated_repos=[str(g) for g in s.get("gated_repos") or []]))
+        # only when set, so the plan (and the rendered UserData) of a server without them is unchanged
+        if s.get("checkpoint_marker") is not None:
+            server_list[-1]["checkpoint_marker"] = str(s["checkpoint_marker"])
+        if s.get("hf_allow_patterns"):
+            server_list[-1]["hf_allow_patterns"] = list(s["hf_allow_patterns"])
+        if s.get("checkpoint_pass") == "repo_id":
+            server_list[-1]["checkpoint_pass"] = "repo_id"
+        if s.get("hf_offline_repos"):
+            server_list[-1]["hf_offline_repos"] = [
+                dict(repo=str(x["repo"]), revision=str(x["revision"]),
+                     **({"allow_patterns": list(x["allow_patterns"])} if x.get("allow_patterns") else {}))
+                for x in s["hf_offline_repos"]]
+    # repo_id servers resolve `main` from refs/main of the one shared HF cache, which the pre-download writes
+    # per repo: two pins of the same repo would leave only the last one, and the other server would load it
+    pins = {}
+    for s in server_list:
+        if s.get("checkpoint_pass") != "repo_id":
+            continue
+        for repo, rev in [(s["hf_repo"], s["hf_model_revision"]),
+                          *[(x["repo"], x["revision"]) for x in s.get("hf_offline_repos", [])]]:
+            prev = pins.setdefault(repo, (rev, s["name"]))
+            if prev[0] != rev:
+                raise ValueError(f"vlaeval: {repo} is pinned at {prev[0][:8]} ({prev[1]}) and {rev[:8]} ({s['name']}) "
+                                 "with checkpoint_pass repo_id; the shared refs/main holds one revision per repo")
     return bench_list, server_list, out
 
 
@@ -1931,6 +2022,7 @@ def generate_vlaeval(config: dict, dry_run: bool, vla: str = "vlaeval") -> str:
         "benches": benches,
         "servers": servers,
         "gated_repos": gated,
+        "offline_servers": any(s.get("checkpoint_pass") == "repo_id" for s in servers),
         "display_name": _shell_safe(model.get("display_name", vla), "display_name"),
         "policy_desc": _shell_safe(model.get("policy_desc", vla), "policy_desc"),
         "license": _shell_safe(model.get("license", "see model card"), "license"),
@@ -1946,7 +2038,10 @@ def generate_vlaeval(config: dict, dry_run: bool, vla: str = "vlaeval") -> str:
         "min_gpu_mib": int(instance.get("min_gpu_mib", 22000)),
         "min_host_mib": int(instance.get("min_host_mib", 30000)),
     }
-    card = {"checkpoints": [dict(repo=s["hf_repo"], revision=s["hf_model_revision"]) for s in servers if s["hf_repo"]],
+    card = {"checkpoints": [dict(repo=c["repo"], revision=c["revision"])
+                            for s in servers if s["hf_repo"]
+                            for c in [dict(repo=s["hf_repo"], revision=s["hf_model_revision"]),
+                                      *s.get("hf_offline_repos", [])]],
             "start_states": "the benchmark's fixed init states (LIBERO: episode i = init state i of the task)"}
     env = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)), keep_trailing_newline=True)  # nosec B701 - shell script template
     return env.get_template("vlaeval-userdata.sh.j2").render(**_with_protocol(ctx, config, card))

@@ -465,7 +465,14 @@ def _bench(c, name="kinetix"):
     (lambda c: c["tasks"][0]["params"].update(rtc_worlds_dir="/app/$HOME"), "params.rtc_worlds_dir"),
     (lambda c: c["tasks"][0]["params"].update(rtc_worlds_dir="/app/it's"), "params.rtc_worlds_dir"),
     (lambda c: c["tasks"][0]["params"].update(rtc_worlds_dir="/" + "a" * 256), "params.rtc_worlds_dir"),
-    (lambda c: c["tasks"][0]["params"].update(tasks=["a", "b"]), "params.tasks"),
+    (lambda c: c["tasks"][0]["params"].update(tasks=[["a"], "b"]), "params.tasks"),      # lists are one level
+    (lambda c: c["tasks"][0]["params"].update(tasks=[]), "params.tasks"),
+    (lambda c: c["tasks"][0]["params"].update(tasks=["a b"]), "params.tasks"),
+    (lambda c: c["tasks"][0]["params"].update(tasks=["a", None]), "params.tasks"),
+    (lambda c: c["tasks"][0]["params"].update(tasks=[{"a": 1}]), "params.tasks"),
+    (lambda c: c["tasks"][0]["params"].update(tasks=["$(id)"]), "params.tasks"),
+    (lambda c: c["tasks"][0]["params"].update(tasks=["a"] * 65), "params.tasks"),
+    (lambda c: c["tasks"][0]["params"].update(tasks={"a": 1}), "params.tasks"),
     (lambda c: c["tasks"][0]["params"].update(rtc_worlds_dir=None), "params.rtc_worlds_dir"),
     (lambda c: c["tasks"][0]["params"].update({"Bad": 1}), "params.Bad"),
 ])
@@ -708,3 +715,274 @@ def test_torch_constraint_stops_when_a_server_config_does_not_resolve(tmp_path):
     proc = subprocess.run([BASH, "-c", script], capture_output=True, text=True, timeout=60)
     assert proc.returncode == 9 and "DIE could not resolve the model-server scripts" in proc.stdout
     assert not (tmp_path / "calls").exists()
+
+
+# --- batch B: RoboCerebra, MolmoSpaces x MolmoBot, ManiSkill2 x DB-CogACT ----------------------------------------
+# (per-server checkpoint_marker / hf_allow_patterns / checkpoint_pass / hf_offline_repos, list params, render)
+
+MOLMO_SHA = "cbe6ec358958d07ddfb20d3aa54e560e9e1b18c9"
+QWEN_SHA = "cdbee75f17c01a7cc42f958dc650907174af0554"
+COGACT_SHA = "d4af8d4e8a07ef4c9f982f52d446d14f2039e81c"
+
+
+def test_batch_b_sets_render_the_harness_configs():
+    benches, servers, tasks = generate.vlaeval_plan(_set("batch-b"))
+    assert [b["name"] for b in benches] == ["robocerebra", "molmospaces", "maniskill2"]
+    assert benches[0]["image"] == ("ghcr.io/allenai/vla-evaluation-harness/robocerebra@sha256:"
+                                   "89ad3218a46e1b3d2e4926ef788a9d3bce312bbe900c37e75a27b93e1be80c34")
+    # the allenai molmospaces package is private: the harness's own pull fallback (cli/_docker.py), by digest
+    assert benches[1]["image"] == ("ghcr.io/worv-ai/vla-evaluation-harness-public/molmospaces@sha256:"
+                                   "ca13e61b0b67031298c4e1347c33e0b853abc35caaad4169961a3b14ea07e141")
+    assert benches[2]["image"] == ("ghcr.io/allenai/vla-evaluation-harness/maniskill2@sha256:"
+                                   "3c4d35caae55a3eec6daa608fcb095354bbbde8fd905b6d714d40bb9d8192191")
+    assert [s["name"] for s in servers] == ["lerobot-pi05-libero", "molmobot-droid", "db-cogact-maniskill2"]
+    lerobot, molmo, cogact = servers
+    assert set(lerobot) == {"name", "config", "hf_repo", "hf_model_revision", "gated_repos"}   # no new keys
+    assert molmo == dict(name="molmobot-droid", config="configs/model_servers/molmobot/droid.yaml",
+                         hf_repo="allenai/MolmoBot-DROID", hf_model_revision=MOLMO_SHA, gated_repos=[],
+                         checkpoint_marker="model.pt", checkpoint_pass="repo_id",
+                         hf_offline_repos=[dict(repo="Qwen/Qwen3-4B-Instruct-2507", revision=QWEN_SHA,
+                                                allow_patterns=["*.json", "*.txt"])])
+    assert cogact == dict(name="db-cogact-maniskill2", config="configs/model_servers/db_cogact/maniskill2.yaml",
+                          hf_repo="Dexmal/maniskill2-db-cogact", hf_model_revision=COGACT_SHA, gated_repos=[])
+    cer, molmo_t, ms2 = tasks
+    assert [t["eval_config"]["output_dir"][-6:] for t in tasks] == ["task-0", "task-1", "task-2"]
+    # RoboCerebra: seed but no suite (= configs/benchmarks/robocerebra/eval.yaml params), a list param
+    b = cer["eval_config"]["benchmarks"][0]
+    assert b["params"] == {"seed": 7, "robocerebra_root": "/workspace/RoboCerebra_Bench", "task_types": ["Ideal"]}
+    assert (b["max_tasks"], b["episodes_per_task"]) == (2, 2) and "runtime" not in cer["eval_config"]["docker"]
+    assert cer["model_server"] == "lerobot-pi05-libero" and "checkpoint_pass" not in cer
+    # MolmoSpaces: neither suite nor seed, the long path and module:Class params of pick_and_place.yaml
+    b = molmo_t["eval_config"]["benchmarks"][0]
+    assert b["params"] == {
+        "benchmark_dir": "/assets/benchmarks/molmospaces-bench-v2/procthor-objaverse/FrankaPickandPlaceHardBench/"
+                         "FrankaPickandPlaceHardBench_20260212_200ep_json_benchmark",
+        "eval_config_cls": "molmo_spaces.evaluation.configs.evaluation_configs:DummyPickPlaceEvalConfig",
+        "task_horizon": 600, "send_wrist_image": True, "send_state": True}
+    assert (b["max_tasks"], b["max_steps"], b["episodes_per_task"]) == (4, 600, 1)
+    assert molmo_t["checkpoint_pass"] == "repo_id" and molmo_t["checkpoint_arg"] == "hf_repo"
+    # ManiSkill2: no suite / seed, the task subset and resolution as lists (= configs/benchmarks/maniskill2/eval.yaml)
+    b = ms2["eval_config"]["benchmarks"][0]
+    assert b["params"] == {"tasks": ["PickCube-v0", "StackCube-v0"], "max_episode_steps": 400,
+                           "render_resolution": [256, 256], "enabled_cameras": ["base_camera"]}
+    assert (b["episodes_per_task"], b["max_steps"]) == (3, 400) and "max_tasks" not in b
+    assert (ms2["checkpoint_arg"], ms2["hf_model_revision"]) == ("model_path", COGACT_SHA)
+    for t in tasks:
+        assert "render" not in t["eval_config"] and "env" not in t["eval_config"]["docker"]
+        assert t.get("expect_videos", True) is True and t["init_states"]
+    # each single set is the same entry as in batch-b
+    for name, t in (("robocerebra", cer), ("molmospaces", molmo_t), ("maniskill2", ms2)):
+        (single,) = generate.vlaeval_plan(_set(name))[2]
+        assert single["eval_config"]["benchmarks"] == t["eval_config"]["benchmarks"]
+        assert single["eval_config"]["output_dir"].endswith("/task-0")
+
+
+@pytest.mark.skipif(BASH is None, reason="bash not on PATH")
+@pytest.mark.parametrize("task_set", ["robocerebra", "molmospaces", "maniskill2", "batch-b"])
+def test_batch_b_render_and_bash_n(task_set, tmp_path):
+    _render(tmp_path, "--task-set", task_set)
+    text = (tmp_path / "vlaeval.sh").read_text()
+    assert subprocess.run([BASH, "-n", str(tmp_path / "vlaeval.sh")]).returncode == 0
+    tasks = _tasks_json(text)
+    assert tasks == json.loads(json.dumps(generate.vlaeval_plan(_set(task_set))[2]))
+    assert ":latest" not in text
+    for t in tasks:
+        assert f'docker pull -q "{t["image"]}"' in text
+    molmo = task_set in ("molmospaces", "batch-b")
+    assert (f'_p = snapshot_download("allenai/MolmoBot-DROID", revision="{MOLMO_SHA}")' in text) == molmo
+    assert ('[ -f "${_path}/model.pt" ] || die "allenai/MolmoBot-DROID snapshot ${_path} has no model.pt"'
+            in text) == molmo
+    assert (f'joinpath("refs", "main").write_text("{MOLMO_SHA}")' in text) == molmo
+    assert (f'snapshot_download("Qwen/Qwen3-4B-Instruct-2507", revision="{QWEN_SHA}", '
+            'allow_patterns=["*.json", "*.txt"])' in text) == molmo
+    assert ("export HF_HUB_OFFLINE=1" in text) == molmo and ('"${CKPT_PASS}"; then' in text) == molmo
+    if task_set in ("maniskill2", "batch-b"):
+        assert f'print(snapshot_download("Dexmal/maniskill2-db-cogact", revision="{COGACT_SHA}"))' in text
+        assert '[ -f "${_path}/config.json" ] || die "Dexmal/maniskill2-db-cogact snapshot' in text
+    if task_set == "robocerebra":   # the default server, nothing new rendered
+        assert "refs" not in text and "allow_patterns" not in text and "CKPT_PASS" not in text
+
+
+def test_default_render_has_no_batch_b_lines(tmp_path):
+    # the new lines render only for a server that sets the keys; the LIBERO and batch A renders of every target
+    # were also diffed by hand against the pre-batch-B renders (identical but for the tool_commit line)
+    for extra in ([], ["--task-set", "batch-a"]):
+        _render(tmp_path, *extra)
+        text = (tmp_path / "vlaeval.sh").read_text()
+        for needle in ("HF_HUB_OFFLINE", "refs", "allow_patterns", "CKPT_PASS", "_pass=", "offline repo"):
+            assert needle not in text, (extra, needle)
+        assert text.count('has no config.json"') == (2 if extra else 1)
+
+
+def _server(c, name="molmobot-droid"):
+    return c["vlaeval"]["model_servers"][name]
+
+
+@pytest.mark.parametrize("mutate,msg", [
+    (lambda c: _server(c).update(checkpoint_marker="../model.pt"), "checkpoint_marker"),
+    (lambda c: _server(c).update(checkpoint_marker="/abs/model.pt"), "checkpoint_marker"),
+    (lambda c: _server(c).update(checkpoint_marker="a b"), "checkpoint_marker"),
+    (lambda c: _server(c).update(checkpoint_pass="url"), "checkpoint_pass must be"),
+    (lambda c: _server(c).update(hf_allow_patterns=["*.json"]), "whole snapshot"),     # repo_id: no partial
+    (lambda c: _server(c).update(checkpoint_pass="path"), "only with checkpoint_pass repo_id"),
+    (lambda c: _server(c).update(hf_offline_repos=[]), "non-empty list"),
+    (lambda c: _server(c).update(hf_offline_repos={"repo": "a/b"}), "non-empty list"),
+    (lambda c: _server(c)["hf_offline_repos"][0].update(revision="main"), r"hf_offline_repos\[0\].revision"),
+    (lambda c: _server(c)["hf_offline_repos"][0].update(repo="nope"), r"hf_offline_repos\[0\].repo"),
+    (lambda c: _server(c)["hf_offline_repos"][0].update(typo=1), r"hf_offline_repos\[0\] must be a mapping"),
+    (lambda c: _server(c)["hf_offline_repos"][0].update(allow_patterns=["a b"]), "allow_patterns"),
+    (lambda c: _server(c)["hf_offline_repos"][0].update(allow_patterns="*.json"), "allow_patterns"),
+    (lambda c: _server(c, "db-cogact-maniskill2").update(hf_allow_patterns=[]), "hf_allow_patterns"),
+    (lambda c: _server(c, "db-cogact-maniskill2").update(hf_allow_patterns=["../x"]), "hf_allow_patterns"),
+    (lambda c: _server(c, "db-cogact-maniskill2").update(hf_allow_patterns=["a'b"]), "hf_allow_patterns"),
+    (lambda c: _server(c, "db-cogact-maniskill2").update(checkpoint_pass="repo_id", hf_repo=None,
+                                                         hf_model_revision=None), "needs hf_repo"),
+    (lambda c: _bench(c, "maniskill2").update(render="egl"), "render must be gpu or cpu"),
+    (lambda c: _server(c)["hf_offline_repos"].append(dict(repo="allenai/MolmoBot-DROID", revision="0" * 40)),
+     "shared refs/main"),
+])
+def test_plan_rejects_bad_checkpoint_settings(mutate, msg):
+    cfg = copy.deepcopy(_set("batch-b"))
+    mutate(cfg)
+    with pytest.raises(ValueError, match=msg):
+        generate.vlaeval_plan(cfg)
+
+
+def test_marker_and_patterns_need_a_checkpoint():
+    cfg = copy.deepcopy(_set("kinetix"))
+    _server(cfg, "rtc-kinetix")["checkpoint_marker"] = "x.pkl"
+    with pytest.raises(ValueError, match="need hf_repo"):
+        generate.vlaeval_plan(cfg)
+
+
+def test_list_params_reach_the_run_config():
+    cfg = copy.deepcopy(_set("maniskill2"))
+    cfg["tasks"][0]["params"]["tasks"] = ["PickCube-v0"] * 64          # at the limit
+    (t,) = generate.vlaeval_plan(cfg)[2]
+    assert t["eval_config"]["benchmarks"][0]["params"]["tasks"] == ["PickCube-v0"] * 64
+
+
+@pytest.mark.parametrize("value", ["cpu", "gpu"])
+def test_render_key_is_the_run_level_render(value):
+    cfg = copy.deepcopy(_set("batch-b"))
+    _bench(cfg, "maniskill2")["render"] = value
+    cer, _, ms2 = generate.vlaeval_plan(cfg)[2]
+    assert ms2["eval_config"]["render"] == value and "render" not in cer["eval_config"]
+
+
+def test_allow_patterns_and_marker_reach_the_download():
+    cfg = copy.deepcopy(_set("calvin"))
+    _server(cfg, "xvla-calvin").update(hf_allow_patterns=["*.json", "*.safetensors"], checkpoint_marker="model.safetensors")
+    text = generate.generate_vlaeval(cfg, dry_run=True)
+    assert ('snapshot_download("2toINF/X-VLA-Calvin-ABC_D", revision="d76710ee314ee1fa8506f421664c989b40bae415", '
+            'allow_patterns=["*.json", "*.safetensors"]))') in text
+    assert '[ -f "${_path}/model.safetensors" ] || die' in text and 'has no config.json' not in text
+    assert "HF_HUB_OFFLINE" not in text and "refs" not in text
+
+
+STUB_HF = """import os, pathlib
+def snapshot_download(repo, revision=None, allow_patterns=None):
+    snap = pathlib.Path(os.environ["HF_HOME"]) / "hub" / ("models--" + repo.replace("/", "--")) / "snapshots" / revision
+    snap.mkdir(parents=True, exist_ok=True)
+    if os.environ.get("STUB_MARKER") == "1":
+        (snap / "model.pt").write_text("x")
+    with open(os.environ["CALLS"], "a") as f:
+        f.write(f"snapshot_download {repo} {revision} {allow_patterns}\\n")
+    return str(snap)
+"""
+
+
+def _download_block(tmp_path, marker):
+    _render(tmp_path / "r", "--task-set", "molmospaces")
+    text = (tmp_path / "r" / "vlaeval.sh").read_text()
+    start = text.index("export HF_XET_CLIENT_READ_TIMEOUT")
+    end = text.index("# Model server: `vla-eval serve`", start)
+    stub = tmp_path / "stub"
+    (stub / "huggingface_hub").mkdir(parents=True, exist_ok=True)
+    (stub / "huggingface_hub" / "__init__.py").write_text(STUB_HF)
+    body = text[start:end].replace("/tmp/vlaeval_", f"{tmp_path}/vlaeval_")
+    script = (f'set -euo pipefail\nexport HF_HOME={tmp_path}/hf CALLS={tmp_path}/calls PYTHONPATH={stub} '
+              f'STUB_MARKER={marker}\nlog() {{ echo "LOG $*"; }}\ndie() {{ echo "DIE $*"; exit 9; }}\n'
+              f'uv() {{ while [ "$1" != python ]; do shift; done; shift; "{sys.executable}" "$@"; }}\n'
+              # `timeout` would exec the real uv binary (not the function above), which CI does not have
+              f'timeout() {{ while [ "$1" != uv ]; do shift; done; "$@"; }}\n' + body)
+    return subprocess.run([BASH, "-c", script], capture_output=True, text=True, timeout=60)
+
+
+@pytest.mark.skipif(BASH is None, reason="bash not on PATH")
+def test_repo_id_download_points_main_at_the_pin(tmp_path):
+    # [6/8] for MolmoBot through bash, `uv run` replaced by this Python with a stub huggingface_hub: the checkpoint
+    # and the Qwen3 tokenizer are fetched at their pins and refs/main of each names the pin, which is what the
+    # server's offline snapshot_download(<id>) / AutoTokenizer.from_pretrained(<id>) resolve (checked by hand on
+    # 2026-11-09 with huggingface_hub 1.33.0 + transformers 5.22.1, the versions molmobot.py locks to)
+    proc = _download_block(tmp_path, marker=1)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    hub = tmp_path / "hf" / "hub"
+    assert (hub / "models--allenai--MolmoBot-DROID" / "refs" / "main").read_text() == MOLMO_SHA
+    assert (hub / "models--Qwen--Qwen3-4B-Instruct-2507" / "refs" / "main").read_text() == QWEN_SHA
+    assert (tmp_path / "calls").read_text().splitlines() == [
+        f"snapshot_download allenai/MolmoBot-DROID {MOLMO_SHA} None",
+        f"snapshot_download Qwen/Qwen3-4B-Instruct-2507 {QWEN_SHA} ['*.json', '*.txt']"]
+    path = (tmp_path / "vlaeval_ckpt_molmobot-droid.path").read_text().strip()
+    assert path.endswith(f"models--allenai--MolmoBot-DROID/snapshots/{MOLMO_SHA}") and "DIE" not in proc.stdout
+
+
+@pytest.mark.skipif(BASH is None, reason="bash not on PATH")
+def test_repo_id_download_stops_without_the_marker(tmp_path):
+    proc = _download_block(tmp_path, marker=0)
+    assert proc.returncode == 9 and "DIE allenai/MolmoBot-DROID snapshot" in proc.stdout and "has no model.pt" in proc.stdout
+    assert "Qwen" not in (tmp_path / "calls").read_text()               # stopped before the next download
+
+
+STUB_B = STUB_MULTI.replace('if [ "$1" = serve ]; then\n',
+                            'if [ "$1" = serve ]; then\n    echo "serve-env HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-unset}" >> "$CALLS"\n')
+
+
+@pytest.mark.skipif(None in (BASH, JQ, SETSID), reason="bash / jq / setsid not on PATH")
+def test_batch_b_loop_passes_the_repo_id_offline(tmp_path):
+    _render(tmp_path / "r", "--task-set", "batch-b")
+    script = _loop_script((tmp_path / "r" / "vlaeval.sh").read_text(), tmp_path)
+    assert STUB_B != STUB_MULTI
+    (tmp_path / "work" / "venv" / "bin" / "vla-eval").write_text(STUB_B)
+    ms = tmp_path / "work" / "harness" / "configs" / "model_servers"
+    for rel in ("molmobot/droid.yaml", "db_cogact/maniskill2.yaml"):
+        (ms / rel).parent.mkdir(parents=True, exist_ok=True)
+        (ms / rel).write_text("extends: _base.yaml\nargs:\n  chunk_size: 10\n")
+    (tmp_path / "ckpt_molmobot-droid.path").write_text(f"/hf/snapshots/{MOLMO_SHA[:8]}\n")
+    (tmp_path / "ckpt_db-cogact-maniskill2.path").write_text(f"/hf/snapshots/{COGACT_SHA[:8]}\n")
+    script = script.replace("curl() { return 0; }",
+                            'curl() { [ -n "$SERVER_PID" ] && kill -0 "$SERVER_PID" 2>/dev/null; }')
+    env = {"PATH": os.environ["PATH"], "HOME": str(tmp_path), "NO_VIDEO_BENCH": ""}
+    proc = subprocess.run([BASH, "-c", script], capture_output=True, text=True, timeout=120, env=env)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    calls = [ln for ln in (tmp_path / "calls").read_text().splitlines()
+             if ln.startswith(("serve-env", "vla-eval serve"))]
+    assert calls == [
+        "vla-eval serve --config configs/model_servers/lerobot/pi05_libero.yaml --arg checkpoint=/hf/snapshots/7152f13e",
+        "serve-env HF_HUB_OFFLINE=unset",
+        "vla-eval serve --config configs/model_servers/molmobot/droid.yaml --arg hf_repo=allenai/MolmoBot-DROID",
+        "serve-env HF_HUB_OFFLINE=1",
+        "vla-eval serve --config configs/model_servers/db_cogact/maniskill2.yaml --arg model_path=/hf/snapshots/d4af8d4e",
+        "serve-env HF_HUB_OFFLINE=unset"]
+    assert "FAILED=[]" in proc.stdout and "HF_HUB_OFFLINE=1: allenai/MolmoBot-DROID" in proc.stdout
+    cfgs = [json.loads((tmp_path / "work" / f"eval-task-{i}.json").read_text()) for i in range(3)]
+    assert cfgs[0]["benchmarks"][0]["params"]["task_types"] == ["Ideal"]
+    assert cfgs[2]["benchmarks"][0]["params"]["render_resolution"] == [256, 256]
+    kv = dict(results.KV_RE.findall((tmp_path / "vlaeval_task1_summary.txt").read_text()))
+    assert kv["checkpoint"] == f"allenai/MolmoBot-DROID@{MOLMO_SHA[:8]}" and kv["init_states"].startswith("task i")
+    card = yaml.safe_load((tmp_path / "vlaeval_task1_summary.protocol.yaml").read_text())
+    assert {"repo": "Qwen/Qwen3-4B-Instruct-2507", "revision": QWEN_SHA} in card["checkpoints"]
+
+
+def test_plan_rejects_two_repo_id_pins_of_one_repo_across_servers():
+    cfg = copy.deepcopy(_set("batch-b"))
+    servers = cfg["vlaeval"]["model_servers"]
+    servers["molmobot-droid-b"] = copy.deepcopy(servers["molmobot-droid"])
+    servers["molmobot-droid-b"]["hf_model_revision"] = "0" * 40
+    task = next(t for t in cfg["tasks"] if t["model_server"] == "molmobot-droid")
+    cfg["tasks"].append(dict(task, model_server="molmobot-droid-b"))
+    with pytest.raises(ValueError, match="shared refs/main"):
+        generate.vlaeval_plan(cfg)
+    # same pin twice is fine: refs/main gets the same commit
+    servers["molmobot-droid-b"]["hf_model_revision"] = servers["molmobot-droid"]["hf_model_revision"]
+    generate.vlaeval_plan(cfg)

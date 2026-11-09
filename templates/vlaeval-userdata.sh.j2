@@ -301,15 +301,44 @@ for _i in 1 2; do
         --with "huggingface_hub=={{ hf_hub_version }}" python - > "/tmp/{{ vla }}_ckpt_{{ s.name }}.path" \
         2>> /tmp/{{ vla }}_hf_download.log <<'PYEOF'
 from huggingface_hub import snapshot_download
-print(snapshot_download("{{ s.hf_repo }}", revision="{{ s.hf_model_revision }}"))
+{%- if s.checkpoint_pass == "repo_id" %}
+import pathlib
+_p = snapshot_download("{{ s.hf_repo }}", revision="{{ s.hf_model_revision }}")
+# The server is started with HF_HUB_OFFLINE=1 and calls snapshot_download("{{ s.hf_repo }}") (revision main): offline,
+# main resolves through refs/main of the cache, which a download by commit does not write. Point it at the pin.
+pathlib.Path(_p).parent.parent.joinpath("refs").mkdir(exist_ok=True)
+pathlib.Path(_p).parent.parent.joinpath("refs", "main").write_text("{{ s.hf_model_revision }}")
+print(_p)
+{%- else %}
+print(snapshot_download("{{ s.hf_repo }}", revision="{{ s.hf_model_revision }}"{% if s.hf_allow_patterns %}, allow_patterns={{ s.hf_allow_patterns|tojson }}{% endif %}))
+{%- endif %}
 PYEOF
     then _ok=1; break; fi
     log "[warn] checkpoint download attempt ${_i} failed (resumes from the partial cache)"
 done
 [ -n "${_ok}" ] || die "checkpoint download {{ s.hf_repo }}@{{ s.hf_model_revision[:8] }} failed (see /tmp/{{ vla }}_hf_download.log)"
 _path=$(tail -1 "/tmp/{{ vla }}_ckpt_{{ s.name }}.path")
-[ -f "${_path}/config.json" ] || die "{{ s.hf_repo }} snapshot ${_path} has no config.json"
+[ -f "${_path}/{{ s.checkpoint_marker or 'config.json' }}" ] || die "{{ s.hf_repo }} snapshot ${_path} has no {{ s.checkpoint_marker or 'config.json' }}"
 log "  snapshot: ${_path} ($(du -sh "${_path}/" 2>/dev/null | cut -f1))"
+{%- for x in s.hf_offline_repos or [] %}
+# loaded by id by the {{ s.name }} server (HF_HUB_OFFLINE=1): cached at its pin, refs/main pointed at it
+log "  offline repo {{ x.repo }} @ {{ x.revision[:8] }}..."
+_ok=""
+for _i in 1 2; do
+    if timeout --kill-after=60 1800 uv run -q --no-project --python {{ python_version }} \
+        --with "huggingface_hub=={{ hf_hub_version }}" python - >> /tmp/{{ vla }}_hf_download.log 2>&1 <<'PYEOF'
+import pathlib
+from huggingface_hub import snapshot_download
+_p = snapshot_download("{{ x.repo }}", revision="{{ x.revision }}"{% if x.allow_patterns %}, allow_patterns={{ x.allow_patterns|tojson }}{% endif %})
+pathlib.Path(_p).parent.parent.joinpath("refs").mkdir(exist_ok=True)
+pathlib.Path(_p).parent.parent.joinpath("refs", "main").write_text("{{ x.revision }}")
+print(_p)
+PYEOF
+    then _ok=1; break; fi
+    log "[warn] download attempt ${_i} of {{ x.repo }} failed"
+done
+[ -n "${_ok}" ] || die "download {{ x.repo }}@{{ x.revision[:8] }} failed (see /tmp/{{ vla }}_hf_download.log)"
+{%- endfor %}
 {%- endfor %}
 
 # Model server: `vla-eval serve` from the harness checkout (its config paths are relative to it). The server's
@@ -317,7 +346,7 @@ log "  snapshot: ${_path} ($(du -sh "${_path}/" 2>/dev/null | cut -f1))"
 # kept up while consecutive tasks use the same one.
 CURRENT_SERVER=""
 start_server() {
-    local _name=$1 _config=$2 _ckpt_arg=$3 _ckpt=$4
+    local _name=$1 _config=$2 _ckpt_arg=$3 _ckpt=$4{% if offline_servers %} _pass=${5:-path}{% endif %}
     stop_server
     if [ -n "${CURRENT_SERVER}" ]; then
         # switching servers: the next health check must not be answered by the one just stopped
@@ -332,7 +361,14 @@ start_server() {
     local _args=(serve --config "${_config}")
     [ -z "${_ckpt_arg}" ] || _args+=(--arg "${_ckpt_arg}=${_ckpt}")
     log "  vla-eval ${_args[*]}"
+{%- if offline_servers %}
+    # checkpoint_pass repo_id: the server gets the repo id and resolves it from the pinned cache only
+    [ "${_pass}" != "repo_id" ] || log "  (HF_HUB_OFFLINE=1: ${_ckpt} and the server's other Hub repos from the cache)"
+    ( cd "${HARNESS_DIR}" && if [ "${_pass}" = "repo_id" ]; then export HF_HUB_OFFLINE=1; fi \
+        && exec setsid "${VENV}/bin/vla-eval" "${_args[@]}" ) \
+{%- else %}
     ( cd "${HARNESS_DIR}" && exec setsid "${VENV}/bin/vla-eval" "${_args[@]}" ) \
+{%- endif %}
         > "/tmp/{{ vla }}_server_${_name}.log" 2>&1 < /dev/null &
     SERVER_PID=$!
     local _t0=$SECONDS
@@ -387,8 +423,12 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
     if [ -n "${HF_REPO}" ]; then
         CKPT_PATH=$(tail -1 "/tmp/{{ vla }}_ckpt_${SERVER_NAME}.path")
     fi
+{%- if offline_servers %}
+    CKPT_PASS=$(echo "$TASK" | jq -r '.checkpoint_pass // "path"')
+    [ "${CKPT_PASS}" != "repo_id" ] || CKPT_PATH="${HF_REPO}"    # the server downloads by id: give it the id
+{%- endif %}
     if [ "${CURRENT_SERVER}" != "${SERVER_NAME}" ]; then
-        if ! start_server "${SERVER_NAME}" "${SERVER_CONFIG}" "${CKPT_ARG}" "${CKPT_PATH}"; then
+        if ! start_server "${SERVER_NAME}" "${SERVER_CONFIG}" "${CKPT_ARG}" "${CKPT_PATH}"{% if offline_servers %} "${CKPT_PASS}"{% endif %}; then
             FAILED="${FAILED} task-${TASK_IDX}"
             SUMMARY_ALL="${SUMMARY_ALL}
 [Task $((TASK_IDX+1))] ${SUITE} x ${SERVER_NAME} — model server did not start (${S3_TASK_PREFIX}/server.log)"

@@ -1033,6 +1033,10 @@ def main():
         elif args.vla == "lerobot-gym":
             print("  Estimated time: ~30-60 min (uv sync LeRobot source ~10-20 min + 3 small checkpoints + "
                   "lerobot-eval per task, 10 episodes each; estimate, not measured yet)")
+        elif args.vla == "vlaeval" and args.task_set in ("robocerebra", "molmospaces", "maniskill2", "batch-b"):
+            print("  Estimated time: ~28 min (robocerebra), ~35-40 min (molmospaces: 12 GB image + 20 GB checkpoint), "
+                  "~31 min (maniskill2: 16 GB checkpoint), ~65-80 min for --task-set batch-b on one instance "
+                  "(estimates; batch B has not been run on AWS yet)")
         elif args.vla == "vlaeval" and args.task_set in ("libero-mem", "calvin", "kinetix", "batch-a"):
             print("  Estimated time: ~25-30 min per benchmark of batch A (libero-mem / calvin / kinetix), ~60 min for "
                   "--task-set batch-a on one instance (image pulls + one server env per task; estimate, not measured yet)")

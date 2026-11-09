@@ -681,7 +681,7 @@ def test_torch_constraint_only_where_the_lock_needs_cuda13(tmp_path, driver, exp
               + STUB_UV + block + 'echo "TC1=${TORCH_CONSTRAINT}"\n' + block + 'echo "TC=${TORCH_CONSTRAINT}"\n')
     proc = subprocess.run([BASH, "-c", script], capture_output=True, text=True, timeout=60)
     assert proc.returncode == 0, proc.stdout + proc.stderr
-    assert f"TC1={expect}" in proc.stdout
+    assert f"TC1={expect}" in proc.stdout and f"TC={expect}" in proc.stdout   # a re-run still records it
     xvla = (ms / "xvla.py").read_text()
     if expect == "none":
         assert xvla == HEADER_OPEN and not (tmp_path / "calls").exists()
@@ -693,3 +693,18 @@ def test_torch_constraint_only_where_the_lock_needs_cuda13(tmp_path, driver, exp
     assert (ms / "lerobot.py").read_text() == HEADER_CU128          # resolves cu128 on its own
     assert (ms / "rtc.py").read_text() == HEADER_OWN and (ms / "unused.py").read_text() == HEADER_OPEN
     assert not list(ms.glob("*.lock"))                               # `uv run` resolves from the header as before
+
+
+@pytest.mark.skipif(BASH is None, reason="bash not on PATH")
+def test_torch_constraint_stops_when_a_server_config_does_not_resolve(tmp_path):
+    _render(tmp_path / "r", "--task-set", "batch-a")
+    block = _constraint_block((tmp_path / "r" / "vlaeval.sh").read_text())
+    cfg = tmp_path / "h" / "configs" / "model_servers" / "xvla"
+    cfg.mkdir(parents=True)
+    (cfg / "calvin.yaml").write_text("extends: _base.yaml\n")      # _base.yaml missing
+    script = (f'set -euo pipefail\nHARNESS_DIR={tmp_path}/h; VENV={Path(sys.executable).parent.parent}; '
+              f'DRIVER_VERSION="570.133.20"; CALLS={tmp_path}/calls\nlog() {{ :; }}\ndie() {{ echo "DIE $*"; exit 9; }}\n'
+              + STUB_UV + block + 'echo "TC=${TORCH_CONSTRAINT}"\n')
+    proc = subprocess.run([BASH, "-c", script], capture_output=True, text=True, timeout=60)
+    assert proc.returncode == 9 and "DIE could not resolve the model-server scripts" in proc.stdout
+    assert not (tmp_path / "calls").exists()

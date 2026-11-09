@@ -239,7 +239,8 @@ TORCH_CONSTRAINT="none"
 DRIVER_MAJOR="${DRIVER_VERSION%%.*}"
 if [[ "${DRIVER_MAJOR}" =~ ^[0-9]+$ ]] && [ "${DRIVER_MAJOR}" -lt 580 ]; then
     _patched=""
-    for _rel in $("${VENV}/bin/python" - "${HARNESS_DIR}" {% for s in servers %}"{{ s.config }}" {% endfor %}<<'PYEOF'
+    # checked assignment: a resolver error inside `for ... in $(...)` would be swallowed and skip every lock
+    SERVER_SCRIPTS=$("${VENV}/bin/python" - "${HARNESS_DIR}" {% for s in servers %}"{{ s.config }}" {% endfor %}<<'PYEOF'
 import pathlib, sys, yaml
 root, found = pathlib.Path(sys.argv[1]), set()
 for cfg in sys.argv[2:]:
@@ -252,9 +253,15 @@ for cfg in sys.argv[2:]:
         p = p.parent / d["extends"] if "extends" in d else None
 print("\n".join(sorted(found)))
 PYEOF
-    ); do
+    ) || die "could not resolve the model-server scripts of {% for s in servers %}{{ s.config }} {% endfor %}"
+    for _rel in ${SERVER_SCRIPTS}; do
         _f="${HARNESS_DIR}/${_rel}"
+        [ -f "${_f}" ] || die "model-server script ${_rel} not in the harness checkout"
         grep -q '^# \[tool\.uv\]$' "${_f}" || continue
+        if grep -qxF '# constraint-dependencies = ["torch<2.11"]' "${_f}"; then
+            _patched="${_patched:+${_patched},}$(basename "${_f}")"   # patched by an earlier run of this script
+            continue
+        fi
         grep -q 'constraint-dependencies' "${_f}" && continue
         rm -f "${_f}.lock"
         ( cd "${HARNESS_DIR}" && uv lock -q --script "${_f}" ) > "/tmp/{{ vla }}_lock_$(basename "${_f}" .py).log" 2>&1 \

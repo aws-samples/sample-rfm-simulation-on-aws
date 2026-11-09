@@ -1889,6 +1889,10 @@ def vlaeval_plan(config: dict, vla: str = "vlaeval") -> tuple:
         #                      script whose universal lock does not resolve although its own env does)
         if not isinstance(s.get("torch_lock", True), bool):
             raise ValueError(f"{where}.torch_lock must be true or false")
+        #   git_https          true = rewrite GitHub SSH URLs to HTTPS before the servers start (a git dependency
+        #                      whose .gitmodules names a submodule as git@github.com:..., cloned without an SSH key)
+        if not isinstance(s.get("git_https", False), bool):
+            raise ValueError(f"{where}.git_https must be true or false")
         if ck_pass == "repo_id":
             if not s.get("hf_repo"):
                 raise ValueError(f"{where}: checkpoint_pass repo_id needs hf_repo / hf_model_revision")
@@ -2027,6 +2031,8 @@ def vlaeval_plan(config: dict, vla: str = "vlaeval") -> tuple:
             server_list[-1]["checkpoint_subdir"] = str(s["checkpoint_subdir"])
         if s.get("torch_lock") is False:
             server_list[-1]["torch_lock"] = False
+        if s.get("git_https") is True:
+            server_list[-1]["git_https"] = True
         if s.get("checkpoint_pass") == "repo_id":
             server_list[-1]["checkpoint_pass"] = "repo_id"
         if s.get("hf_offline_repos"):
@@ -2071,6 +2077,7 @@ def generate_vlaeval(config: dict, dry_run: bool, vla: str = "vlaeval") -> str:
         "offline_servers": any(s.get("checkpoint_pass") == "repo_id" for s in servers),
         "echo_tasks": any(t.get("kind") == "echo" for t in tasks),
         "torch_lock_skip": [s for s in servers if s.get("torch_lock") is False],
+        "git_https_servers": [s["name"] for s in servers if s.get("git_https")],
         "display_name": _shell_safe(model.get("display_name", vla), "display_name"),
         "policy_desc": _shell_safe(model.get("policy_desc", vla), "policy_desc"),
         "license": _shell_safe(model.get("license", "see model card"), "license"),

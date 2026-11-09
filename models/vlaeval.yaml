@@ -236,6 +236,10 @@ vlaeval:
       # jax 0.5.3 with CUDA 12 wheels (uv pip compile --python-version 3.11 --python-platform x86_64-manylinux_2_28
       # with the script's exclude-newer, 2026-11-09): no torch constraint is needed, and the check would stop the run.
       torch_lock: false
+      # openpi @ RoboMME/robomme_policy_learning has the submodule third_party/robomme_benchmark as
+      # git@github.com:RoboMME/robomme_benchmark.git: without this the server died in 21 s on AWS (2026-11-09,
+      # "Host key verification failed" in `uv run`). The repository itself is public over HTTPS.
+      git_https: true
       license: "checkpoint card Apache-2.0 (fine-tuned from openpi pi0.5 base, PaliGemma-derived: the Gemma terms may also apply [unverified]); robomme_policy_learning (openpi fork) Apache-2.0"
       published: "RoboMME counting 25.5 % (harness reproduction, 4 tasks x 50 episodes) / 22.72 % (paper, 9-run average)"
     groot-robocasa365:

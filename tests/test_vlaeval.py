@@ -1030,7 +1030,8 @@ def test_batch_c_sets_render_the_harness_configs():
     mme, groot = servers
     assert mme == dict(name="mme-vla-pi05", config="configs/model_servers/mme_vla/pi05_baseline.yaml",
                        hf_repo="Yinpei/pi05_baseline", hf_model_revision=MME_SHA, gated_repos=[],
-                       checkpoint_marker="pi05_baseline/79999.zip", checkpoint_pass="repo_id", torch_lock=False)
+                       checkpoint_marker="pi05_baseline/79999.zip", checkpoint_pass="repo_id", torch_lock=False,
+                       git_https=True)
     assert groot == dict(name="groot-robocasa365", config="configs/model_servers/groot/robocasa365.yaml",
                          hf_repo="robocasa/robocasa365_checkpoints", hf_model_revision=RC365_SHA, gated_repos=[],
                          checkpoint_subdir=RC365_SUB,
@@ -1151,6 +1152,7 @@ def test_earlier_renders_have_no_batch_c_lines(tmp_path):
     (lambda c: _server(c, "groot-robocasa365").update(hf_repo=None, hf_model_revision=None, hf_allow_patterns=None),
      "checkpoint_subdir needs hf_repo"),
     (lambda c: _server(c, "mme-vla-pi05").update(torch_lock="no"), "torch_lock must be true or false"),
+    (lambda c: _server(c, "mme-vla-pi05").update(git_https="yes"), "git_https must be true or false"),
 ])
 def test_plan_rejects_bad_batch_c_settings(mutate, msg):
     cfg = copy.deepcopy(_set("batch-c"))
@@ -1382,3 +1384,15 @@ def test_deploy_passes_the_task_set_to_the_stack_only_with_an_instance_block():
     i = src.index("set_instance = task_sets.instance_overrides(config) if args.task_set else {}")
     assert src.index('    if set_instance:\n        extra_cdk_ctx += ["-c", f"task_set={args.task_set}"]', i) > i
     assert src.count('f"task_set={args.task_set}"') == 1
+
+
+@pytest.mark.parametrize("task_set,rewrites", [("robomme", True), ("batch-c", True), ("robocasa365", False),
+                                               ("echo-smokes", False), ("batch-b", False), (None, False)])
+def test_git_https_rewrite_only_with_a_git_https_server(task_set, rewrites, tmp_path):
+    # RoboMME's openpi names a submodule as git@github.com:...; the server died in 21 s on AWS without this
+    _render(tmp_path / "r", *(["--task-set", task_set] if task_set else []))
+    text = (tmp_path / "r" / "vlaeval.sh").read_text()
+    line = 'git config --global url."https://github.com/".insteadOf "git@github.com:"'
+    assert (line in text) is rewrites
+    if rewrites:
+        assert text.index(line) < text.index("[5/8] docker pull") < text.index("start_server()")

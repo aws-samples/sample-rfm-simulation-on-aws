@@ -289,6 +289,13 @@ base64 -d > "${WORK}/vlaeval_results.py" <<'B64EOF'
 base64 -d > "${WORK}/vlaeval_echo.py" <<'B64EOF'
 {{ echo_adapter_b64 }}B64EOF
 {%- endif %}
+{%- if git_https_servers %}
+# {{ git_https_servers|join(", ") }}: a git dependency of the server script names a submodule by its SSH URL
+# (git@github.com:...) and this host has no SSH key, so `uv run` fails to clone it: rewrite GitHub SSH URLs to
+# anonymous HTTPS in root's git config (uv and the servers run as root, HOME=/root)
+git config --global url."https://github.com/".insteadOf "git@github.com:"
+log "  git: GitHub SSH URLs rewritten to HTTPS (git_https: {{ git_https_servers|join(", ") }})"
+{%- endif %}
 
 # ── [5/8] Benchmark images, pulled by digest ───────────────────────────────────────────────────
 {%- for b in benches %}

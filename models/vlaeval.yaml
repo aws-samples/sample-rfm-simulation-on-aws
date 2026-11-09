@@ -353,8 +353,8 @@ task_sets:
   batch-a:
     description: "LIBERO-Mem + CALVIN + Kinetix smokes on one instance (servers switched per task)"
     tasks: [*libero_mem, *calvin, *kinetix]
-  # Batch B: RoboCerebra (zero-shot), MolmoSpaces x MolmoBot, ManiSkill2 x DB-CogACT, smoke sizes. Rendered and
-  # unit-tested; not yet run on AWS.
+  # Batch B: RoboCerebra (zero-shot), MolmoSpaces x MolmoBot, ManiSkill2 x DB-CogACT, smoke sizes. Smoke-measured
+  # on AWS 2026-11-09.
   robocerebra:
     description: "RoboCerebra Ideal 2 tasks x 2 episodes, LeRobot pi0.5 (LIBERO fine-tune) zero-shot"
     tasks:
@@ -402,7 +402,7 @@ task_sets:
     description: "RoboCerebra + MolmoSpaces + ManiSkill2 smokes on one instance (servers switched per task)"
     tasks: [*robocerebra, *molmospaces, *maniskill2]
   # Batch C: RoboMME x MME-VLA pi0.5, RoboCasa365 x GR00T N1.5, and echo smokes (`vla-eval test`, no model) of
-  # VLABench, MIKASA-Robo and DuoBench. Rendered and unit-tested; not yet run on AWS. instance: overrides the
+  # VLABench, MIKASA-Robo and DuoBench. Smoke-measured on AWS 2026-11-09 (docs/targets.md Note 23). instance: overrides the
   # volume / WaitCondition timeout for that set only (deploy.py passes -c task_set=<name>).
   robomme:
     description: "RoboMME counting SwingXtimes x 2 episodes, MME-VLA pi0.5 baseline"

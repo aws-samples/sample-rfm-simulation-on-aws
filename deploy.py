@@ -837,6 +837,15 @@ def main():
         extra_cdk_ctx += ["-c", f"instance_types={','.join(instance_types)}"]
     if args.spot:
         extra_cdk_ctx += ["-c", "spot=first"]
+    # task_sets.<name>.instance (volume / WaitCondition timeout for that set only): the stack reads the block from
+    # models/<vla>.yaml when told which set runs. Sets without the block deploy the same stack as before.
+    try:
+        set_instance = task_sets.instance_overrides(config) if args.task_set else {}
+    except ValueError as e:
+        print(f"[error] models/{args.vla}.yaml {e}", file=sys.stderr)
+        sys.exit(1)
+    if set_instance:
+        extra_cdk_ctx += ["-c", f"task_set={args.task_set}"]
     mode = "collect" if args.collect else ("bridge" if args.bridge else "local")
     s3_results_prefix = deployment.get("s3_results_prefix", "vla-sim-results")
     cdk_dir = str(BASE_DIR / "cdk")
@@ -866,6 +875,9 @@ def main():
               f"{robotwin_plan.episodes(robotwin_units)} episodes")
     if args.task_set or args.tasks_file:
         print(f"[deploy] Tasks:  {task_sets.describe(config)}")
+    if set_instance:
+        print(f"[deploy] Instance: {', '.join(f'{k} {v}' for k, v in set_instance.items())} "
+              f"(task_sets.{args.task_set}.instance)")
     if vpc_id:
         print(f"[deploy] VPC:    {vpc_id}")
     runs_line = repeatability.plan_line(args.vla, n_repeats, rplan.get("episodes"))

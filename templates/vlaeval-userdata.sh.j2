@@ -240,7 +240,12 @@ DRIVER_MAJOR="${DRIVER_VERSION%%.*}"
 if [[ "${DRIVER_MAJOR}" =~ ^[0-9]+$ ]] && [ "${DRIVER_MAJOR}" -lt 580 ]; then
     _patched=""
     # checked assignment: a resolver error inside `for ... in $(...)` would be swallowed and skip every lock
-    SERVER_SCRIPTS=$("${VENV}/bin/python" - "${HARNESS_DIR}" {% for s in servers %}"{{ s.config }}" {% endfor %}<<'PYEOF'
+{%- for s in torch_lock_skip %}
+    # {{ s.name }}: its universal `uv lock --script` does not resolve (a split for another Python fails) although
+    # `uv run` resolves its env for this interpreter; that env pins torch to a CUDA 12 build, so it is not checked
+    log "  {{ s.config }}: not lock-checked (torch_lock: false in models/{{ vla }}.yaml)"
+{%- endfor %}
+    SERVER_SCRIPTS=$("${VENV}/bin/python" - "${HARNESS_DIR}" {% for s in servers if s.torch_lock is not false %}"{{ s.config }}" {% endfor %}<<'PYEOF'
 import pathlib, sys, yaml
 root, found = pathlib.Path(sys.argv[1]), set()
 for cfg in sys.argv[2:]:
@@ -253,7 +258,7 @@ for cfg in sys.argv[2:]:
         p = p.parent / d["extends"] if "extends" in d else None
 print("\n".join(sorted(found)))
 PYEOF
-    ) || die "could not resolve the model-server scripts of {% for s in servers %}{{ s.config }} {% endfor %}"
+    ) || die "could not resolve the model-server scripts of {% for s in servers if s.torch_lock is not false %}{{ s.config }} {% endfor %}"
     for _rel in ${SERVER_SCRIPTS}; do
         _f="${HARNESS_DIR}/${_rel}"
         [ -f "${_f}" ] || die "model-server script ${_rel} not in the harness checkout"
@@ -279,6 +284,11 @@ fi
 # Results adapter (assets/vlaeval/vlaeval_results.py, stdlib only): aggregate JSON -> summary.txt + videos.
 base64 -d > "${WORK}/vlaeval_results.py" <<'B64EOF'
 {{ adapter_b64 }}B64EOF
+{%- if echo_tasks %}
+# Echo half of the adapter (assets/vlaeval/vlaeval_echo.py, stdlib only): `vla-eval test` report -> summary.txt.
+base64 -d > "${WORK}/vlaeval_echo.py" <<'B64EOF'
+{{ echo_adapter_b64 }}B64EOF
+{%- endif %}
 
 # ── [5/8] Benchmark images, pulled by digest ───────────────────────────────────────────────────
 {%- for b in benches %}
@@ -310,7 +320,7 @@ pathlib.Path(_p).parent.parent.joinpath("refs").mkdir(exist_ok=True)
 pathlib.Path(_p).parent.parent.joinpath("refs", "main").write_text("{{ s.hf_model_revision }}")
 print(_p)
 {%- else %}
-print(snapshot_download("{{ s.hf_repo }}", revision="{{ s.hf_model_revision }}"{% if s.hf_allow_patterns %}, allow_patterns={{ s.hf_allow_patterns|tojson }}{% endif %}))
+print(snapshot_download("{{ s.hf_repo }}", revision="{{ s.hf_model_revision }}"{% if s.hf_allow_patterns %}, allow_patterns={{ s.hf_allow_patterns|tojson }}{% endif %}){% if s.checkpoint_subdir %} + "/{{ s.checkpoint_subdir }}"{% endif %})
 {%- endif %}
 PYEOF
     then _ok=1; break; fi
@@ -412,6 +422,11 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
     PUBLISHED=$(echo "$TASK" | jq -r '.published')
     EXPECT_VIDEOS=$(echo "$TASK" | jq -r 'if .expect_videos == false then "false" else "true" end')
     INIT_STATES=$(echo "$TASK" | jq -r '.init_states // ""')
+{%- if echo_tasks %}
+    KIND=$(echo "$TASK" | jq -r '.kind // "run"')
+    ADAPTER_PY="${WORK}/vlaeval_results.py"
+    ADAPTER_MODE=()
+{%- endif %}
     OUT_DIR="${EVAL_BASE_DIR}/task-${TASK_IDX}"
     VIDEO_DIR="${VIDEO_BASE_DIR}/task-${TASK_IDX}"
     S3_TASK_PREFIX="s3://${S3_BUCKET}/${RUN_ID}/task-${TASK_IDX}"
@@ -427,7 +442,15 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
     CKPT_PASS=$(echo "$TASK" | jq -r '.checkpoint_pass // "path"')
     [ "${CKPT_PASS}" != "repo_id" ] || CKPT_PATH="${HF_REPO}"    # the server downloads by id: give it the id
 {%- endif %}
+{%- if echo_tasks %}
+    if [ "${KIND}" = echo ]; then
+        # echo smoke: `vla-eval test` serves its own in-process EchoModelServer; stop ours to free the GPU
+        stop_server
+        CURRENT_SERVER=""
+    elif [ "${CURRENT_SERVER}" != "${SERVER_NAME}" ]; then
+{%- else %}
     if [ "${CURRENT_SERVER}" != "${SERVER_NAME}" ]; then
+{%- endif %}
         if ! start_server "${SERVER_NAME}" "${SERVER_CONFIG}" "${CKPT_ARG}" "${CKPT_PATH}"{% if offline_servers %} "${CKPT_PASS}"{% endif %}; then
             FAILED="${FAILED} task-${TASK_IDX}"
             SUMMARY_ALL="${SUMMARY_ALL}
@@ -443,9 +466,31 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
     set +e
     trap - ERR
     T_EVAL0=$SECONDS
+{%- if echo_tasks %}
+    if [ "${KIND}" = echo ]; then
+        # The harness's own smoke test of a benchmark config: EchoModelServer (zero actions of the entry's
+        # action_dim), 1 task x 1 episode, <= 50 steps, in a temporary output dir it deletes. It exits 0 on pass AND
+        # on skip (image missing), so the adapter reads its report, not the exit code. COLUMNS: no wrapped lines.
+        SMOKE_LOG="$("${VENV}/bin/python" -c 'import vla_eval.cli.smoke as s; print(s.REPO_ROOT)' 2>/dev/null || echo /nonexistent)/results/smoke-logs/benchmark_eval-task-${TASK_IDX}.log"
+        rm -f "${SMOKE_LOG}"
+        ( cd "${HARNESS_DIR}" && COLUMNS=200 timeout --kill-after=120 3600 "${VENV}/bin/vla-eval" test -c "${EVAL_CONFIG}" --timeout 1800 ) \
+            < /dev/null > "/tmp/{{ vla }}_task${TASK_IDX}.log" 2>&1
+        EVAL_EXIT=$?
+        # on failure the harness keeps the container's stderr there; append it so it reaches eval.log
+        [ ! -f "${SMOKE_LOG}" ] || { echo "--- ${SMOKE_LOG}"; cat "${SMOKE_LOG}"; } >> "/tmp/{{ vla }}_task${TASK_IDX}.log"
+        ADAPTER_PY="${WORK}/vlaeval_echo.py"
+        ADAPTER_MODE=(--echo-log "/tmp/{{ vla }}_task${TASK_IDX}.log"
+                      --meta "seed=$(jq -r '.benchmarks[0].params.seed // "none (the benchmark takes no seed)"' "${EVAL_CONFIG}")")
+    else
+        ( cd "${HARNESS_DIR}" && timeout --kill-after=120 5400 "${VENV}/bin/vla-eval" run --config "${EVAL_CONFIG}" --yes ) \
+            < /dev/null > "/tmp/{{ vla }}_task${TASK_IDX}.log" 2>&1
+        EVAL_EXIT=$?
+    fi
+{%- else %}
     ( cd "${HARNESS_DIR}" && timeout --kill-after=120 5400 "${VENV}/bin/vla-eval" run --config "${EVAL_CONFIG}" --yes ) \
         < /dev/null > "/tmp/{{ vla }}_task${TASK_IDX}.log" 2>&1
     EVAL_EXIT=$?
+{%- endif %}
     EVAL_SEC=$((SECONDS - T_EVAL0))
     set -e
     trap '_trap_handler' ERR
@@ -455,8 +500,8 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
     rm -f "${SUMMARY_FILE}"
     # chunk executed open loop = the server config's chunk_size (protocol card chunk_rule)
     CHUNK=$(sed -nE 's/^[[:space:]]*chunk_size:[[:space:]]*([0-9]+).*/\1/p' "${HARNESS_DIR}/${SERVER_CONFIG}" | head -1 || true)
-    KN=$(python3 "${WORK}/vlaeval_results.py" --output-dir "${OUT_DIR}" --summary "${SUMMARY_FILE}" \
-        --video-dir "${VIDEO_DIR}" --suite "${SUITE}" --init-states "${INIT_STATES}" \
+    KN=$(python3 {% if echo_tasks %}"${ADAPTER_PY}"{% else %}"${WORK}/vlaeval_results.py"{% endif %} --output-dir "${OUT_DIR}" --summary "${SUMMARY_FILE}" \
+        --video-dir "${VIDEO_DIR}" --suite "${SUITE}" --init-states "${INIT_STATES}"{% if echo_tasks %} "${ADAPTER_MODE[@]}"{% endif %} \
         --caption "{{ display_name }}: ${SUITE} x ${SERVER_NAME} (run ${RUN_ID}, task-${TASK_IDX})" \
         --meta "model=${SERVER_NAME}" \
         --meta "checkpoint=${HF_REPO:-from server config}@${HF_REV:0:8}" \

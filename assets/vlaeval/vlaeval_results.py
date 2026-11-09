@@ -79,12 +79,14 @@ def video_name(suite, task_idx, episode_id, success):
     return f"{SAFE_RE.sub('_', suite)}_t{task_idx:02d}--episode_{episode_id}-{'success' if success else 'failure'}.mp4"
 
 
-def collect_videos(output_dir, agg, suite, video_dir, caption=None):
-    """Copy every episode mp4 under a gallery name; returns (copied, mismatched file-vs-aggregate outcomes)."""
+def collect_videos(output_dir, agg, suite, video_dir, caption=None, bench_dir="*"):
+    """Copy the episode mp4s of one benchmark entry (``episodes/<bench_dir>/``, the aggregate's file name without
+    ``_aggregate.json``) under a gallery name; returns (copied, mismatched file-vs-aggregate outcomes)."""
     by_key = {(e["task_idx"], e["episode_id"]): e for e in episodes(agg)}
     os.makedirs(video_dir, exist_ok=True)
     copied, mismatch = 0, 0
-    for path in sorted(glob.glob(os.path.join(output_dir, "episodes", "*", "*.mp4"))):
+    for path in sorted(glob.glob(os.path.join(output_dir, "episodes", glob.escape(bench_dir) if bench_dir != "*"
+                                              else "*", "*.mp4"))):
         m = VIDEO_RE.match(os.path.basename(path))
         if not m:
             continue
@@ -166,7 +168,10 @@ def main(argv=None):
     except (OSError, ValueError) as e:
         print(f"[vlaeval_results] {e}", file=sys.stderr)
         return 2
-    copied, mismatch = collect_videos(a.output_dir, agg, a.suite, a.video_dir, a.caption)
+    # only the recordings of the benchmark whose aggregate was read (an output dir reused by another benchmark
+    # would otherwise pair its videos with this one's task / episode keys)
+    bench_dir = os.path.basename(path)[: -len("_aggregate.json")]
+    copied, mismatch = collect_videos(a.output_dir, agg, a.suite, a.video_dir, a.caption, bench_dir)
     lines.append(f"n_videos: {copied}")
     with open(a.summary, "w", encoding="utf-8") as f:
         f.write("\n".join(lines) + "\n")

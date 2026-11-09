@@ -1801,6 +1801,10 @@ def vlaeval_plan(config: dict, vla: str = "vlaeval") -> tuple:
                 raise ValueError(f"{where}.gated_repos: {g!r} is not <org>/<name>")
     timeout = _vlaeval_int(run.get("server_timeout", 900), f"models/{vla}.yaml vlaeval.run.server_timeout", 30)
     port = _vlaeval_int(run.get("port", 8000), f"models/{vla}.yaml vlaeval.run.port", 1024)
+    if port != 8000:
+        # the model server binds the port of its own config (8000 in the harness configs); only the client side
+        # would move, and the health check would wait an hour for a server that is not there
+        raise ValueError(f"models/{vla}.yaml vlaeval.run.port must be 8000, the port the harness model servers bind")
     user = str(run.get("docker_user", "host"))
     if not re.fullmatch(r"host|[0-9]+:[0-9]+", user):
         raise ValueError(f"models/{vla}.yaml vlaeval.run.docker_user must be host or <uid>:<gid>")

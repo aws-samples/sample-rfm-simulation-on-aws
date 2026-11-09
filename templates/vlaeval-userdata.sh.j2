@@ -384,7 +384,14 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
     aws s3 cp "${EVAL_CONFIG}" "${S3_TASK_PREFIX}/eval-config.json" --region "$REGION" > /dev/null 2>&1 || true
     aws s3 cp "/tmp/{{ vla }}_task${TASK_IDX}.log" "${S3_TASK_PREFIX}/eval.log" --region "$REGION" > /dev/null 2>&1 || true
     aws s3 cp "/tmp/{{ vla }}_server_${SERVER_NAME}.log" "${S3_TASK_PREFIX}/server.log" --region "$REGION" > /dev/null 2>&1 || true
-    [ -f "${SUMMARY_FILE}" ] && aws s3 cp "${SUMMARY_FILE}" "${S3_TASK_PREFIX}/summary.txt" --region "$REGION" || true
+    SUMMARY_UP=0
+    if [ -f "${SUMMARY_FILE}" ]; then
+        for _try in 1 2 3; do
+            aws s3 cp "${SUMMARY_FILE}" "${S3_TASK_PREFIX}/summary.txt" --region "$REGION" > /dev/null 2>&1 \
+                && { SUMMARY_UP=1; break; }
+            sleep 10
+        done
+    fi
     {% from "_protocol-card.sh.j2" import protocol_card with context %}{{ protocol_card('"${SUMMARY_FILE}"', '"${S3_TASK_PREFIX}"') }}
 
     SUMMARY_ALL="${SUMMARY_ALL}
@@ -395,6 +402,10 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
     elif [ "${VIDEO_COUNT}" -eq 0 ]; then
         FAILED="${FAILED} task-${TASK_IDX}"
         log "  [error] task ${TASK_IDX}: no episode videos (recording.record_video is on)"
+    elif [ "${SUMMARY_UP}" -ne 1 ] || [ "${UPLOAD_COUNT}" -ne "${VIDEO_COUNT}" ]; then
+        # the instance is terminated after the run: a result that is not in S3 is lost
+        FAILED="${FAILED} task-${TASK_IDX}"
+        log "  [error] task ${TASK_IDX}: upload incomplete (summary.txt ${SUMMARY_UP}/1, videos ${UPLOAD_COUNT}/${VIDEO_COUNT})"
     fi
 done
 stop_server

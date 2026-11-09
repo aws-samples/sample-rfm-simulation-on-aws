@@ -96,6 +96,7 @@ def test_default_plan_is_the_measured_recipe():
     (lambda c: c["tasks"][0].update(typo=1), "unknown key"),
     (lambda c: c["tasks"][0].update(suite="libero spatial"), "suite"),
     (lambda c: c["vlaeval"]["run"].update(docker_user="root; rm"), "docker_user"),
+    (lambda c: c["vlaeval"]["run"].update(port=8001), "port must be 8000"),  # audit A67bdcd36a1 F1
 ])
 def test_plan_rejects_bad_settings(mutate, msg):
     cfg = copy.deepcopy(_model())
@@ -195,6 +196,11 @@ def test_adapter_writes_summary_and_gallery_videos(tmp_path):
     names = (FIX / "sp50s4_episode_videos.txt").read_text().split()
     for n in names:
         (vids / n).write_bytes(b"mp4")
+    # audit A67bdcd36a1 F3: recordings of another benchmark in the same output dir are not paired with this one
+    other = out / "episodes" / "MetaWorldBenchmark_mt50"  # sorts after the LIBERO dir
+    other.mkdir()
+    for n in names:
+        (other / n.replace("_failure", "_success")).write_bytes(b"other")
     summary, vdir = tmp_path / "summary.txt", tmp_path / "videos"
     rc = vlaeval_results.main(["--output-dir", str(out), "--summary", str(summary), "--video-dir", str(vdir),
                                "--suite", "libero_spatial", "--meta", "condition=S0", "--meta", "action_type=pick-place",
@@ -211,6 +217,7 @@ def test_adapter_writes_summary_and_gallery_videos(tmp_path):
     assert len(got) == 50 and "libero_spatial_t04--episode_0-failure.mp4" in got
     assert "libero_spatial_t00--episode_0-success.mp4" in got
     assert sum(n.endswith("-failure.mp4") for n in got) == 2
+    assert all((vdir / n).read_bytes() == b"mp4" for n in got)
     cap = (vdir / "libero_spatial_t04--episode_0-failure.txt").read_text()
     assert "task 4, episode 0" in cap and "failure" in cap
 
@@ -347,3 +354,20 @@ def test_every_stack_name_starts_with_its_target_id():
     assert destroy.STACK_NAMES["vlaeval"] == "VLAEval-Demo"
     bad = {k: s for k, s in destroy.STACK_NAMES.items() if not s.lower().startswith(k)}
     assert not bad
+
+
+@pytest.mark.skipif(None in (BASH, JQ, SETSID), reason="bash / jq / setsid not on PATH")
+def test_task_loop_fails_when_the_result_does_not_reach_s3(tmp_path):
+    # audit A67bdcd36a1 F2: the instance is terminated after the run, so a summary.txt that was not uploaded is a
+    # lost result, not a success
+    _render(tmp_path / "r")
+    script = _loop_script((tmp_path / "r" / "vlaeval.sh").read_text(), tmp_path)
+    script = script.replace('aws() {{ echo "aws $*" >> "$CALLS"; }}'.replace("{{", "{").replace("}}", "}"),
+                            'aws() { echo "aws $*" >> "$CALLS"; case "$*" in *summary.txt*) return 1;; esac; }\n'
+                            'sleep() { :; }')
+    assert "summary.txt*) return 1" in script
+    env = {"PATH": os.environ["PATH"], "STUB_RC": "0", "HOME": str(tmp_path)}
+    proc = subprocess.run([BASH, "-c", script], capture_output=True, text=True, timeout=120, env=env)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert "FAILED=[ task-0]" in proc.stdout and "upload incomplete (summary.txt 0/1" in proc.stdout
+    assert (tmp_path / "calls").read_text().count("/R/task-0/summary.txt") == 3  # retried

@@ -1740,13 +1740,19 @@ def generate_latent_wm(config: dict, dry_run: bool, vla: str) -> str:
 # pair = one vla-eval benchmark entry with its own output dir and summary.txt. See models/vlaeval.yaml.
 VLAEVAL_TARGETS = ("vlaeval",)
 VLAEVAL_ADAPTER = BASE_DIR / "assets" / "vlaeval" / "vlaeval_results.py"
+VLAEVAL_ECHO_ADAPTER = BASE_DIR / "assets" / "vlaeval" / "vlaeval_echo.py"   # embedded only when a task is kind: echo
 VLAEVAL_EVAL_DIR = "/home/ubuntu/vlaeval-eval"
 _VLAEVAL_KEY_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
 _VLAEVAL_IMPORT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_.]*:[A-Za-z_][A-Za-z0-9_]*$")
 _VLAEVAL_IMAGE_RE = re.compile(r"^[a-z0-9][a-z0-9.-]*(:[0-9]+)?(/[a-z0-9][a-z0-9._-]*)+$")
 _VLAEVAL_CONFIG_RE = re.compile(r"^configs/model_servers/[A-Za-z0-9_./-]+\.ya?ml$")
 _VLAEVAL_TASK_KEYS = {"suite", "benchmark", "model_server", "episodes_per_task", "seed", "max_tasks", "max_steps",
-                      "params", "action_type", "description", "published", "condition"}
+                      "params", "action_type", "description", "published", "condition", "kind"}
+# kind: echo = the harness's own `vla-eval test -c <run config>` (an in-process EchoModelServer sends zero actions;
+# 1 task x 1 episode, at most 50 steps, cli/smoke.py run_benchmark_test): a plumbing check of a benchmark image that
+# has no model server in the harness, not a policy score. The model_server of such a task is this label.
+VLAEVAL_ECHO_SERVER = "vla-eval-echo"
+VLAEVAL_ECHO_MAX_STEPS = 50   # smoke.py caps max_steps at 50
 # Benchmark param values reach the instance only inside the tasks JSON (single-quoted in bash, `'` escaped) and are
 # written to the run config by jq, never interpolated into a command; still kept to one plain token (paths such as
 # /app/rtc/worlds and module:Class import strings included, no whitespace, quotes or shell metacharacters).
@@ -1837,6 +1843,9 @@ def vlaeval_plan(config: dict, vla: str = "vlaeval") -> tuple:
         # top-level `render:` of the run config (harness docs/render-backends.md); unset = the harness default, gpu
         if b.get("render") is not None and b["render"] not in ("gpu", "cpu"):
             raise ValueError(f"{where}.render must be gpu or cpu")
+        # width of the echo server's zero action (the harness reads it from the benchmark entry; default 7)
+        if b.get("action_dim") is not None:
+            _vlaeval_int(b["action_dim"], f"{where}.action_dim", 1)
     for name, s in servers.items():
         where = f"models/{vla}.yaml vlaeval.model_servers.{name}"
         if not _VLAEVAL_KEY_RE.match(str(name)) or not isinstance(s, dict):
@@ -1868,6 +1877,22 @@ def vlaeval_plan(config: dict, vla: str = "vlaeval") -> tuple:
         ck_pass = s.get("checkpoint_pass", "path")
         if ck_pass not in ("path", "repo_id"):
             raise ValueError(f"{where}.checkpoint_pass must be path or repo_id")
+        #   checkpoint_subdir  path only: the server gets <snapshot>/<subdir> (one checkpoint folder of a larger repo);
+        #                      checkpoint_marker is then looked up inside that folder
+        sub = s.get("checkpoint_subdir")
+        if sub is not None:
+            if not _VLAEVAL_MARKER_RE.match(str(sub)) or ".." in str(sub):
+                raise ValueError(f"{where}.checkpoint_subdir must be a relative directory inside the snapshot")
+            if not s.get("hf_repo") or ck_pass != "path":
+                raise ValueError(f"{where}.checkpoint_subdir needs hf_repo and checkpoint_pass path")
+        #   torch_lock         false = leave this server's script out of the CUDA 12 `uv lock --script` check (a
+        #                      script whose universal lock does not resolve although its own env does)
+        if not isinstance(s.get("torch_lock", True), bool):
+            raise ValueError(f"{where}.torch_lock must be true or false")
+        #   git_https          true = rewrite GitHub SSH URLs to HTTPS before the servers start (a git dependency
+        #                      whose .gitmodules names a submodule as git@github.com:..., cloned without an SSH key)
+        if not isinstance(s.get("git_https", False), bool):
+            raise ValueError(f"{where}.git_https must be true or false")
         if ck_pass == "repo_id":
             if not s.get("hf_repo"):
                 raise ValueError(f"{where}: checkpoint_pass repo_id needs hf_repo / hf_model_revision")
@@ -1915,11 +1940,24 @@ def vlaeval_plan(config: dict, vla: str = "vlaeval") -> tuple:
             raise ValueError(f"{where}: suite {suite!r} must be [a-z0-9_]")
         if t.get("benchmark") not in benches:
             raise ValueError(f"{where}: benchmark {t.get('benchmark')!r} is not in vlaeval.benchmarks")
-        if t.get("model_server") not in servers:
+        kind = t.get("kind", "run")
+        if kind not in ("run", "echo"):
+            raise ValueError(f"{where}.kind must be run or echo")
+        echo = kind == "echo"
+        if echo:
+            if t.get("model_server") is not None:
+                raise ValueError(f"{where}: an echo task runs `vla-eval test` (EchoModelServer): no model_server")
+            for key in ("episodes_per_task", "max_tasks"):
+                if t.get(key) not in (None, 1):
+                    raise ValueError(f"{where}.{key}: an echo task is 1 task x 1 episode (vla-eval test)")
+            if t.get("max_steps") is not None and \
+                    _vlaeval_int(t["max_steps"], f"{where}.max_steps", 1) > VLAEVAL_ECHO_MAX_STEPS:
+                raise ValueError(f"{where}.max_steps: vla-eval test caps an echo episode at {VLAEVAL_ECHO_MAX_STEPS}")
+        elif t.get("model_server") not in servers:
             raise ValueError(f"{where}: model_server {t.get('model_server')!r} is not in vlaeval.model_servers")
-        eps = _vlaeval_int(t.get("episodes_per_task", 5), f"{where}.episodes_per_task", 1)
+        eps = _vlaeval_int(t.get("episodes_per_task", 1 if echo else 5), f"{where}.episodes_per_task", 1)
         seed = _vlaeval_int(t.get("seed", 7), f"{where}.seed", 0)
-        bench, server = benches[t["benchmark"]], servers[t["model_server"]]
+        bench, server = benches[t["benchmark"]], ({} if echo else servers[t["model_server"]])
         suite_param, seed_param = bench.get("suite_param", "suite"), bench.get("seed_param", "seed")  # None = none
         injected = {k: v for k, v in ((suite_param, suite), (seed_param, seed)) if k is not None}
         params = t.get("params") or {}
@@ -1936,6 +1974,11 @@ def vlaeval_plan(config: dict, vla: str = "vlaeval") -> tuple:
         entry = {"benchmark": bench["benchmark"], "subname": suite, "episodes_per_task": eps,
                  "params": {**injected, **params},
                  "recording": {"record_video": bool(run.get("record_video", True))}}
+        if echo:
+            del entry["recording"]   # vla-eval test writes into a temporary dir it deletes: nothing to record
+            entry["max_tasks"] = 1
+            if bench.get("action_dim") is not None:
+                entry["action_dim"] = bench["action_dim"]
         for key in ("max_tasks", "max_steps"):
             if t.get(key) is not None:
                 entry[key] = _vlaeval_int(t[key], f"{where}.{key}", 1)
@@ -1952,18 +1995,21 @@ def vlaeval_plan(config: dict, vla: str = "vlaeval") -> tuple:
             eval_config["render"] = bench["render"]   # run-level in the harness: one entry per run config here
         if t["benchmark"] not in used_b:
             used_b.append(t["benchmark"])
-        if t["model_server"] not in used_s:
+        if not echo and t["model_server"] not in used_s:
             used_s.append(t["model_server"])
         out.append(dict(
-            suite=suite, benchmark=t["benchmark"], model_server=t["model_server"], episodes_per_task=eps, seed=seed,
-            max_tasks=t.get("max_tasks"), condition=cond, action_type=task_sets.action_type(t),
+            suite=suite, benchmark=t["benchmark"], model_server=VLAEVAL_ECHO_SERVER if echo else t["model_server"],
+            episodes_per_task=eps, seed=seed,
+            max_tasks=1 if echo else t.get("max_tasks"), condition=cond, action_type=task_sets.action_type(t),
             description=str(t.get("description") or ""), published=str(t.get("published") or ""),
-            image=f"{bench['image']}@{bench['image_digest']}", server_config=str(server["config"]),
+            image=f"{bench['image']}@{bench['image_digest']}", server_config=str(server.get("config") or ""),
             hf_repo=str(server.get("hf_repo") or ""), hf_model_revision=str(server.get("hf_model_revision") or ""),
             checkpoint_arg=str(server.get("checkpoint_arg") or ""), eval_config=eval_config))
         # only when set, so the tasks JSON of a benchmark without them is unchanged
-        if bench.get("expect_videos", True) is False:
+        if bench.get("expect_videos", True) is False or echo:
             out[-1]["expect_videos"] = False  # e.g. Kinetix symbolic observations: no frame to record
+        if echo:
+            out[-1]["kind"] = "echo"   # the task loop runs `vla-eval test -c` and starts no model server
         if bench.get("init_states"):
             out[-1]["init_states"] = str(bench["init_states"])
         if server.get("checkpoint_pass") == "repo_id":
@@ -1981,6 +2027,12 @@ def vlaeval_plan(config: dict, vla: str = "vlaeval") -> tuple:
             server_list[-1]["checkpoint_marker"] = str(s["checkpoint_marker"])
         if s.get("hf_allow_patterns"):
             server_list[-1]["hf_allow_patterns"] = list(s["hf_allow_patterns"])
+        if s.get("checkpoint_subdir"):
+            server_list[-1]["checkpoint_subdir"] = str(s["checkpoint_subdir"])
+        if s.get("torch_lock") is False:
+            server_list[-1]["torch_lock"] = False
+        if s.get("git_https") is True:
+            server_list[-1]["git_https"] = True
         if s.get("checkpoint_pass") == "repo_id":
             server_list[-1]["checkpoint_pass"] = "repo_id"
         if s.get("hf_offline_repos"):
@@ -2023,6 +2075,9 @@ def generate_vlaeval(config: dict, dry_run: bool, vla: str = "vlaeval") -> str:
         "servers": servers,
         "gated_repos": gated,
         "offline_servers": any(s.get("checkpoint_pass") == "repo_id" for s in servers),
+        "echo_tasks": any(t.get("kind") == "echo" for t in tasks),
+        "torch_lock_skip": [s for s in servers if s.get("torch_lock") is False],
+        "git_https_servers": [s["name"] for s in servers if s.get("git_https")],
         "display_name": _shell_safe(model.get("display_name", vla), "display_name"),
         "policy_desc": _shell_safe(model.get("policy_desc", vla), "policy_desc"),
         "license": _shell_safe(model.get("license", "see model card"), "license"),
@@ -2035,6 +2090,7 @@ def generate_vlaeval(config: dict, dry_run: bool, vla: str = "vlaeval") -> str:
         "port": int(run.get("port", 8000)),
         "eval_dir": VLAEVAL_EVAL_DIR,
         "adapter_b64": base64.encodebytes(VLAEVAL_ADAPTER.read_bytes()).decode(),
+        "echo_adapter_b64": base64.encodebytes(VLAEVAL_ECHO_ADAPTER.read_bytes()).decode(),
         "min_gpu_mib": int(instance.get("min_gpu_mib", 22000)),
         "min_host_mib": int(instance.get("min_host_mib", 30000)),
     }

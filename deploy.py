@@ -837,6 +837,15 @@ def main():
         extra_cdk_ctx += ["-c", f"instance_types={','.join(instance_types)}"]
     if args.spot:
         extra_cdk_ctx += ["-c", "spot=first"]
+    # task_sets.<name>.instance (volume / WaitCondition timeout for that set only): the stack reads the block from
+    # models/<vla>.yaml when told which set runs. Sets without the block deploy the same stack as before.
+    try:
+        set_instance = task_sets.instance_overrides(config) if args.task_set else {}
+    except ValueError as e:
+        print(f"[error] models/{args.vla}.yaml {e}", file=sys.stderr)
+        sys.exit(1)
+    if set_instance:
+        extra_cdk_ctx += ["-c", f"task_set={args.task_set}"]
     mode = "collect" if args.collect else ("bridge" if args.bridge else "local")
     s3_results_prefix = deployment.get("s3_results_prefix", "vla-sim-results")
     cdk_dir = str(BASE_DIR / "cdk")
@@ -866,6 +875,9 @@ def main():
               f"{robotwin_plan.episodes(robotwin_units)} episodes")
     if args.task_set or args.tasks_file:
         print(f"[deploy] Tasks:  {task_sets.describe(config)}")
+    if set_instance:
+        print(f"[deploy] Instance: {', '.join(f'{k} {v}' for k, v in set_instance.items())} "
+              f"(task_sets.{args.task_set}.instance)")
     if vpc_id:
         print(f"[deploy] VPC:    {vpc_id}")
     runs_line = repeatability.plan_line(args.vla, n_repeats, rplan.get("episodes"))
@@ -1033,6 +1045,12 @@ def main():
         elif args.vla == "lerobot-gym":
             print("  Estimated time: ~30-60 min (uv sync LeRobot source ~10-20 min + 3 small checkpoints + "
                   "lerobot-eval per task, 10 episodes each; estimate, not measured yet)")
+        elif args.vla == "vlaeval" and args.task_set in ("robomme", "robocasa365", "echo-smokes", "batch-c"):
+            print("  Estimated time: ~45-55 min (robomme: 9.5 GB image, 11.6 GB checkpoint zip, CPU-rendered episodes), "
+                  "~55-75 min (robocasa365: 16.7 GB image, GR00T env with flash-attn; +1 h or more if flash-attn has "
+                  "to compile), ~25-30 min (echo-smokes: three images, one zero-action episode each), ~2-2.5 h for "
+                  "--task-set batch-c on one instance (estimates; measured 2026-11-09 in ap-northeast-1: robomme 22 min, "
+                  "batch-c 50 min with RoboMME failing at start, ~60 min with it running extrapolated from both runs)")
         elif args.vla == "vlaeval" and args.task_set in ("robocerebra", "molmospaces", "maniskill2", "batch-b"):
             print("  Estimated time: ~28 min (robocerebra), ~35-40 min (molmospaces: 12 GB image + 20 GB checkpoint), "
                   "~31 min (maniskill2: 16 GB checkpoint), ~65-80 min for --task-set batch-b on one instance "

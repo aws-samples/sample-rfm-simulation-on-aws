@@ -24,7 +24,8 @@
 # Licenses: harness Apache-2.0. Each benchmark, simulator image and checkpoint keeps its own license
 # (LIBERO MIT; lerobot/pi05_libero_finetuned: Gemma terms, its PaliGemma tokenizer repo is gated;
 # Dexmal/maniskill2-db-cogact (task set maniskill2): card license `cc` without a variant -> NON-COMMERCIAL until
-# confirmed). See docs/licenses.md.
+# confirmed; Yinpei/pi05_baseline (robomme): card Apache-2.0, fine-tuned from the PaliGemma-derived pi0.5 base;
+# DuoBench's image contains Robot Control Stack, AGPL-3.0). See docs/licenses.md.
 model:
   id: vlaeval
   display_name: "vla-eval (allenai/vla-evaluation-harness)"
@@ -112,6 +113,56 @@ vlaeval:
       # render: cpu  = the harness's lavapipe fallback if SAPIEN finds no NVIDIA Vulkan ICD in the container (the
       #                image's base sets NVIDIA_DRIVER_CAPABILITIES=all and ships the NVIDIA ICD; the GPU path worked on AWS 2026-11-09)
       init_states: "env.reset() without a seed (the benchmark passes none): episode start states are not reproducible"
+    # Batch C. vlabench and mikasa-robo are the 0.9.0 tag (= latest) of ghcr.io/allenai/vla-evaluation-harness; the
+    # allenai robomme, robocasa365 and duobench packages are not anonymously readable (no pull token on 2026-11-09),
+    # so they come from the harness's own pull fallback ghcr.io/worv-ai/vla-evaluation-harness-public (as
+    # molmospaces). For vlabench and mikasa-robo, present in both registries, the digests are identical. Digests
+    # read anonymously on 2026-11-09; 0.9.0 = latest for all five.
+    #   action_dim                width of the zero action of the echo smoke (kind: echo; harness default 7)
+    robomme:
+      benchmark: "vla_eval.benchmarks.robomme.benchmark:RoboMMEBenchmark"
+      image: "ghcr.io/worv-ai/vla-evaluation-harness-public/robomme"
+      image_digest: "sha256:2b5fa71bb4742209415b2e57786672f0878a7746214cd2f9c2438d1482143561"   # 9.46 GB compressed
+      simulator: "RoboMME (ManiSkill3 fork, SAPIEN 3)"
+      license: "robomme_benchmark Apache-2.0; ManiSkill fork (YinpeiDai/ManiSkill) Apache-2.0; image from the worv-ai mirror"
+      suite_param: null                                  # RoboMMEBenchmark takes neither suite nor seed
+      seed_param: null
+      docker_env: ["NVIDIA_DRIVER_CAPABILITIES=all"]     # as configs/benchmarks/robomme/counting.yaml
+      render: cpu                                        # as the harness's configs: the GPU path hangs on some hosts (issue #112)
+      init_states: "episode i = episode i of the RoboMME test split (BenchmarkEnvBuilder.make_env_for_episode(i), fresh env per episode)"
+    robocasa365:
+      benchmark: "vla_eval.benchmarks.robocasa365.benchmark:RoboCasa365Benchmark"
+      image: "ghcr.io/worv-ai/vla-evaluation-harness-public/robocasa365"
+      image_digest: "sha256:abbdba198214cb6edc66594d2a0dd295e2ac6d015ae58ed959c91d0ec58d7cf6"   # 16.71 GB compressed
+      simulator: "RoboCasa365 (robosuite 1.5.2 / MuJoCo, Panda-Omron)"
+      license: "robocasa MIT (GitHub reports Other); robosuite MIT; ~10 GB kitchen assets baked in (Objaverse / LightWheel / AI-generated objects, no single license stated) [unverified]; image from the worv-ai mirror"
+      suite_param: null                                  # RoboCasa365Benchmark takes seed, not suite
+      init_states: "episode i of a task = env.reset(seed=params.seed + i) in a pretrain kitchen (RoboCasa365 protocol)"
+    vlabench:
+      benchmark: "vla_eval.benchmarks.vlabench.benchmark:VLABenchBenchmark"
+      image: "ghcr.io/allenai/vla-evaluation-harness/vlabench"
+      image_digest: "sha256:3b7b83180bbd3d5fb2ed0e9573b357e7020a3fe6e75ba2eb5cf4f2c4e2e5d58b"   # 8.67 GB compressed
+      simulator: "VLABench (dm_control / MuJoCo)"
+      license: "VLABench MIT; its object / scene assets (downloaded from Google Drive at image build, baked in): license not stated [unverified]"
+      suite_param: null                                  # VLABenchBenchmark takes neither suite nor seed
+      seed_param: null
+    mikasa-robo:
+      benchmark: "vla_eval.benchmarks.mikasa.benchmark:MIKASABenchmark"
+      image: "ghcr.io/allenai/vla-evaluation-harness/mikasa-robo"
+      image_digest: "sha256:f6b1ffbce9d865316b6cde115e0edb6ff54983c5ce7a81491c357dbd8ab2d1da"   # 5.98 GB compressed
+      simulator: "MIKASA-Robo (ManiSkill3 / SAPIEN, Vulkan)"
+      license: "MIKASA-Robo MIT; ManiSkill3 (mani_skill 3.0.0b15) Apache-2.0"
+      suite_param: null                                  # MIKASABenchmark takes neither suite nor seed
+      seed_param: null
+      action_dim: 8                                      # as configs/benchmarks/mikasa/eval.yaml
+    duobench:
+      benchmark: "vla_eval.benchmarks.duobench.benchmark:DuoBenchBenchmark"
+      image: "ghcr.io/worv-ai/vla-evaluation-harness-public/duobench"
+      image_digest: "sha256:fa59eb45132d5c8beeb9634a9985be82b4adb8c48fb6492ed7a1c4dca6814604"   # 2.53 GB compressed
+      simulator: "DuoBench (MuJoCo + Robot Control Stack, bimanual FR3 Duo)"
+      license: "duobench v0.1.0 Apache-2.0; Robot Control Stack v0.7.1 AGPL-3.0 (inside the image, run unmodified); image from the worv-ai mirror"
+      suite_param: null                                  # DuoBenchBenchmark takes seed, not suite
+      action_dim: 16                                     # as configs/benchmarks/duobench/smoke_test.yaml (cartesian_tquat)
   # Model servers: a config path inside the harness checkout (configs/model_servers/...). The checkpoint the
   # config names is downloaded at hf_model_revision and passed as `--arg <checkpoint_arg>=<snapshot path>`.
   model_servers:
@@ -167,6 +218,50 @@ vlaeval:
       # main (named in the checkpoint's config.json); those two are not pinned here.
       license: "checkpoint card license: cc (variant not stated, treated as non-commercial until confirmed); dexbotic MIT; base Qwen2.5-7B Apache-2.0"
       published: "ManiSkill2 5-task average 58 (PickCube 90 / StackCube 65; Dexmal card, not reproduced by the harness)"
+    # Batch C.
+    #   checkpoint_subdir         path only: the server gets <snapshot>/<subdir> (marker looked up inside it)
+    #   torch_lock                false = leave the script out of the CUDA 12 `uv lock --script` check
+    mme-vla-pi05:
+      config: "configs/model_servers/mme_vla/pi05_baseline.yaml"
+      checkpoint_arg: checkpoint
+      hf_repo: "Yinpei/pi05_baseline"                    # the config's own checkpoint; ungated (HF API 2026-11-09)
+      hf_model_revision: "80caa59a4933804b6521e72981b107ae0051d32a"   # = main (2026-03-10), 11.55 GB: one zip
+      checkpoint_marker: "pi05_baseline/79999.zip"       # no config.json; the server extracts the zip itself
+      # mme_vla.py splits `checkpoint` on "/" (org/repo[/subdir]) and calls require_model_available + snapshot_download
+      # itself, so a snapshot path is not a valid argument: repo id + HF_HUB_OFFLINE=1 against the pinned cache, as
+      # MolmoBot. It extracts the zip under the snapshot (<snapshot>/_extracted/79999, ~11.6 GB more disk).
+      checkpoint_pass: repo_id
+      # `uv lock --script mme_vla.py` fails (openpi needs numpy<2 but pandas>=3.0.1, which needs numpy>=2.3.3 on
+      # Python >= 3.14: the universal lock has no solution), while its env for Python 3.11 resolves torch 2.7.1 and
+      # jax 0.5.3 with CUDA 12 wheels (uv pip compile --python-version 3.11 --python-platform x86_64-manylinux_2_28
+      # with the script's exclude-newer, 2026-11-09): no torch constraint is needed, and the check would stop the run.
+      torch_lock: false
+      # openpi @ RoboMME/robomme_policy_learning has the submodule third_party/robomme_benchmark as
+      # git@github.com:RoboMME/robomme_benchmark.git: without this the server died in 21 s on AWS (2026-11-09,
+      # "Host key verification failed" in `uv run`). The repository itself is public over HTTPS.
+      git_https: true
+      license: "checkpoint card Apache-2.0 (fine-tuned from openpi pi0.5 base, PaliGemma-derived: the Gemma terms may also apply [unverified]); robomme_policy_learning (openpi fork) Apache-2.0"
+      published: "RoboMME counting 25.5 % (harness reproduction, 4 tasks x 50 episodes) / 22.72 % (paper, 9-run average)"
+    groot-robocasa365:
+      config: "configs/model_servers/groot/robocasa365.yaml"
+      checkpoint_arg: model_path      # Gr00tPolicy: a local dir is used as is (snapshot_download(<path>) raises, caught)
+      hf_repo: "robocasa/robocasa365_checkpoints"        # ungated (HF API 2026-11-09), 327 GB repo
+      hf_model_revision: "c484448aba1a9b60a04c9b0ca117241518ea69f3"   # = main (2026-08-04)
+      checkpoint_subdir: "gr00t_n1-5/multitask_learning/checkpoint-120000"   # the folder the config names
+      # 7.59 GB of the 16.14 GB folder: weights, config and experiment_cfg/metadata.json (the norm stats Gr00tPolicy
+      # loads), not optimizer.pt (8.55 GB) / rng_state / scheduler / trainer_state
+      hf_allow_patterns:
+        - "gr00t_n1-5/multitask_learning/checkpoint-120000/config.json"
+        - "gr00t_n1-5/multitask_learning/checkpoint-120000/model-*.safetensors"
+        - "gr00t_n1-5/multitask_learning/checkpoint-120000/model.safetensors.index.json"
+        - "gr00t_n1-5/multitask_learning/checkpoint-120000/experiment_cfg/*"
+      # robocasa365_groot.py pins torch 2.7.0 (CUDA 12) and flash-attn 2.7.4.post1 (sdist, no-build-isolation). Its
+      # setup.py first downloads the release wheel for the torch / CUDA major / Python / C++ ABI it finds
+      # (flash_attn-2.7.4.post1+cu12torch2.7cxx11abi{TRUE,FALSE}-cp311-cp311-linux_x86_64.whl exist on the GitHub
+      # release, read 2026-11-09) and only compiles from source when that fails. `uv lock --script` resolves it
+      # (no CUDA 13 wheels, checked 2026-11-09), so the CUDA 12 step leaves it unchanged.
+      license: "checkpoints Apache-2.0 (card); GR00T N1.5 fork robocasa-benchmark/Isaac-GR00T Apache-2.0"
+      published: "none for a 1-task smoke (the RoboCasa365 paper reports the 50-task target split; the harness lists this pair as not attempted)"
   # Values written into every rendered eval config (all documented harness config keys).
   run:
     server_timeout: 900     # cold first episode warmed up for 216 s; the harness default of 30 s fails it
@@ -258,8 +353,8 @@ task_sets:
   batch-a:
     description: "LIBERO-Mem + CALVIN + Kinetix smokes on one instance (servers switched per task)"
     tasks: [*libero_mem, *calvin, *kinetix]
-  # Batch B: RoboCerebra (zero-shot), MolmoSpaces x MolmoBot, ManiSkill2 x DB-CogACT, smoke sizes. Rendered and
-  # unit-tested; not yet run on AWS.
+  # Batch B: RoboCerebra (zero-shot), MolmoSpaces x MolmoBot, ManiSkill2 x DB-CogACT, smoke sizes. Smoke-measured
+  # on AWS 2026-11-09.
   robocerebra:
     description: "RoboCerebra Ideal 2 tasks x 2 episodes, LeRobot pi0.5 (LIBERO fine-tune) zero-shot"
     tasks:
@@ -306,6 +401,66 @@ task_sets:
   batch-b:
     description: "RoboCerebra + MolmoSpaces + ManiSkill2 smokes on one instance (servers switched per task)"
     tasks: [*robocerebra, *molmospaces, *maniskill2]
+  # Batch C: RoboMME x MME-VLA pi0.5, RoboCasa365 x GR00T N1.5, and echo smokes (`vla-eval test`, no model) of
+  # VLABench, MIKASA-Robo and DuoBench. Smoke-measured on AWS 2026-11-09 (docs/targets.md Note 23). instance: overrides the
+  # volume / WaitCondition timeout for that set only (deploy.py passes -c task_set=<name>).
+  robomme:
+    description: "RoboMME counting SwingXtimes x 2 episodes, MME-VLA pi0.5 baseline"
+    tasks:
+      - &robomme
+        suite: robomme_counting
+        benchmark: robomme
+        model_server: mme-vla-pi05
+        episodes_per_task: 2
+        seed: 0
+        params: {tasks: [SwingXtimes], action_space: joint_angle, max_steps: 1300}
+        description: "RoboMME counting, SwingXtimes x 2 episodes (MME-VLA pi0.5 baseline through vla-eval)"
+        published: "SwingXtimes 40.0 % (harness reproduction, 50 episodes; 2 episodes are not comparable)"
+  robocasa365:
+    description: "RoboCasa365 KettleBoiling x 2 episodes, GR00T N1.5 multitask"
+    instance: {creationpolicy_timeout: PT180M}   # if flash-attn has to compile from source (~1 h+ on 8 vCPU, estimate)
+    tasks:
+      - &robocasa365
+        suite: robocasa365_kettle_boiling
+        benchmark: robocasa365
+        model_server: groot-robocasa365
+        episodes_per_task: 2
+        seed: 0
+        params: {tasks: [KettleBoiling], split: pretrain, camera_size: 256, success_check_interval: 16}
+        description: "RoboCasa365 KettleBoiling x 2 episodes at the registry horizon (GR00T N1.5 through vla-eval)"
+        published: "none for one task (GR00T N1.5 baseline of the RoboCasa365 paper: 50-task target split)"
+  echo-smokes:
+    description: "VLABench + MIKASA-Robo + DuoBench echo smokes (vla-eval test: zero actions, 1 episode each, no model)"
+    tasks:
+      - &vlabench_echo
+        suite: vlabench_echo
+        benchmark: vlabench
+        kind: echo
+        params: {tasks: [select_fruit, select_toy, select_drink], robot: franka, max_steps: 200}
+        description: "VLABench echo smoke (vla-eval test, first task x 1 episode, zero actions)"
+        published: "none (echo smoke: plumbing check, not a policy score)"
+      - &mikasa_echo
+        suite: mikasa_robo_echo
+        benchmark: mikasa-robo
+        kind: echo
+        params: {tasks: [RememberColor3-v0, ShellGameTouch-v0, RotateLenientPos-v0, InterceptSlow-v0, TakeItBack-v0],
+                 render_resolution: [256, 256]}
+        description: "MIKASA-Robo echo smoke (vla-eval test, first task x 1 episode, zero actions)"
+        published: "none (echo smoke: plumbing check, not a policy score)"
+      - &duobench_echo
+        suite: duobench_echo
+        benchmark: duobench
+        kind: echo
+        seed: 0
+        params: {task_ids: [ball_maze], send_state: true}
+        description: "DuoBench echo smoke (vla-eval test, ball_maze x 1 episode, zero actions)"
+        published: "none (echo smoke: plumbing check, not a policy score)"
+  batch-c:
+    description: "RoboMME + RoboCasa365 smokes and the three echo smokes on one instance"
+    # five images (~86 GB uncompressed by the harness README) + checkpoints (~31 GB with the extracted RoboMME zip)
+    # + two server envs: more than batch-b's ~91 GB, and ~2-2.5 h end to end (estimates)
+    instance: {ebs_gb: 350, creationpolicy_timeout: PT240M}
+    tasks: [*robomme, *robocasa365, *vlabench_echo, *mikasa_echo, *duobench_echo]
 
 bridge:
   enabled: false

@@ -188,6 +188,35 @@ export function resolveInstanceCfg(vla: string, modelConfig: any, rlProfile?: st
   return { ...base, ...(variants[name]?.instance ?? {}) };
 }
 
+// deploy.py --task-set NAME of a set with an `instance:` block (task_sets.<name>.instance in models/<vla>.yaml):
+// its ebs_gb / creationpolicy_timeout for this stack only (task_sets.py instance_overrides applies the same checks).
+// Sets without the block are not passed, so the stack is unchanged for them. Throws on anything else.
+export function taskSetInstanceCfg(vla: string, modelConfig: any, taskSet: string): Record<string, any> {
+  if (!/^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/.test(taskSet)) {
+    throw new Error(`task_set "${taskSet}" must match [A-Za-z0-9][A-Za-z0-9_.-]*`);
+  }
+  const sets = modelConfig?.task_sets ?? {};
+  if (!Object.prototype.hasOwnProperty.call(sets, taskSet)) {
+    throw new Error(`models/${vla}.yaml: task_set "${taskSet}" is not one of ${Object.keys(sets).join(', ')}`);
+  }
+  const inst = sets[taskSet]?.instance;
+  const where = `models/${vla}.yaml task_sets.${taskSet}.instance`;
+  if (!inst || typeof inst !== 'object' || Array.isArray(inst) || !Object.keys(inst).length
+      || Object.keys(inst).some((k) => !['ebs_gb', 'creationpolicy_timeout'].includes(k))) {
+    throw new Error(`${where} must map ebs_gb / creationpolicy_timeout to values`);
+  }
+  if (inst.ebs_gb !== undefined && !(Number.isInteger(inst.ebs_gb) && inst.ebs_gb >= 30 && inst.ebs_gb <= 4000)) {
+    throw new Error(`${where}.ebs_gb must be an integer number of GB (30..4000)`);
+  }
+  if (inst.creationpolicy_timeout !== undefined) {
+    const m = /^PT([0-9]{1,3})M$/.exec(String(inst.creationpolicy_timeout));
+    if (!m || Number(m[1]) < 1 || Number(m[1]) > 720) {
+      throw new Error(`${where}.creationpolicy_timeout must be PT<minutes>M, at most PT720M`);
+    }
+  }
+  return { ...inst };
+}
+
 // LIBERO-R2S: s3://bucket/<RUN_ID>[/real2sim][/] -> {bucket, prefix "<RUN_ID>/real2sim"} (the stage-1 outputs the
 // instance may read); throws on anything else. Mirrors libero_r2s.parse_run.
 export function real2simRunPrefix(uri: string): { bucket: string; prefix: string } {
@@ -261,11 +290,15 @@ export class VlaSimulatorStack extends cdk.Stack {
     }
     const r2sRun = r2sCfg ? real2simRunPrefix(real2simRun ?? '') : undefined;
     const knobCfg = plusCfg ?? r2sCfg;
+    // deploy.py --task-set NAME of a set with an instance: block (volume / timeout for that set only)
+    const taskSetCtx = String(this.node.tryGetContext('task_set') ?? '').trim();
+    const taskSetCfg = taskSetCtx ? taskSetInstanceCfg(vla, modelConfig, taskSetCtx) : undefined;
     const instanceCfg = {
       ...(resolveInstanceCfg(vla, modelConfig, this.node.tryGetContext('rl_profile') as string | undefined,
         variantCtx || undefined) ?? {}),
       ...(knobCfg?.creationpolicy_timeout ? { creationpolicy_timeout: knobCfg.creationpolicy_timeout } : {}),
       ...(knobCfg?.ebs_gb ? { ebs_gb: knobCfg.ebs_gb } : {}),
+      ...(taskSetCfg ?? {}),
     };
 
     // CDK context takes precedence (injected by deploy.py)

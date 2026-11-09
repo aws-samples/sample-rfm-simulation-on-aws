@@ -15,6 +15,9 @@ Shape of one set (every key except ``tasks`` is optional)::
         description: "one line shown by deploy.py"
         model:                      # merged over `model:` for this run only (the libero_plus precedent)
           hf_subfolder: libero_goal
+        instance:                   # optional: volume / WaitCondition timeout of the stack for this set only
+          ebs_gb: 350               # (deploy.py passes -c task_set=<name>; the CDK stack merges it over instance:)
+          creationpolicy_timeout: PT240M
         tasks:                      # same entries as `tasks:` of that target (+ optional action_type)
           - env_name: ...
             action_type: articulated
@@ -223,6 +226,39 @@ def apply_file(config: dict, spec: dict, path: str = "") -> dict:
     out.setdefault("task_sets", {})
     out["task_sets"] = {**(out.get("task_sets") or {}), name: {"description": spec.get("description", "")}}
     return _apply_spec(out, spec, name, "tasks file", where)
+
+
+# task_sets.<name>.instance: the keys a set may override (the stack reads them, see cdk/lib/vla-simulator-stack.ts
+# taskSetInstanceCfg, which applies the same checks).
+INSTANCE_KEYS = ("ebs_gb", "creationpolicy_timeout")
+_TIMEOUT_RE = re.compile(r"^PT([0-9]{1,3})M$")
+
+
+def instance_overrides(config: dict, name: str | None = None) -> dict:
+    """``task_sets.<name>.instance`` of the applied (or named) set, validated; {} when the set has none.
+
+    Only ``ebs_gb`` (integer GB, 30..4000) and ``creationpolicy_timeout`` (``PT<minutes>M``, at most 720: the
+    WaitCondition limit is 12 h) may be overridden, so a set can ask for the disk / time it needs without
+    changing the instance list. Raises ValueError."""
+    name = name if name is not None else (config.get("task_set") or "")
+    if not name:
+        return {}
+    spec = (config.get("task_sets") or {}).get(name) or {}
+    inst = spec.get("instance")
+    if inst is None:
+        return {}
+    where = f"task_sets.{name}.instance"
+    if not isinstance(inst, dict) or not inst or set(inst) - set(INSTANCE_KEYS):
+        raise ValueError(f"{where} must map {' / '.join(INSTANCE_KEYS)} to values")
+    if "ebs_gb" in inst:
+        v = inst["ebs_gb"]
+        if not isinstance(v, int) or isinstance(v, bool) or not 30 <= v <= 4000:
+            raise ValueError(f"{where}.ebs_gb must be an integer number of GB (30..4000)")
+    if "creationpolicy_timeout" in inst:
+        m = _TIMEOUT_RE.match(str(inst["creationpolicy_timeout"]))
+        if not m or not 1 <= int(m.group(1)) <= 720:
+            raise ValueError(f"{where}.creationpolicy_timeout must be PT<minutes>M, at most PT720M")
+    return dict(inst)
 
 
 def describe(config: dict) -> str:

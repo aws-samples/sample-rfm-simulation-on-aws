@@ -24,12 +24,14 @@ sys.path.insert(0, str(ROOT / "assets" / "vlaeval"))
 yaml = pytest.importorskip("yaml")
 pytest.importorskip("jinja2")
 
+import vlaeval_echo  # noqa: E402
 import vlaeval_results  # noqa: E402
 from test_results import BUCKET, FakeS3  # noqa: E402
 
 import generate  # noqa: E402
 import results  # noqa: E402
 import seeds  # noqa: E402
+import task_sets  # noqa: E402
 
 BASH = shutil.which("bash")
 JQ = shutil.which("jq")
@@ -986,3 +988,411 @@ def test_plan_rejects_two_repo_id_pins_of_one_repo_across_servers():
     # same pin twice is fine: refs/main gets the same commit
     servers["molmobot-droid-b"]["hf_model_revision"] = servers["molmobot-droid"]["hf_model_revision"]
     generate.vlaeval_plan(cfg)
+
+
+# --- batch C: RoboMME x MME-VLA, RoboCasa365 x GR00T N1.5, echo smokes of VLABench / MIKASA-Robo / DuoBench ---------
+# (checkpoint_subdir, torch_lock, action_dim, task kind echo = `vla-eval test -c`, task_sets.<name>.instance)
+
+MME_SHA = "80caa59a4933804b6521e72981b107ae0051d32a"
+RC365_SHA = "c484448aba1a9b60a04c9b0ca117241518ea69f3"
+RC365_SUB = "gr00t_n1-5/multitask_learning/checkpoint-120000"
+MIRROR = "ghcr.io/worv-ai/vla-evaluation-harness-public/"
+ALLENAI = "ghcr.io/allenai/vla-evaluation-harness/"
+# `vla-eval test` stdout as cli/main.py _record + cli/smoke.py print_report write it (rich, no TTY: plain text)
+ECHO_PASS = """Running 1 benchmark test(s)...
+  ✓ benchmark/eval-task-2: success_rate=0% (41.3s)
+
+vla-eval smoke tests
+========================================
+
+BENCHMARK
+  ✓ eval-task-2             success_rate=0%                                 41.3s
+
+========================================
+Results: 1 passed, 0 failed, 0 skipped    total: 41.3s
+
+"""
+ECHO_SKIP = ECHO_PASS.replace("✓", "-").replace("success_rate=0%", "not pulled: vlabench@sha256:3b7b").replace(
+    " (41.3s)", "").replace("1 passed, 0 failed, 0 skipped", "0 passed, 0 failed, 1 skipped")
+ECHO_FAIL = ECHO_PASS.replace("✓", "✗").replace("success_rate=0%", "episode errored: select_fruit: crash") \
+    .replace("1 passed, 0 failed", "0 passed, 1 failed")
+
+
+def test_batch_c_sets_render_the_harness_configs():
+    benches, servers, tasks = generate.vlaeval_plan(_set("batch-c"))
+    assert [b["name"] for b in benches] == ["robomme", "robocasa365", "vlabench", "mikasa-robo", "duobench"]
+    # allenai robomme / robocasa365 / duobench have no anonymous pull token: the harness's own fallback mirror
+    assert [b["image"].split("@")[0] for b in benches] == [
+        MIRROR + "robomme", MIRROR + "robocasa365", ALLENAI + "vlabench", ALLENAI + "mikasa-robo", MIRROR + "duobench"]
+    assert [b["image"].split("@")[1][7:15] for b in benches] == \
+        ["2b5fa71b", "abbdba19", "3b7b8318", "f6b1ffbc", "fa59eb45"]
+    assert [s["name"] for s in servers] == ["mme-vla-pi05", "groot-robocasa365"]     # the echo tasks add none
+    mme, groot = servers
+    assert mme == dict(name="mme-vla-pi05", config="configs/model_servers/mme_vla/pi05_baseline.yaml",
+                       hf_repo="Yinpei/pi05_baseline", hf_model_revision=MME_SHA, gated_repos=[],
+                       checkpoint_marker="pi05_baseline/79999.zip", checkpoint_pass="repo_id", torch_lock=False,
+                       git_https=True)
+    assert groot == dict(name="groot-robocasa365", config="configs/model_servers/groot/robocasa365.yaml",
+                         hf_repo="robocasa/robocasa365_checkpoints", hf_model_revision=RC365_SHA, gated_repos=[],
+                         checkpoint_subdir=RC365_SUB,
+                         hf_allow_patterns=[f"{RC365_SUB}/config.json", f"{RC365_SUB}/model-*.safetensors",
+                                            f"{RC365_SUB}/model.safetensors.index.json",
+                                            f"{RC365_SUB}/experiment_cfg/*"])
+    rmme, rc, vla, mik, duo = tasks
+    # RoboMME = configs/benchmarks/robomme/counting.yaml, one task: render cpu, its docker env, neither suite nor seed
+    c = rmme["eval_config"]
+    assert c["benchmarks"][0]["params"] == {"tasks": ["SwingXtimes"], "action_space": "joint_angle", "max_steps": 1300}
+    assert (c["render"], c["docker"]["env"]) == ("cpu", ["NVIDIA_DRIVER_CAPABILITIES=all"])
+    assert c["benchmarks"][0]["episodes_per_task"] == 2 and "max_tasks" not in c["benchmarks"][0]
+    assert (rmme["checkpoint_pass"], rmme["checkpoint_arg"], rmme["hf_repo"]) == \
+        ("repo_id", "checkpoint", "Yinpei/pi05_baseline")
+    # RoboCasa365 = configs/benchmarks/robocasa365/smoke.yaml without its 8-step cap: seed, no suite, GPU render
+    c = rc["eval_config"]
+    assert c["benchmarks"][0]["params"] == {"seed": 0, "tasks": ["KettleBoiling"], "split": "pretrain",
+                                            "camera_size": 256, "success_check_interval": 16}
+    assert "render" not in c and "env" not in c["docker"] and "checkpoint_pass" not in rc
+    assert rc["checkpoint_arg"] == "model_path" and rc["init_states"].startswith("episode i of a task")
+    # echo smokes: no server, 1 task x 1 episode, no recording, action_dim where the harness config sets one
+    for t, bench, params, dim in (
+            (vla, "VLABenchBenchmark", {"tasks": ["select_fruit", "select_toy", "select_drink"], "robot": "franka",
+                                        "max_steps": 200}, None),
+            (mik, "MIKASABenchmark", {"tasks": ["RememberColor3-v0", "ShellGameTouch-v0", "RotateLenientPos-v0",
+                                                "InterceptSlow-v0", "TakeItBack-v0"],
+                                      "render_resolution": [256, 256]}, 8),
+            (duo, "DuoBenchBenchmark", {"seed": 0, "task_ids": ["ball_maze"], "send_state": True}, 16)):
+        assert (t["kind"], t["model_server"], t["server_config"], t["hf_repo"], t["checkpoint_arg"]) == \
+            ("echo", "vla-eval-echo", "", "", "")
+        assert t["expect_videos"] is False and (t["episodes_per_task"], t["max_tasks"]) == (1, 1)
+        (e,) = t["eval_config"]["benchmarks"]
+        assert e["benchmark"].endswith(":" + bench) and e["params"] == params
+        assert (e["episodes_per_task"], e["max_tasks"], e.get("action_dim")) == (1, 1, dim)
+        assert "recording" not in e and "max_steps" not in e
+    # each single set is the same entry as in batch-c
+    for name, sel in (("robomme", [rmme]), ("robocasa365", [rc]), ("echo-smokes", [vla, mik, duo])):
+        single = generate.vlaeval_plan(_set(name))[2]
+        assert [s["eval_config"]["benchmarks"] for s in single] == [t["eval_config"]["benchmarks"] for t in sel]
+
+
+def test_batch_c_instance_overrides_only_for_their_sets():
+    assert task_sets.instance_overrides(_set("batch-c")) == {"ebs_gb": 350, "creationpolicy_timeout": "PT240M"}
+    assert task_sets.instance_overrides(_set("robocasa365")) == {"creationpolicy_timeout": "PT180M"}
+    for name in ("", "robomme", "echo-smokes", "batch-a", "batch-b", "probe"):
+        assert task_sets.instance_overrides(_set(name)) == {}
+
+
+@pytest.mark.parametrize("inst,msg", [
+    ({}, "must map"), ({"preferred": ["g6e.xlarge"]}, "must map"), ([], "must map"),
+    ({"ebs_gb": "350"}, "ebs_gb"), ({"ebs_gb": 10}, "ebs_gb"), ({"ebs_gb": True}, "ebs_gb"),
+    ({"creationpolicy_timeout": "240"}, "creationpolicy_timeout"),
+    ({"creationpolicy_timeout": "PT721M"}, "creationpolicy_timeout"),
+    ({"creationpolicy_timeout": "PT0M"}, "creationpolicy_timeout")])
+def test_instance_overrides_rejects_bad_blocks(inst, msg):
+    cfg = _set("batch-c")
+    cfg["task_sets"]["batch-c"]["instance"] = inst
+    with pytest.raises(ValueError, match=msg):
+        task_sets.instance_overrides(cfg)
+
+
+@pytest.mark.skipif(BASH is None, reason="bash not on PATH")
+@pytest.mark.parametrize("task_set", ["robomme", "robocasa365", "echo-smokes", "batch-c"])
+def test_batch_c_render_and_bash_n(task_set, tmp_path):
+    _render(tmp_path, "--task-set", task_set)
+    text = (tmp_path / "vlaeval.sh").read_text()
+    assert subprocess.run([BASH, "-n", str(tmp_path / "vlaeval.sh")]).returncode == 0
+    tasks = _tasks_json(text)
+    assert tasks == json.loads(json.dumps(generate.vlaeval_plan(_set(task_set))[2]))
+    assert ":latest" not in text
+    for t in tasks:
+        assert f'docker pull -q "{t["image"]}"' in text
+    mme = task_set in ("robomme", "batch-c")
+    groot = task_set in ("robocasa365", "batch-c")
+    echo = task_set in ("echo-smokes", "batch-c")
+    assert (f'_p = snapshot_download("Yinpei/pi05_baseline", revision="{MME_SHA}")' in text) == mme
+    assert ('[ -f "${_path}/pi05_baseline/79999.zip" ] || die' in text) == mme
+    assert ("export HF_HUB_OFFLINE=1" in text) == mme
+    # MME-VLA is left out of the CUDA 12 lock check (its universal lock has no solution); GR00T stays in
+    assert ("mme_vla/pi05_baseline.yaml: not lock-checked" in text) == mme
+    lock_args = next(ln for ln in text.splitlines() if ln.startswith('    SERVER_SCRIPTS=$('))
+    assert "mme_vla" not in lock_args and ("groot/robocasa365.yaml" in lock_args) == groot
+    assert (f'allow_patterns=["{RC365_SUB}/config.json", "{RC365_SUB}/model-*.safetensors", '
+            f'"{RC365_SUB}/model.safetensors.index.json", "{RC365_SUB}/experiment_cfg/*"]) + "/{RC365_SUB}")'
+            in text) == groot
+    # echo: the echo half of the adapter is embedded and the loop runs `vla-eval test -c`, only when a task needs it
+    assert ('base64 -d > "${WORK}/vlaeval_echo.py"' in text) == echo
+    assert ('"${VENV}/bin/vla-eval" test -c "${EVAL_CONFIG}" --timeout 1800' in text) == echo
+    assert ('KN=$(python3 "${ADAPTER_PY}"' in text) == echo
+    assert text.count('"${VENV}/bin/vla-eval" run --config "${EVAL_CONFIG}" --yes') == 1
+    if not (mme or groot):     # echo only: no checkpoint, no server config, no lock check of anything
+        assert "from huggingface_hub import snapshot_download" not in text and 'log "[6/8] ' not in text
+
+
+def test_earlier_renders_have_no_batch_c_lines(tmp_path):
+    # every new line renders only for a set that uses it; the default / batch A / batch B renders of every target
+    # were also diffed against the pre-batch-C renders (identical but for the tool_commit line)
+    for extra in ([], ["--task-set", "batch-a"], ["--task-set", "batch-b"]):
+        _render(tmp_path, *extra)
+        text = (tmp_path / "vlaeval.sh").read_text()
+        for needle in ("vlaeval_echo", "KIND", "ADAPTER_PY", "ADAPTER_MODE", "lock-checked", "vla-eval\" test",
+                       "checkpoint-120000", ") + \"/"):
+            assert needle not in text, (extra, needle)
+
+
+@pytest.mark.parametrize("mutate,msg", [
+    (lambda c: c["tasks"][2].update(model_server="mme-vla-pi05"), "no model_server"),
+    (lambda c: c["tasks"][2].update(episodes_per_task=2), "1 task x 1 episode"),
+    (lambda c: c["tasks"][2].update(max_tasks=3), "1 task x 1 episode"),
+    (lambda c: c["tasks"][2].update(max_steps=51), "caps an echo episode at 50"),
+    (lambda c: c["tasks"][2].update(kind="smoke"), "kind must be run or echo"),
+    (lambda c: c["tasks"][0].pop("model_server"), "is not in vlaeval.model_servers"),
+    (lambda c: _bench(c, "mikasa-robo").update(action_dim=0), "action_dim"),
+    (lambda c: _bench(c, "mikasa-robo").update(action_dim="8"), "action_dim"),
+    (lambda c: _server(c, "groot-robocasa365").update(checkpoint_subdir="../x"), "checkpoint_subdir must be"),
+    (lambda c: _server(c, "groot-robocasa365").update(checkpoint_subdir="/abs"), "checkpoint_subdir must be"),
+    (lambda c: _server(c, "mme-vla-pi05").update(checkpoint_subdir="pi05_baseline"), "checkpoint_pass path"),
+    (lambda c: _server(c, "groot-robocasa365").update(hf_repo=None, hf_model_revision=None, hf_allow_patterns=None),
+     "checkpoint_subdir needs hf_repo"),
+    (lambda c: _server(c, "mme-vla-pi05").update(torch_lock="no"), "torch_lock must be true or false"),
+    (lambda c: _server(c, "mme-vla-pi05").update(git_https="yes"), "git_https must be true or false"),
+])
+def test_plan_rejects_bad_batch_c_settings(mutate, msg):
+    cfg = copy.deepcopy(_set("batch-c"))
+    mutate(cfg)
+    with pytest.raises(ValueError, match=msg):
+        generate.vlaeval_plan(cfg)
+
+
+def test_echo_max_steps_reaches_the_entry():
+    cfg = copy.deepcopy(_set("echo-smokes"))
+    cfg["tasks"][0]["max_steps"] = 50
+    assert generate.vlaeval_plan(cfg)[2][0]["eval_config"]["benchmarks"][0]["max_steps"] == 50
+
+
+# the echo half of the adapter (assets/vlaeval/vlaeval_echo.py)
+
+def _echo(tmp_path, log, *meta):
+    (tmp_path / "test.log").write_text(log)
+    rc = vlaeval_echo.main(["--echo-log", str(tmp_path / "test.log"), "--summary", str(tmp_path / "s.txt"),
+                            "--suite", "vlabench_echo", "--output-dir", "x", "--video-dir", "y", "--caption", "z",
+                            *[a for m in meta for a in ("--meta", m)]])
+    return rc, dict(results.KV_RE.findall((tmp_path / "s.txt").read_text())) if (tmp_path / "s.txt").exists() else {}
+
+
+def test_echo_adapter_reads_a_pass(tmp_path, capsys):
+    rc, kv = _echo(tmp_path, ECHO_PASS, "seed=none (the benchmark takes no seed)", "condition=S0", "model=other")
+    assert rc == 0 and capsys.readouterr().out.splitlines()[-1] == "echo pass"
+    assert (kv["kind"], kv["echo_result"], kv["echo_message"], kv["echo_seconds"]) == \
+        ("echo_smoke", "pass", "success_rate=0%", "41.3")
+    assert kv["echo_tests"] == "1 passed, 0 failed, 0 skipped" and "not a policy score" in kv["note"]
+    # never a rate: a zero-action episode says nothing about a policy
+    assert not {"success_rate", "n_success", "n_episodes"} & set(kv)
+    assert kv["model"].startswith("EchoModelServer") and kv["checkpoint"] == "none (echo smoke)"   # meta does not win
+    assert kv["condition"] == "S0" and kv["seed"].startswith("none")
+
+
+@pytest.mark.parametrize("log,status", [(ECHO_SKIP, "skip"), (ECHO_FAIL, "fail"), ("Traceback ...\n", "unknown"),
+                                        (ECHO_PASS.replace("1 passed", "2 passed"), "unknown")])
+def test_echo_adapter_counts_only_one_clean_pass(tmp_path, log, status):
+    # vla-eval test exits 0 on a skip (image not pulled) as on a pass: the report decides
+    rc, kv = _echo(tmp_path, log)
+    assert rc == 3 and kv["echo_result"] == status
+
+
+def test_echo_adapter_without_log_fails(tmp_path):
+    assert vlaeval_echo.main(["--echo-log", str(tmp_path / "none"), "--summary", str(tmp_path / "s"),
+                              "--suite", "x"]) == 2
+    (tmp_path / "l").write_text(ECHO_PASS)
+    assert vlaeval_echo.main(["--echo-log", str(tmp_path / "l"), "--summary", str(tmp_path / "s"),
+                              "--suite", "x", "--meta", "Bad Key=1"]) == 2
+
+
+def test_results_lists_an_echo_task_without_a_rate(tmp_path):
+    _echo(tmp_path, ECHO_PASS, "condition=S0")
+    s3 = FakeS3({BUCKET: {"R/task-2/summary.txt": (tmp_path / "s.txt").read_text()}})
+    row = results.task_row(s3, "us-east-1", BUCKET, "R", "R/task-2/")
+    assert (row["status"], row["suite"], row["k"], row["n"], row["rate"]) == ("no-rate", "vlabench_echo", None, None, None)
+
+
+# the task loop: echo tasks run `vla-eval test -c` and start no model server
+
+STUB_C = STUB_B.replace('cfg="$3"\n', '''if [ "$1" = test ]; then
+    # stub of `vla-eval test -c <cfg> --timeout N`: print the harness's report for $STUB_TEST (pass | skip | fail)
+    echo "test-env image=$(jq -r .docker.image "$3") dim=$(jq -r '.benchmarks[0].action_dim // 7' "$3") server=${SERVER_PID:-none}" >> "$CALLS"
+    name=$(basename "$3" .json)
+    case "${STUB_TEST:-pass}" in
+        pass) printf '  \\xe2\\x9c\\x93 benchmark/%s: success_rate=0%% (12.0s)\\nResults: 1 passed, 0 failed, 0 skipped    total: 12.0s\\n' "$name"; exit 0 ;;
+        skip) printf '  - benchmark/%s: not pulled\\nResults: 0 passed, 0 failed, 1 skipped    total: 0.0s\\n' "$name"; exit 0 ;;
+        fail) mkdir -p "$SMOKE_ROOT/results/smoke-logs"; echo "container stderr" > "$SMOKE_ROOT/results/smoke-logs/benchmark_${name}.log"
+              printf '  \\xe2\\x9c\\x97 benchmark/%s: episode errored\\nResults: 0 passed, 1 failed, 0 skipped    total: 3.0s\\n' "$name"; exit 1 ;;
+    esac
+fi
+cfg="$3"
+''')
+STUB_PY = """#!/bin/bash
+# stub of the venv python: only the REPO_ROOT query of the echo branch
+case "$*" in *vla_eval.cli.smoke*) echo "$SMOKE_ROOT" ;; *) exit 1 ;; esac
+"""
+
+
+def _batch_c_loop(tmp_path, task_set):
+    _render(tmp_path / "r", "--task-set", task_set)
+    script = _loop_script((tmp_path / "r" / "vlaeval.sh").read_text(), tmp_path)
+    assert STUB_C != STUB_B
+    bin_dir = tmp_path / "work" / "venv" / "bin"
+    (bin_dir / "vla-eval").write_text(STUB_C)
+    (bin_dir / "python").write_text(STUB_PY)
+    (bin_dir / "python").chmod(0o755)
+    shutil.copy(ROOT / "assets" / "vlaeval" / "vlaeval_echo.py", tmp_path / "work" / "vlaeval_echo.py")
+    ms = tmp_path / "work" / "harness" / "configs" / "model_servers"
+    for rel in ("mme_vla/pi05_baseline.yaml", "groot/robocasa365.yaml"):
+        (ms / rel).parent.mkdir(parents=True, exist_ok=True)
+        (ms / rel).write_text("extends: _base.yaml\nargs:\n  chunk_size: 16\n")
+    (tmp_path / "ckpt_mme-vla-pi05.path").write_text(f"/hf/snapshots/{MME_SHA[:8]}\n")
+    (tmp_path / "ckpt_groot-robocasa365.path").write_text(f"/hf/snapshots/{RC365_SHA[:8]}/{RC365_SUB}\n")
+    # the stub `vla-eval test` sees whether a model server is still up (stop_server empties SERVER_PID)
+    assert script.count("    SERVER_PID=$!\n") == 1
+    script = script.replace("    SERVER_PID=$!\n", "    SERVER_PID=$!; export SERVER_PID\n")
+    return script.replace("curl() { return 0; }",
+                          'curl() { [ -n "$SERVER_PID" ] && kill -0 "$SERVER_PID" 2>/dev/null; }')
+
+
+@pytest.mark.skipif(None in (BASH, JQ, SETSID), reason="bash / jq / setsid not on PATH")
+@pytest.mark.parametrize("stub_test", ["pass", "skip", "fail"])
+def test_echo_smokes_loop_runs_vla_eval_test(tmp_path, stub_test):
+    script = _batch_c_loop(tmp_path, "echo-smokes")
+    env = {"PATH": os.environ["PATH"], "HOME": str(tmp_path), "NO_VIDEO_BENCH": "", "STUB_TEST": stub_test,
+           "SMOKE_ROOT": str(tmp_path / "smoke")}
+    proc = subprocess.run([BASH, "-c", script], capture_output=True, text=True, timeout=120, env=env)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    calls = (tmp_path / "calls").read_text().splitlines()
+    assert not any(ln.startswith("vla-eval serve") or ln.startswith("vla-eval run") for ln in calls)
+    tests = [ln for ln in calls if ln.startswith("vla-eval test")]
+    assert tests == [f"vla-eval test -c {tmp_path}/work/eval-task-{i}.json --timeout 1800" for i in range(3)]
+    envs = [ln for ln in calls if ln.startswith("test-env")]
+    assert [e.split(" dim=")[1] for e in envs] == ["7 server=none", "8 server=none", "16 server=none"]
+    assert MIRROR + "duobench@sha256:fa59eb45" in envs[2]
+    for i, suite in enumerate(("vlabench_echo", "mikasa_robo_echo", "duobench_echo")):
+        kv = dict(results.KV_RE.findall((tmp_path / f"vlaeval_task{i}_summary.txt").read_text()))
+        assert (kv["suite"], kv["kind"], kv["echo_result"], kv["eval_exit"]) == \
+            (suite, "echo_smoke", stub_test, "1" if stub_test == "fail" else "0")
+        assert "success_rate" not in kv and "n_episodes" not in kv
+        assert kv["seed"] == ("0" if suite == "duobench_echo" else "none (the benchmark takes no seed)")
+        assert any(f"s3://b/R/task-{i}/summary.txt" in ln for ln in calls)
+        card = yaml.safe_load((tmp_path / f"vlaeval_task{i}_summary.protocol.yaml").read_text())
+        assert (card["k"], card["n"]) == ("unknown", "unknown")
+    if stub_test == "pass":
+        assert "FAILED=[]" in proc.stdout and proc.stdout.count("echo pass (1 ep/task") == 3
+    else:   # a skip (image missing) exits 0 but is no pass
+        assert "FAILED=[ task-0 task-1 task-2]" in proc.stdout
+    log0 = (tmp_path / "vlaeval_task0.log").read_text()
+    assert ("container stderr" in log0) == (stub_test == "fail")     # the harness's smoke log reaches eval.log
+
+
+@pytest.mark.skipif(None in (BASH, JQ, SETSID), reason="bash / jq / setsid not on PATH")
+def test_batch_c_loop_stops_the_server_before_the_echo_tasks(tmp_path):
+    script = _batch_c_loop(tmp_path, "batch-c")
+    env = {"PATH": os.environ["PATH"], "HOME": str(tmp_path), "NO_VIDEO_BENCH": "", "STUB_TEST": "pass",
+           "SMOKE_ROOT": str(tmp_path / "smoke")}
+    proc = subprocess.run([BASH, "-c", script], capture_output=True, text=True, timeout=120, env=env)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    calls = [ln for ln in (tmp_path / "calls").read_text().splitlines()
+             if ln.startswith(("serve-env", "vla-eval serve", "vla-eval run", "vla-eval test"))]
+    assert calls == [
+        "vla-eval serve --config configs/model_servers/mme_vla/pi05_baseline.yaml --arg checkpoint=Yinpei/pi05_baseline",
+        "serve-env HF_HUB_OFFLINE=1",
+        f"vla-eval run --config {tmp_path}/work/eval-task-0.json --yes",
+        "vla-eval serve --config configs/model_servers/groot/robocasa365.yaml "
+        f"--arg model_path=/hf/snapshots/{RC365_SHA[:8]}/{RC365_SUB}",
+        "serve-env HF_HUB_OFFLINE=unset",
+        f"vla-eval run --config {tmp_path}/work/eval-task-1.json --yes",
+        *[f"vla-eval test -c {tmp_path}/work/eval-task-{i}.json --timeout 1800" for i in (2, 3, 4)]]
+    # GR00T was stopped before the first echo task (it would hold the GPU): no server pid during the tests
+    assert all(ln.endswith("server=none") for ln in (tmp_path / "calls").read_text().splitlines()
+               if ln.startswith("test-env"))
+    assert "FAILED=[]" in proc.stdout
+    cfg0 = json.loads((tmp_path / "work" / "eval-task-0.json").read_text())
+    assert cfg0["render"] == "cpu" and cfg0["docker"]["env"] == ["NVIDIA_DRIVER_CAPABILITIES=all"]
+    kv = dict(results.KV_RE.findall((tmp_path / "vlaeval_task1_summary.txt").read_text()))
+    assert kv["checkpoint"] == f"robocasa/robocasa365_checkpoints@{RC365_SHA[:8]}" and kv["n_action_steps"] == "16"
+    assert dict(results.KV_RE.findall((tmp_path / "vlaeval_task0_summary.txt").read_text()))["init_states"] \
+        .startswith("episode i = episode i of the RoboMME test split")
+
+
+@pytest.mark.skipif(BASH is None, reason="bash not on PATH")
+def test_torch_lock_false_leaves_the_script_unchecked(tmp_path):
+    # driver 570: groot's robocasa365_groot.py is locked (it pins torch 2.7.0, no CUDA 13: unchanged); mme_vla.py is
+    # not even locked: `uv lock --script` on it fails (measured 2026-11-09) and would stop the run
+    _render(tmp_path / "r", "--task-set", "batch-c")
+    block = _constraint_block((tmp_path / "r" / "vlaeval.sh").read_text())
+    h = tmp_path / "h"
+    ms = h / "src" / "vla_eval" / "model_servers"
+    ms.mkdir(parents=True)
+    (ms / "mme_vla.py").write_text(HEADER_OPEN)            # would be patched if it were checked
+    (ms / "robocasa365_groot.py").write_text(HEADER_CU128)
+    cfg = h / "configs" / "model_servers"
+    for rel, body in (("mme_vla/_base.yaml", 'script: "src/vla_eval/model_servers/mme_vla.py"\n'),
+                      ("mme_vla/pi05_baseline.yaml", "extends: _base.yaml\n"),
+                      ("groot/robocasa365.yaml", 'script: "src/vla_eval/model_servers/robocasa365_groot.py"\n')):
+        (cfg / rel).parent.mkdir(parents=True, exist_ok=True)
+        (cfg / rel).write_text(body)
+    script = (f'set -euo pipefail\nHARNESS_DIR={h}; VENV={Path(sys.executable).parent.parent}; '
+              f'DRIVER_VERSION="570.133.20"; CALLS={tmp_path}/calls\nlog() {{ echo "LOG $*"; }}\n'
+              'die() { echo "DIE $*"; exit 9; }\n' + STUB_UV + block + 'echo "TC=${TORCH_CONSTRAINT}"\n')
+    proc = subprocess.run([BASH, "-c", script], capture_output=True, text=True, timeout=60)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert "TC=none" in proc.stdout and "pi05_baseline.yaml: not lock-checked" in proc.stdout
+    locked = (tmp_path / "calls").read_text()
+    assert "robocasa365_groot.py" in locked and "mme_vla.py" not in locked
+    assert (ms / "mme_vla.py").read_text() == HEADER_OPEN and (ms / "robocasa365_groot.py").read_text() == HEADER_CU128
+
+
+STUB_HF_SUB = STUB_HF.replace('    if os.environ.get("STUB_MARKER") == "1":\n        (snap / "model.pt").write_text("x")\n',
+                              '    if os.environ.get("STUB_MARKER") == "1":\n'
+                              '        (snap / os.environ["STUB_SUB"]).mkdir(parents=True, exist_ok=True)\n'
+                              '        (snap / os.environ["STUB_SUB"] / "config.json").write_text("{}")\n'
+                              '        (snap / "config.json").write_text("{}")\n')
+
+
+@pytest.mark.skipif(BASH is None, reason="bash not on PATH")
+@pytest.mark.parametrize("marker", [1, 0])
+def test_checkpoint_subdir_is_the_path_the_server_gets(tmp_path, marker):
+    assert STUB_HF_SUB != STUB_HF
+    _render(tmp_path / "r", "--task-set", "robocasa365")
+    text = (tmp_path / "r" / "vlaeval.sh").read_text()
+    start = text.index("export HF_XET_CLIENT_READ_TIMEOUT")
+    body = text[start:text.index("# Model server: `vla-eval serve`", start)].replace("/tmp/vlaeval_", f"{tmp_path}/vlaeval_")
+    stub = tmp_path / "stub"
+    (stub / "huggingface_hub").mkdir(parents=True)
+    (stub / "huggingface_hub" / "__init__.py").write_text(STUB_HF_SUB)
+    script = (f'set -euo pipefail\nexport HF_HOME={tmp_path}/hf CALLS={tmp_path}/calls PYTHONPATH={stub} '
+              f'STUB_MARKER={marker} STUB_SUB={RC365_SUB}\nlog() {{ echo "LOG $*"; }}\ndie() {{ echo "DIE $*"; exit 9; }}\n'
+              f'uv() {{ while [ "$1" != python ]; do shift; done; shift; "{sys.executable}" "$@"; }}\n'
+              f'timeout() {{ while [ "$1" != uv ]; do shift; done; "$@"; }}\n' + body)
+    proc = subprocess.run([BASH, "-c", script], capture_output=True, text=True, timeout=60)
+    calls = (tmp_path / "calls").read_text()
+    assert f"snapshot_download robocasa/robocasa365_checkpoints {RC365_SHA} ['{RC365_SUB}/config.json'" in calls
+    path = (tmp_path / "vlaeval_ckpt_groot-robocasa365.path").read_text().strip()
+    assert path.endswith(f"snapshots/{RC365_SHA}/{RC365_SUB}")
+    if marker:
+        assert proc.returncode == 0 and "DIE" not in proc.stdout, proc.stdout + proc.stderr
+    else:   # the marker is looked up inside the sub-folder, not at the snapshot root
+        assert proc.returncode == 9 and "has no config.json" in proc.stdout
+
+
+def test_deploy_passes_the_task_set_to_the_stack_only_with_an_instance_block():
+    # the stack (cdk/lib/vla-simulator-stack.ts taskSetInstanceCfg, Jest-tested) reads task_sets.<name>.instance
+    src = (ROOT / "deploy.py").read_text()
+    i = src.index("set_instance = task_sets.instance_overrides(config) if args.task_set else {}")
+    assert src.index('    if set_instance:\n        extra_cdk_ctx += ["-c", f"task_set={args.task_set}"]', i) > i
+    assert src.count('f"task_set={args.task_set}"') == 1
+
+
+@pytest.mark.parametrize("task_set,rewrites", [("robomme", True), ("batch-c", True), ("robocasa365", False),
+                                               ("echo-smokes", False), ("batch-b", False), (None, False)])
+def test_git_https_rewrite_only_with_a_git_https_server(task_set, rewrites, tmp_path):
+    # RoboMME's openpi names a submodule as git@github.com:...; the server died in 21 s on AWS without this
+    _render(tmp_path / "r", *(["--task-set", task_set] if task_set else []))
+    text = (tmp_path / "r" / "vlaeval.sh").read_text()
+    line = 'git config --global url."https://github.com/".insteadOf "git@github.com:"'
+    assert (line in text) is rewrites
+    if rewrites:
+        assert text.index(line) < text.index("[5/8] docker pull") < text.index("start_server()")

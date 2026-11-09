@@ -1,6 +1,8 @@
 import * as cdk from 'aws-cdk-lib';
 import { Template } from 'aws-cdk-lib/assertions';
-import { captureObjectPath, real2simRunPrefix, resolveInstanceCfg, resultsBucketName, VlaSimulatorStack } from '../lib/vla-simulator-stack';
+import {
+  captureObjectPath, real2simRunPrefix, resolveInstanceCfg, resultsBucketName, taskSetInstanceCfg, VlaSimulatorStack,
+} from '../lib/vla-simulator-stack';
 
 // The stack reads the rendered UserData from assets/userdata/<vla>.sh (gitignored); the jest
 // globalSetup seeds placeholders for the targets synthesized here (test/userdata-seed.ts).
@@ -448,4 +450,39 @@ test('libero_objects=real2sim is rejected without a libero_r2s block, a run URI,
   expect(() => r2sStack('smolvla', 'SmolVLA-Demo', 's3://b-1/2026-10-29-0142')).toThrow(/libero_r2s block/);
   expect(() => r2sStack('pi', 'Pi-Demo', '')).toThrow(/real2sim_run/);
   expect(() => r2sStack('openvla-oft', 'OpenVLA-OFT-Object-Demo', 's3://b-1/r', 'object', 'plus')).toThrow(/libero_variant=plus/);
+});
+
+// deploy.py --task-set NAME passes -c task_set=NAME only for a set with an instance: block (vlaeval batch-c /
+// robocasa365): that block's EBS size / WaitCondition timeout for this stack; the instance list is unchanged.
+function vlaevalStack(ctx: Record<string, string> = {}) {
+  const app = new cdk.App({ context: { region: 'ap-northeast-2', vla: 'vlaeval', notify_email: 'test@example.com', ...ctx } });
+  return Template.fromStack(new VlaSimulatorStack(app, 'VLAEval-Demo', {
+    vla: 'vlaeval', env: { account: '123456789012', region: 'ap-northeast-2' },
+  }));
+}
+
+test('task_set context takes the volume / timeout of that set only', () => {
+  const types = 'g6e.2xlarge,g6e.4xlarge,g6e.xlarge';
+  const c = vlaevalStack({ task_set: 'batch-c' });
+  c.hasResourceProperties('AWS::CloudFormation::CustomResource', { InstanceTypes: types, EbsGb: '350' });
+  c.hasResourceProperties('AWS::CloudFormation::WaitCondition', { Timeout: String(240 * 60) });
+  const rc = vlaevalStack({ task_set: 'robocasa365' });   // timeout only: the volume stays the target's
+  rc.hasResourceProperties('AWS::CloudFormation::CustomResource', { InstanceTypes: types, EbsGb: '250' });
+  rc.hasResourceProperties('AWS::CloudFormation::WaitCondition', { Timeout: String(180 * 60) });
+  const base = vlaevalStack();
+  base.hasResourceProperties('AWS::CloudFormation::CustomResource', { EbsGb: '250' });
+  base.hasResourceProperties('AWS::CloudFormation::WaitCondition', { Timeout: String(120 * 60) });
+});
+
+test('taskSetInstanceCfg rejects unknown sets and bad blocks', () => {
+  expect(() => vlaevalStack({ task_set: 'nope' })).toThrow(/task_set "nope" is not one of/);
+  expect(() => vlaevalStack({ task_set: 'batch-b' })).toThrow(/must map ebs_gb/);   // no instance: block
+  expect(() => vlaevalStack({ task_set: 'a b' })).toThrow(/must match/);
+  const cfg = (inst: any) => ({ task_sets: { s: { tasks: [], instance: inst } } });
+  expect(taskSetInstanceCfg('x', cfg({ ebs_gb: 300 }), 's')).toEqual({ ebs_gb: 300 });
+  expect(() => taskSetInstanceCfg('x', cfg({ preferred: ['g6e.xlarge'] }), 's')).toThrow(/must map/);
+  expect(() => taskSetInstanceCfg('x', cfg({ ebs_gb: '300' }), 's')).toThrow(/ebs_gb must be/);
+  expect(() => taskSetInstanceCfg('x', cfg({ ebs_gb: 5000 }), 's')).toThrow(/ebs_gb must be/);
+  expect(() => taskSetInstanceCfg('x', cfg({ creationpolicy_timeout: 'PT800M' }), 's')).toThrow(/at most PT720M/);
+  expect(() => taskSetInstanceCfg('x', cfg({ creationpolicy_timeout: '2h' }), 's')).toThrow(/PT<minutes>M/);
 });

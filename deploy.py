@@ -1033,6 +1033,9 @@ def main():
         elif args.vla == "lerobot-gym":
             print("  Estimated time: ~30-60 min (uv sync LeRobot source ~10-20 min + 3 small checkpoints + "
                   "lerobot-eval per task, 10 episodes each; estimate, not measured yet)")
+        elif args.vla == "vlaeval" and args.task_set in ("libero-mem", "calvin", "kinetix", "batch-a"):
+            print("  Estimated time: ~25-30 min per benchmark of batch A (libero-mem / calvin / kinetix), ~60 min for "
+                  "--task-set batch-a on one instance (image pulls + one server env per task; estimate, not measured yet)")
         elif args.vla == "vlaeval":
             print("  Estimated time: ~40 min for the default LIBERO-Spatial 10 tasks x 5 ep (measured by hand 2026-11-08 on "
                   "g6e.2xlarge: install ~1 min + image pull ~3 min + server load ~2 min + cold first episode ~4 min + "

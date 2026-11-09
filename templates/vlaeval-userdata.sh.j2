@@ -230,6 +230,51 @@ log "  vla-eval ${VLAEVAL_VERSION}, harness ${HARNESS_COMMIT:0:8}, $("${VENV}/bi
 {%- for s in servers %}
 [ -f "${HARNESS_DIR}/{{ s.config }}" ] || die "model-server config {{ s.config }} not in the harness checkout"
 {%- endfor %}
+# torch >= 2.11 wheels on PyPI are built for CUDA 13 (driver >= 580); the DLAMI ships 570 (CUDA 12.8). A server
+# script that leaves torch open (xvla.py: torch>=2.2) then resolves 2.15 and dies at model load with "NVIDIA driver
+# on your system is too old" (measured 2026-11-09, X-VLA x CALVIN). On such drivers, lock each script this run
+# uses and add a torch<2.11 constraint only where the lock pulls CUDA 13 wheels: lerobot.py already resolves
+# 2.11.0+cu128 and stays as published (a blanket constraint moved it to 2.10, measured). Goes into every summary.
+TORCH_CONSTRAINT="none"
+DRIVER_MAJOR="${DRIVER_VERSION%%.*}"
+if [[ "${DRIVER_MAJOR}" =~ ^[0-9]+$ ]] && [ "${DRIVER_MAJOR}" -lt 580 ]; then
+    _patched=""
+    # checked assignment: a resolver error inside `for ... in $(...)` would be swallowed and skip every lock
+    SERVER_SCRIPTS=$("${VENV}/bin/python" - "${HARNESS_DIR}" {% for s in servers %}"{{ s.config }}" {% endfor %}<<'PYEOF'
+import pathlib, sys, yaml
+root, found = pathlib.Path(sys.argv[1]), set()
+for cfg in sys.argv[2:]:
+    p = root / cfg
+    while p is not None:
+        d = yaml.safe_load(p.read_text()) or {}
+        if "script" in d:
+            found.add(d["script"])
+            break
+        p = p.parent / d["extends"] if "extends" in d else None
+print("\n".join(sorted(found)))
+PYEOF
+    ) || die "could not resolve the model-server scripts of {% for s in servers %}{{ s.config }} {% endfor %}"
+    for _rel in ${SERVER_SCRIPTS}; do
+        _f="${HARNESS_DIR}/${_rel}"
+        [ -f "${_f}" ] || die "model-server script ${_rel} not in the harness checkout"
+        grep -q '^# \[tool\.uv\]$' "${_f}" || continue
+        if grep -qxF '# constraint-dependencies = ["torch<2.11"]' "${_f}"; then
+            _patched="${_patched:+${_patched},}$(basename "${_f}")"   # patched by an earlier run of this script
+            continue
+        fi
+        grep -q 'constraint-dependencies' "${_f}" && continue
+        rm -f "${_f}.lock"
+        ( cd "${HARNESS_DIR}" && uv lock -q --script "${_f}" ) > "/tmp/{{ vla }}_lock_$(basename "${_f}" .py).log" 2>&1 \
+            || die "uv lock --script ${_rel} failed (see /tmp/{{ vla }}_lock_$(basename "${_f}" .py).log)"
+        if grep -qE '^name = "nvidia-[a-z-]+-cu13"$|nvidia_cuda_runtime-13\.' "${_f}.lock"; then
+            sed -i 's|^# \[tool\.uv\]$|# [tool.uv]\n# constraint-dependencies = ["torch<2.11"]|' "${_f}"
+            _patched="${_patched:+${_patched},}$(basename "${_f}")"
+        fi
+        rm -f "${_f}.lock"     # `uv run` resolves from the header as before
+    done
+    [ -z "${_patched}" ] || TORCH_CONSTRAINT="torch<2.11 (${_patched})"
+    log "  driver ${DRIVER_VERSION} (< 580, CUDA 12): torch constraint ${TORCH_CONSTRAINT}"
+fi
 
 # Results adapter (assets/vlaeval/vlaeval_results.py, stdlib only): aggregate JSON -> summary.txt + videos.
 base64 -d > "${WORK}/vlaeval_results.py" <<'B64EOF'
@@ -274,6 +319,16 @@ CURRENT_SERVER=""
 start_server() {
     local _name=$1 _config=$2 _ckpt_arg=$3 _ckpt=$4
     stop_server
+    if [ -n "${CURRENT_SERVER}" ]; then
+        # switching servers: the next health check must not be answered by the one just stopped
+        local _w=0
+        while curl -sf -o /dev/null "http://localhost:{{ port }}/health"; do
+            _w=$((_w + 1))
+            [ "${_w}" -lt 30 ] || die "model server ${CURRENT_SERVER} still answers on :{{ port }} 60 s after it was stopped"
+            sleep 2
+        done
+        CURRENT_SERVER=""
+    fi
     local _args=(serve --config "${_config}")
     [ -z "${_ckpt_arg}" ] || _args+=(--arg "${_ckpt_arg}=${_ckpt}")
     log "  vla-eval ${_args[*]}"
@@ -282,8 +337,16 @@ start_server() {
     SERVER_PID=$!
     local _t0=$SECONDS
     until curl -sf -o /dev/null "http://localhost:{{ port }}/health"; do
-        kill -0 "${SERVER_PID}" 2>/dev/null || die "model server ${_name} exited before it was healthy (see /tmp/{{ vla }}_server_${_name}.log)"
-        [ $((SECONDS - _t0)) -lt 3600 ] || die "model server ${_name} not healthy after 60 min (see /tmp/{{ vla }}_server_${_name}.log)"
+        # a server that cannot start fails its tasks only: the other servers' tasks still run
+        if ! kill -0 "${SERVER_PID}" 2>/dev/null; then
+            log "ERROR: model server ${_name} exited before it was healthy (see /tmp/{{ vla }}_server_${_name}.log)"
+            return 1
+        fi
+        if [ $((SECONDS - _t0)) -ge 3600 ]; then
+            log "ERROR: model server ${_name} not healthy after 60 min (see /tmp/{{ vla }}_server_${_name}.log)"
+            stop_server
+            return 1
+        fi
         sleep 5
     done
     log "  server ${_name} healthy after $((SECONDS - _t0)) s"
@@ -311,6 +374,8 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
     ACTION_TYPE=$(echo "$TASK" | jq -r '.action_type')
     DESCRIPTION=$(echo "$TASK" | jq -r '.description')
     PUBLISHED=$(echo "$TASK" | jq -r '.published')
+    EXPECT_VIDEOS=$(echo "$TASK" | jq -r 'if .expect_videos == false then "false" else "true" end')
+    INIT_STATES=$(echo "$TASK" | jq -r '.init_states // ""')
     OUT_DIR="${EVAL_BASE_DIR}/task-${TASK_IDX}"
     VIDEO_DIR="${VIDEO_BASE_DIR}/task-${TASK_IDX}"
     S3_TASK_PREFIX="s3://${S3_BUCKET}/${RUN_ID}/task-${TASK_IDX}"
@@ -323,7 +388,13 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
         CKPT_PATH=$(tail -1 "/tmp/{{ vla }}_ckpt_${SERVER_NAME}.path")
     fi
     if [ "${CURRENT_SERVER}" != "${SERVER_NAME}" ]; then
-        start_server "${SERVER_NAME}" "${SERVER_CONFIG}" "${CKPT_ARG}" "${CKPT_PATH}"
+        if ! start_server "${SERVER_NAME}" "${SERVER_CONFIG}" "${CKPT_ARG}" "${CKPT_PATH}"; then
+            FAILED="${FAILED} task-${TASK_IDX}"
+            SUMMARY_ALL="${SUMMARY_ALL}
+[Task $((TASK_IDX+1))] ${SUITE} x ${SERVER_NAME} — model server did not start (${S3_TASK_PREFIX}/server.log)"
+            aws s3 cp "/tmp/{{ vla }}_server_${SERVER_NAME}.log" "${S3_TASK_PREFIX}/server.log" --quiet || true
+            continue
+        fi
     fi
 
     EVAL_CONFIG="${WORK}/eval-task-${TASK_IDX}.json"   # JSON is YAML: the harness's loader reads it as is
@@ -345,7 +416,7 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
     # chunk executed open loop = the server config's chunk_size (protocol card chunk_rule)
     CHUNK=$(sed -nE 's/^[[:space:]]*chunk_size:[[:space:]]*([0-9]+).*/\1/p' "${HARNESS_DIR}/${SERVER_CONFIG}" | head -1 || true)
     KN=$(python3 "${WORK}/vlaeval_results.py" --output-dir "${OUT_DIR}" --summary "${SUMMARY_FILE}" \
-        --video-dir "${VIDEO_DIR}" --suite "${SUITE}" \
+        --video-dir "${VIDEO_DIR}" --suite "${SUITE}" --init-states "${INIT_STATES}" \
         --caption "{{ display_name }}: ${SUITE} x ${SERVER_NAME} (run ${RUN_ID}, task-${TASK_IDX})" \
         --meta "model=${SERVER_NAME}" \
         --meta "checkpoint=${HF_REPO:-from server config}@${HF_REV:0:8}" \
@@ -363,6 +434,7 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
         --meta "stack_vla_eval_server_config=${SERVER_CONFIG}" \
         --meta "stack_vla_eval_benchmark_image=${IMAGE}" \
         --meta "stack_nvidia_driver=${DRIVER_VERSION}" \
+        --meta "stack_torch_constraint=${TORCH_CONSTRAINT}" \
         2>> "/tmp/{{ vla }}_task${TASK_IDX}.log" | tail -1) || KN=""
     log "  result: ${KN:-no aggregate}"
 
@@ -381,6 +453,7 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
         fi
     done < <(find "${VIDEO_DIR}" -name '*.mp4' | sort)
     log "  Videos uploaded: ${UPLOAD_COUNT}/${VIDEO_COUNT}"
+    [ "${EXPECT_VIDEOS}" = "true" ] || log "  (no episode videos expected: this benchmark's observations have no frame)"
     aws s3 cp "${EVAL_CONFIG}" "${S3_TASK_PREFIX}/eval-config.json" --region "$REGION" > /dev/null 2>&1 || true
     aws s3 cp "/tmp/{{ vla }}_task${TASK_IDX}.log" "${S3_TASK_PREFIX}/eval.log" --region "$REGION" > /dev/null 2>&1 || true
     aws s3 cp "/tmp/{{ vla }}_server_${SERVER_NAME}.log" "${S3_TASK_PREFIX}/server.log" --region "$REGION" > /dev/null 2>&1 || true
@@ -399,7 +472,7 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
     if [ "${EVAL_EXIT}" -ne 0 ] || [ -z "${KN}" ]; then
         FAILED="${FAILED} task-${TASK_IDX}"
         log "  [error] task ${TASK_IDX}: vla-eval exit ${EVAL_EXIT}, result '${KN}' (see ${S3_TASK_PREFIX}/eval.log)"
-    elif [ "${VIDEO_COUNT}" -eq 0 ]; then
+    elif [ "${VIDEO_COUNT}" -eq 0 ] && [ "${EXPECT_VIDEOS}" = "true" ]; then
         FAILED="${FAILED} task-${TASK_IDX}"
         log "  [error] task ${TASK_IDX}: no episode videos (recording.record_video is on)"
     elif [ "${SUMMARY_UP}" -ne 1 ] || [ "${UPLOAD_COUNT}" -ne "${VIDEO_COUNT}" ]; then

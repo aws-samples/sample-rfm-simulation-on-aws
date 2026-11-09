@@ -7,7 +7,9 @@ vla-eval (allenai/vla-evaluation-harness) writes, per benchmark entry of its run
     (``task_idx``, ``episode_id``, ``metrics.success``, ``steps``, optional ``failure_reason`` /
     ``failure_detail``), ``num_episodes``, ``mean_success``; top level ``benchmark``, ``harness_version``,
     ``config`` (the benchmark entry as run), ``server_info``, ``seed``, ``mean_success``,
-    ``num_episodes_total``, ``num_errors`` (only when some episode errored).
+    ``num_episodes_total``, ``num_errors`` (only when some episode errored), ``metric_keys`` (the benchmark's
+    ``get_metric_keys()``, e.g. ``{"success": "mean", "completed_subtasks": "mean"}`` for CALVIN) and one
+    ``<agg>_<key>`` per metric key, at task and top level (``results/collector.py`` ``_aggregate_metrics``).
   * ``episodes/<Benchmark>_<subname>/task<TTTT>_ep<EEEE>_<success|fail|error>.mp4`` (+ ``.jsonl`` step traces)
     when ``recording.record_video`` is on.
   * ``recording-<uuid>.sqlite`` (the harness's own recording database).
@@ -18,12 +20,13 @@ This script, run on the host after ``vla-eval run`` exits:
     from the aggregate, which is what the harness counts; an errored episode is a failure) with a caption
     ``.txt`` next to it (the gallery shows it under the video),
   * writes ``summary.txt`` (``key: value`` lines read by ``vlasim results`` and the protocol card): suite,
-    env_name, k/n, success_rate, errors, seed, condition, action_type and every ``--meta key=value`` given
-    (pins, stack fingerprint).
+    env_name, k/n, success_rate, errors, seed, condition, action_type, every harness metric other than success
+    (``harness_<agg>_<key>``), for CALVIN the average chain length and the i/5 chain rates, and every
+    ``--meta key=value`` given (pins, stack fingerprint).
 
 Usage:
   vlaeval_results.py --output-dir <vla-eval output_dir> --summary <summary.txt> --video-dir <dir> \\
-      --suite libero_spatial [--meta key=value ...]
+      --suite libero_spatial [--init-states TEXT] [--meta key=value ...]
 
 Prints ``<n_success>/<n_episodes>`` on the last line. Exit 2 when there is no aggregate JSON or it does not
 parse (the caller fails the run), 0 otherwise.
@@ -39,6 +42,8 @@ import sys
 
 VIDEO_RE = re.compile(r"^task(\d+)_ep(\d+)_(success|fail|error)\.mp4$")
 SAFE_RE = re.compile(r"[^A-Za-z0-9_.-]+")
+INIT_STATES = "fixed (benchmark init-state files, episode i = init state i)"
+CALVIN_CHAIN = 5  # subtasks per CALVIN sequence (calvin/benchmark.py NUM_SUBTASKS)
 
 
 def find_aggregate(output_dir):
@@ -111,7 +116,33 @@ def collect_videos(output_dir, agg, suite, video_dir, caption=None, bench_dir="*
     return copied, mismatch
 
 
-def summary_lines(agg, suite, meta):
+def metric_lines(agg):
+    """Harness aggregates other than success, as the harness wrote them (``<agg>_<key>`` at top level)."""
+    out = []
+    for key, how in (agg.get("metric_keys") or {}).items():
+        name = f"{how}_{key}"
+        if key != "success" and re.fullmatch(r"[a-z][a-z0-9_]*", name) and name in agg:
+            out.append((f"harness_{name}", agg[name]))
+    return out
+
+
+def calvin_lines(agg):
+    """CALVIN's headline numbers: average chain length (= the harness's mean_completed_subtasks over sequences)
+    and the share of sequences that completed at least i of the 5 chained subtasks (the i/5 rows of the paper)."""
+    if "completed_subtasks" not in (agg.get("metric_keys") or {}):
+        return []
+    done = [(ep.get("metrics") or {}).get("completed_subtasks") for t in agg.get("tasks") or []
+            for ep in t.get("episodes") or []]
+    done = [int(d) for d in done if isinstance(d, (int, float)) and not isinstance(d, bool)]
+    if not done:
+        return []
+    out = [("calvin_avg_len", f"{sum(done) / len(done):.3f}"), ("calvin_n_sequences", len(done))]
+    out += [(f"calvin_chain_{i}_of_{CALVIN_CHAIN}", f"{sum(d >= i for d in done) / len(done):.3f}")
+            for i in range(1, CALVIN_CHAIN + 1)]
+    return out
+
+
+def summary_lines(agg, suite, meta, init_states=INIT_STATES):
     k, n, errors = counts(agg)
     cfg = agg.get("config") or {}
     params = cfg.get("params") or {}
@@ -129,13 +160,13 @@ def summary_lines(agg, suite, meta):
         ("harness_mean_success", agg.get("mean_success", "")),
         ("seed", agg.get("seed", params.get("seed", ""))),
         ("max_steps", cfg.get("max_steps") or "suite default"),
-        ("init_states", "fixed (benchmark init-state files, episode i = init state i)"),
+        ("init_states", init_states or INIT_STATES),
         ("stack_vla_eval_harness_version", agg.get("harness_version", "")),
         ("stack_vla_eval_model_server", server.get("model_server", "")),
         ("stack_vla_eval_protocol_version", server.get("protocol_version", "")),
         ("stack_vla_eval_mode", agg.get("mode", "")),
         ("stack_vla_eval_render", (agg.get("render") or {}).get("requested", "")),
-    ]
+    ] + metric_lines(agg) + calvin_lines(agg)
     have = {key for key, _ in out}
     for item in meta:
         key, _, value = item.partition("=")
@@ -156,6 +187,8 @@ def main(argv=None):
     ap.add_argument("--video-dir", required=True, help="directory for the renamed episode videos")
     ap.add_argument("--suite", required=True, help="suite label (LIBERO suite name)")
     ap.add_argument("--caption", default="", help="first line of every video caption")
+    ap.add_argument("--init-states", default="", help="how episode start states are chosen (default: LIBERO-style "
+                    "init-state files)")
     ap.add_argument("--meta", action="append", default=[], metavar="KEY=VALUE", help="extra summary.txt line")
     a = ap.parse_args(argv)
     path = find_aggregate(a.output_dir)
@@ -164,7 +197,7 @@ def main(argv=None):
         return 2
     try:
         agg = load(path)
-        lines = summary_lines(agg, a.suite, a.meta)
+        lines = summary_lines(agg, a.suite, a.meta, a.init_states)
     except (OSError, ValueError) as e:
         print(f"[vlaeval_results] {e}", file=sys.stderr)
         return 2

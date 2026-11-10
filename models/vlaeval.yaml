@@ -164,6 +164,26 @@ vlaeval:
       license: "duobench v0.1.0 Apache-2.0; Robot Control Stack v0.7.1 AGPL-3.0 (inside the image, run unmodified); image from the worv-ai mirror"
       suite_param: null                                  # DuoBenchBenchmark takes seed, not suite
       action_dim: 16                                     # as configs/benchmarks/duobench/smoke_test.yaml (cartesian_tquat)
+    # Bundle 4B: SimplerEnv WidowX (Bridge, visual matching), the harness's configs/benchmarks/simpler/widowx_vm.yaml
+    # (4 tasks x 24 episodes). Its image is the 0.9.0 tag (= latest) of ghcr.io/allenai/vla-evaluation-harness/simpler,
+    # read anonymously by digest on 2026-11-10. Two config values of widowx_vm.yaml are not used:
+    #   - docker.volumes /usr/share/vulkan/icd.d:/usr/share/vulkan/icd.d:ro: the image ships its own NVIDIA Vulkan
+    #     ICD (docker/Dockerfile.base:30-41 writes /usr/share/vulkan/icd.d/nvidia_icd.json; the layer is in this
+    #     digest's history), and the ManiSkill2 image (same base, SAPIEN 2.2.2) rendered on the GPU of our DLAMI host
+    #     without the mount (batch B, 6/6 on AWS 2026-11-09). On a host whose icd.d has no NVIDIA ICD (other templates
+    #     of this repo write one first) the mount would hide the image's ICD instead of adding one.
+    #   - the seed: SimplerEnvBenchmark takes `seed` (passed to every env.reset), but widowx_vm.yaml sets none and the
+    #     harness reproductions use deterministic_episodes (episode i = obj_episode_id i, benchmark.py:255-267).
+    simpler:
+      benchmark: "vla_eval.benchmarks.simpler.benchmark:SimplerEnvBenchmark"
+      image: "ghcr.io/allenai/vla-evaluation-harness/simpler"
+      image_digest: "sha256:f77449671884afee5c997f2b933d0d2db503debe86961d2f6c378d47276d10fe"   # 2.54 GB compressed
+      simulator: "SimplerEnv (ManiSkill2_real2sim, SAPIEN 2.2.2, Vulkan)"
+      license: "SimplerEnv MIT; ManiSkill2_real2sim Apache-2.0 (scene / object assets and real-image overlays inside the image: terms not stated per asset [unverified])"
+      suite_param: null                                  # SimplerEnvBenchmark takes no suite
+      seed_param: null                                   # nothing injected: deterministic episodes, as widowx_vm.yaml
+      docker_env: ["NVIDIA_DRIVER_CAPABILITIES=all"]     # as configs/benchmarks/simpler/widowx_vm.yaml
+      init_states: "episode i = obj_episode_id i of the prepackaged visual-matching config of the task (deterministic_episodes, no env seed)"
   # Model servers: a config path inside the harness checkout (configs/model_servers/...). The checkpoint the
   # config names is downloaded at hf_model_revision and passed as `--arg <checkpoint_arg>=<snapshot path>`.
   model_servers:
@@ -316,6 +336,64 @@ vlaeval:
                          "/root/.cache/openpi/big_vision/paligemma_tokenizer.model"]
       license: "openpi code Apache-2.0; PaliGemma-derived weights: Gemma terms (openpi LICENSE_GEMMA.txt); FAST tokenizer Apache-2.0"
       published: "none in the harness (config only; docs/reproductions/openpi.md:49 calls it a lower-performing variant)"
+    # Bundle 4B: model servers of the harness with a reproduced SimplerEnv WidowX score (docs/reproductions/*.md). Pins
+    # read from the HF API on 2026-11-10. CogACT (configs/model_servers/cogact/cogact.yaml) is not here: its load_vla()
+    # builds the Prismatic llama2-7b-pure backbone, whose config and tokenizer come from meta-llama/Llama-2-7b-hf, a
+    # gated repo with manual approval (see docs/targets.md Note 23).
+    db-cogact-simpler:
+      config: "configs/model_servers/db_cogact/simpler.yaml"   # chunk_size 5 (the reference replan_step)
+      checkpoint_arg: model_path      # cogact.py from_pretrained(model_path) + <model_path>/norm_stats.json: a snapshot dir works
+      hf_repo: "Dexmal/simpler-db-cogact"                 # the config's own model_path; ungated (HF API 2026-11-10)
+      hf_model_revision: "32885fa2b21443605884aafe10faf65adbe5a052"   # = main (2025-10-11), 16.06 GB, has norm_stats.json
+      # same server script as db-cogact-libero (dexbotic/cogact.py): torch<2.11 on the 570 driver; dexbotic reads
+      # Qwen/Qwen2.5-7B and openai/clip-vit-large-patch14-336 from the Hub at main at load (not pinned here)
+      license: "checkpoint card license: cc (variant not stated, treated as non-commercial until confirmed); dexbotic MIT; base Qwen2.5-7B Apache-2.0"
+      published: "SimplerEnv WidowX VM 63.5 % (harness reproduction, 4 tasks x 24 episodes) / 69.5 % (Dexmal card)"
+    # starVLA (starvla.py, starVLA @ eaa51c4c): _resolve_checkpoint takes a .pt / .safetensors file or a Hub repo id
+    # (snapshot_download, then checkpoints/*.pt; starvla.py:181-216), not a snapshot directory -> repo id with
+    # HF_HUB_OFFLINE=1 against the pinned cache, as MolmoBot. Offline, every other repo the server loads by id has to be
+    # in the cache too: the base VLM named by the checkpoint's config.yaml (a training-machine path that starvla.py
+    # maps to a Hub id, :275-306) and the flash-attention kernel. starVLA asks for flash_attention_2; flash-attn is not
+    # in the script's deps, so starvla.py swaps in kernels-community/flash-attn2 (:233-260), which `kernels` (0.12.3
+    # in the script's lock) fetches with snapshot_download(<repo>, allow_patterns=build/<variant>/*, revision main):
+    # only the variant of the torch the env resolves is pre-downloaded. With torch<2.11 (the CUDA 12 step, starvla.py's
+    # own lock pulls torch 2.12.1 / CUDA 13) `uv lock --script` resolves torch 2.10.0 + CUDA 12.8 (2026-11-10) =
+    # torch210-cxx11-cu128-x86_64-linux. Another torch fails the server load loudly (transformers 4.57.6 raises when a
+    # requested kernel does not load; it does not fall back to sdpa, which starvla.py:237-238 says gives wrong outputs).
+    starvla-q3groot-simpler:
+      config: "configs/model_servers/starvla/groot_qwen3_simpler.yaml"   # chunk_size 1, adaptive ensemble 7 / 0.1
+      checkpoint_arg: checkpoint
+      hf_repo: "StarVLA/Qwen3VL-GR00T-Bridge-RT-1"        # the config's own checkpoint; ungated (HF API 2026-11-10)
+      hf_model_revision: "8ddb8116d5bd2953931619cfa9d60f278aeebceb"   # = main (2026-09-04), 9.99 GB
+      checkpoint_marker: "checkpoints/steps_20000_pytorch_model.pt"   # the one .pt _resolve_checkpoint picks
+      checkpoint_pass: repo_id
+      hf_offline_repos:
+        # config.yaml base_vlm ./playground/Pretrained_models/Qwen3-VL-4B-Instruct -> starvla.py:280 maps it to this id
+        - {repo: "Qwen/Qwen3-VL-4B-Instruct", revision: "ebb281ec70b05090aa6165b016eac8ec08e71b17", license: "Apache-2.0"}
+        - &flash_attn2_cu128
+          {repo: "kernels-community/flash-attn2", revision: "c3f3c93a4a39e3d2cf49c13eac49229bc726ea13",
+           allow_patterns: ["build/torch210-cxx11-cu128-x86_64-linux/*"], license: "BSD-3-Clause"}
+      license: "starVLA code MIT; checkpoint: no license stated (its card asks for maintainer confirmation; Qwen3-VL Apache-2.0 and the Bridge / RT-1 dataset terms apply) [unverified]; flash-attn2 kernel BSD-3-Clause"
+      published: "SimplerEnv WidowX VM 66.7 % (harness reproduction, 4 tasks x 24 episodes) / 65.3 % (author eval logs, 4 runs)"
+    starvla-q25fast-simpler:
+      config: "configs/model_servers/starvla/fast_simpler.yaml"   # chunk_size 1, adaptive ensemble 7 / 0.1
+      checkpoint_arg: checkpoint
+      hf_repo: "StarVLA/Qwen-FAST-Bridge-RT-1"            # the config's own checkpoint; ungated (HF API 2026-11-10)
+      hf_model_revision: "c2d2d1f80bedd34b19cb26d6a49b1af0d3cc7978"   # = main (2026-09-04), 8.16 GB
+      checkpoint_marker: "checkpoints/steps_10000_pytorch_model.pt"   # no config.json in this repo
+      checkpoint_pass: repo_id
+      hf_offline_repos:
+        # config.yaml base_vlm ./playground/Pretrained_models/Qwen2.5-VL-3B-Action -> starvla.py:278 maps it to
+        # starVLA/... (lower-case s). The Hub redirects that id to StarVLA/..., but the cache directory is named after
+        # the id asked for, and the offline server asks for this one.
+        - {repo: "starVLA/Qwen2.5-VL-3B-Instruct-Action", revision: "97163e6190ca87d6abae7a4dd15840cadde2da1d",
+           license: "no license stated (fine-tune of Qwen/Qwen2.5-VL-3B-Instruct, card license qwen-research)"}
+        # the FAST action tokenizer (starvla.py:356-371 replaces the checkpoint's local path with this id;
+        # AutoProcessor with trust_remote_code: its processing_action_tokenizer.py comes from the cache)
+        - {repo: "physical-intelligence/fast", revision: "ec4d7aa71691cac0b8bed6942be45684db2110f4", license: "Apache-2.0"}
+        - *flash_attn2_cu128
+      license: "starVLA code MIT; checkpoint: no license stated [unverified]; base Qwen/Qwen2.5-VL-3B-Instruct: card license qwen-research (Qwen Research License, non-commercial); FAST tokenizer Apache-2.0"
+      published: "SimplerEnv WidowX VM 64.6 % (harness reproduction, 4 tasks x 24 episodes) / 58.6 % (reported)"
   # Values written into every rendered eval config (all documented harness config keys).
   run:
     server_timeout: 900     # cold first episode warmed up for 216 s; the harness default of 30 s fails it
@@ -571,6 +649,113 @@ task_sets:
     # shortest tasks first, so a timeout late in the run still leaves the openpi results in S3
     instance: {ebs_gb: 300, creationpolicy_timeout: PT420M}
     tasks: [*openpi_pi05_spatial, *openpi_pi0fast_spatial, *dbcogact_spatial, *openvla_spatial]
+  # Bundle 4B: SimplerEnv WidowX VM (configs/benchmarks/simpler/widowx_vm.yaml: 4 tasks x 24 episodes, one
+  # `vla-eval run` per task here) x three model servers with a reproduced WidowX score in the harness. The four tasks
+  # of one server are one `group` = one cell of `vlasim results --matrix` (k and n pooled over the tasks =
+  # episode-weighted, the "Average" row of the harness tables, which have 24 episodes per task), compared with the
+  # harness's 96-episode reproduction. At 96 episodes the 95% CI of the difference is about +-13pp: these sets check
+  # "same environment and wiring as the harness", not a +-2pp reproduction. starVLA Qwen2.5-FAST runs 6 episodes per task
+  # (24, a smoke) because it is slow (1.4 obs/s on an H100 per the harness, docs/reproductions/running-guide.md:79).
+  # Measured on AWS 2026-11-10 (docs/targets.md Note 23): 51/96, 54/96 and 16/24, each within the 95% CI of the
+  # reference; the times below are the estimates written before the runs (measured ~37 / ~70 / ~93 min). Run
+  # simpler-dbcogact first, alone (same server script as the measured libero-dbcogact: it checks the SimplerEnv wiring).
+  simpler-dbcogact:
+    description: "SimplerEnv WidowX VM 4 tasks x 24 episodes (96, the harness protocol), DB-CogACT"
+    instance: {creationpolicy_timeout: PT180M}   # ~35 min setup + ~25-45 min of episodes (estimate)
+    tasks:
+      - &dbc_widowx_stack
+        suite: stack_green_cube
+        benchmark: simpler
+        model_server: db-cogact-simpler
+        episodes_per_task: 24
+        seed: 0                     # not passed (seed_param null): deterministic episodes
+        params: {task_name: widowx_stack_cube}
+        group: simpler_widowx_vm
+        group_size: 4               # widowx_vm.yaml: the reference averages 4 tasks
+        matrix_row: "vlaeval:db-cogact-simpler"
+        description: "SimplerEnv WidowX VM, stack the green cube on the yellow cube, 24 episodes (DB-CogACT through vla-eval)"
+        published: "41.7 % (harness reproduction, 24 episodes, dexbotic.md:70); group: 63.5 % over 96"
+        reference: {value: 0.635, n: 96, metric: success, source: "docs/reproductions/dexbotic.md:74"}
+      - &dbc_widowx_carrot
+        {<<: *dbc_widowx_stack, suite: put_carrot_on_plate, params: {task_name: widowx_carrot_on_plate},
+         description: "SimplerEnv WidowX VM, put the carrot on the plate, 24 episodes (DB-CogACT through vla-eval)",
+         published: "33.3 % (harness reproduction, 24 episodes, dexbotic.md:71); group: 63.5 % over 96"}
+      - &dbc_widowx_spoon
+        {<<: *dbc_widowx_stack, suite: put_spoon_on_tablecloth, params: {task_name: widowx_spoon_on_towel},
+         description: "SimplerEnv WidowX VM, put the spoon on the towel, 24 episodes (DB-CogACT through vla-eval)",
+         published: "83.3 % (harness reproduction, 24 episodes, dexbotic.md:72); group: 63.5 % over 96"}
+      - &dbc_widowx_eggplant
+        {<<: *dbc_widowx_stack, suite: put_eggplant_in_basket, params: {task_name: widowx_put_eggplant_in_basket},
+         description: "SimplerEnv WidowX VM, put the eggplant in the basket, 24 episodes (DB-CogACT through vla-eval)",
+         published: "95.8 % (harness reproduction, 24 episodes, dexbotic.md:73); group: 63.5 % over 96"}
+  simpler-starvla-groot:
+    description: "SimplerEnv WidowX VM 4 tasks x 24 episodes (96, the harness protocol), starVLA Qwen3-VL GR00T"
+    instance: {creationpolicy_timeout: PT180M}   # starVLA env + 20 GB of checkpoint, base VLM and kernel; ~30-50 min of episodes (estimate)
+    tasks:
+      - &groot_widowx_stack
+        suite: stack_green_cube
+        benchmark: simpler
+        model_server: starvla-q3groot-simpler
+        episodes_per_task: 24
+        seed: 0                     # not passed (seed_param null): deterministic episodes
+        params: {task_name: widowx_stack_cube}
+        group: simpler_widowx_vm
+        group_size: 4               # widowx_vm.yaml: the reference averages 4 tasks
+        matrix_row: "vlaeval:starvla-q3groot-simpler"
+        description: "SimplerEnv WidowX VM, stack the green cube on the yellow cube, 24 episodes (starVLA Qwen3-GR00T through vla-eval)"
+        published: "25.0 % (harness reproduction, 24 episodes, starvla.md:59); group: 66.7 % over 96"
+        reference: {value: 0.667, n: 96, metric: success, source: "docs/reproductions/starvla.md:63"}
+      - &groot_widowx_carrot
+        {<<: *groot_widowx_stack, suite: put_carrot_on_plate, params: {task_name: widowx_carrot_on_plate},
+         description: "SimplerEnv WidowX VM, put the carrot on the plate, 24 episodes (starVLA Qwen3-GR00T through vla-eval)",
+         published: "58.3 % (harness reproduction, 24 episodes, starvla.md:60); group: 66.7 % over 96"}
+      - &groot_widowx_spoon
+        {<<: *groot_widowx_stack, suite: put_spoon_on_tablecloth, params: {task_name: widowx_spoon_on_towel},
+         description: "SimplerEnv WidowX VM, put the spoon on the towel, 24 episodes (starVLA Qwen3-GR00T through vla-eval)",
+         published: "83.3 % (harness reproduction, 24 episodes, starvla.md:61); group: 66.7 % over 96"}
+      - &groot_widowx_eggplant
+        {<<: *groot_widowx_stack, suite: put_eggplant_in_basket, params: {task_name: widowx_put_eggplant_in_basket},
+         description: "SimplerEnv WidowX VM, put the eggplant in the basket, 24 episodes (starVLA Qwen3-GR00T through vla-eval)",
+         published: "100 % (harness reproduction, 24 episodes, starvla.md:62); group: 66.7 % over 96"}
+  simpler-starvla-fast:
+    description: "SimplerEnv WidowX VM 4 tasks x 6 episodes (24, a smoke), starVLA Qwen2.5-VL FAST"
+    instance: {creationpolicy_timeout: PT240M}   # 2,880 steps at one autoregressive FAST decode each: ~1-2 h (estimate)
+    tasks:
+      - &fast_widowx_stack
+        suite: stack_green_cube
+        benchmark: simpler
+        model_server: starvla-q25fast-simpler
+        episodes_per_task: 6
+        seed: 0                     # not passed (seed_param null): deterministic episodes
+        params: {task_name: widowx_stack_cube}
+        group: simpler_widowx_vm
+        group_size: 4               # widowx_vm.yaml: the reference averages 4 tasks
+        matrix_row: "vlaeval:starvla-q25fast-simpler"
+        eval_timeout: 7200          # 6 x 120 steps at ~1-2.5 s per step (estimate; H100 latency 2.9 s at 4 clients)
+        description: "SimplerEnv WidowX VM, stack the green cube on the yellow cube, 6 episodes (starVLA Qwen2.5-FAST through vla-eval)"
+        published: "37.5 % (harness reproduction, 24 episodes, starvla.md:78); group: 64.6 % over 96"
+        reference: {value: 0.646, n: 96, metric: success, source: "docs/reproductions/starvla.md:82"}
+      - &fast_widowx_carrot
+        {<<: *fast_widowx_stack, suite: put_carrot_on_plate, params: {task_name: widowx_carrot_on_plate},
+         description: "SimplerEnv WidowX VM, put the carrot on the plate, 6 episodes (starVLA Qwen2.5-FAST through vla-eval)",
+         published: "37.5 % (harness reproduction, 24 episodes, starvla.md:79); group: 64.6 % over 96"}
+      - &fast_widowx_spoon
+        {<<: *fast_widowx_stack, suite: put_spoon_on_tablecloth, params: {task_name: widowx_spoon_on_towel},
+         description: "SimplerEnv WidowX VM, put the spoon on the towel, 6 episodes (starVLA Qwen2.5-FAST through vla-eval)",
+         published: "95.8 % (harness reproduction, 24 episodes, starvla.md:80); group: 64.6 % over 96"}
+      - &fast_widowx_eggplant
+        {<<: *fast_widowx_stack, suite: put_eggplant_in_basket, params: {task_name: widowx_put_eggplant_in_basket},
+         description: "SimplerEnv WidowX VM, put the eggplant in the basket, 6 episodes (starVLA Qwen2.5-FAST through vla-eval)",
+         published: "87.5 % (harness reproduction, 24 episodes, starvla.md:81); group: 64.6 % over 96"}
+  batch-4b:
+    description: "Bundle 4B on one instance: DB-CogACT, starVLA Qwen3-GR00T and Qwen2.5-FAST on SimplerEnv WidowX VM"
+    # one SimplerEnv image (2.54 GB compressed, ~4.9 GB by the harness README) + HF downloads 16.06 (DB-CogACT) + 9.99 +
+    # 8.89 (Qwen3-GR00T + Qwen3-VL-4B) + 8.16 + 7.53 (FAST + its Qwen2.5-VL base) + 1.04 GB (kernel) = 51.7 GB + two
+    # server envs ~ 100-120 GB (estimate): 300 GB as batch-4a. ~3-4.5 h end to end (estimate); shortest server first
+    instance: {ebs_gb: 300, creationpolicy_timeout: PT420M}
+    tasks: [*dbc_widowx_stack, *dbc_widowx_carrot, *dbc_widowx_spoon, *dbc_widowx_eggplant,
+            *groot_widowx_stack, *groot_widowx_carrot, *groot_widowx_spoon, *groot_widowx_eggplant,
+            *fast_widowx_stack, *fast_widowx_carrot, *fast_widowx_spoon, *fast_widowx_eggplant]
 
 bridge:
   enabled: false

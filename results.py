@@ -146,6 +146,9 @@ def task_row(s3, region, bucket, run, task_prefix, episodes=False):
         row.update(benchmark=kv["benchmark"], perturbation=kv.get("perturbation", "-"))
     if kv.get("matrix_row"):  # one row per model server of one target (vlaeval matrix_row), only when written
         row["matrix_row"] = kv["matrix_row"].strip()
+    if kv.get("task_group"):  # entries reported as one score (vlaeval group): one matrix cell, only when written
+        row["task_group"] = kv["task_group"].strip()
+        row["task_group_size"] = _int(kv.get("task_group_size"))
     row["task_name"] = kv.get("robotwin_task") or kv.get("env_name") or row["suite"]
     # summary.txt carries action_type since the task-set change; older runs get it from the task name.
     tag = (kv.get("action_type") or "").strip()

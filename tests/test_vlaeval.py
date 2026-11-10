@@ -1709,3 +1709,328 @@ def test_4a_keys_combine_with_offline_servers_and_echo_tasks():
     assert "timeout --kill-after=120 5400" not in text
     assert subprocess.run([BASH, "-n"], input=text, text=True).returncode == 0
     assert json.loads(json.dumps(_tasks_json(text)))[0]["eval_timeout"] == 7200
+
+
+# --- bundle 4B: SimplerEnv WidowX VM x DB-CogACT, starVLA Qwen3-GR00T, starVLA Qwen2.5-FAST --------------------------
+
+SIMPLER_DIGEST = "sha256:f77449671884afee5c997f2b933d0d2db503debe86961d2f6c378d47276d10fe"
+DBC_SIMPLER_SHA = "32885fa2b21443605884aafe10faf65adbe5a052"
+Q3GROOT_SHA = "8ddb8116d5bd2953931619cfa9d60f278aeebceb"
+Q25FAST_SHA = "c2d2d1f80bedd34b19cb26d6a49b1af0d3cc7978"
+QWEN3VL_SHA = "ebb281ec70b05090aa6165b016eac8ec08e71b17"
+Q25ACTION_SHA = "97163e6190ca87d6abae7a4dd15840cadde2da1d"
+FAST_TOK_SHA = "ec4d7aa71691cac0b8bed6942be45684db2110f4"
+FLASH_SHA = "c3f3c93a4a39e3d2cf49c13eac49229bc726ea13"
+FLASH = dict(repo="kernels-community/flash-attn2", revision=FLASH_SHA,
+             allow_patterns=["build/torch210-cxx11-cu128-x86_64-linux/*"])
+SETS_4B = ("simpler-dbcogact", "simpler-starvla-groot", "simpler-starvla-fast", "batch-4b")
+# configs/benchmarks/simpler/widowx_vm.yaml @ v0.9.0: subname -> task_name, 24 episodes each
+WIDOWX_VM = (("stack_green_cube", "widowx_stack_cube"), ("put_carrot_on_plate", "widowx_carrot_on_plate"),
+             ("put_spoon_on_tablecloth", "widowx_spoon_on_towel"),
+             ("put_eggplant_in_basket", "widowx_put_eggplant_in_basket"))
+HARNESS = ROOT.parent / "vlaeh" / "v090"
+
+
+def test_batch_4b_sets_render_the_harness_configs():
+    benches, servers, tasks = generate.vlaeval_plan(_set("batch-4b"))
+    assert benches == [dict(name="simpler", image=f"ghcr.io/allenai/vla-evaluation-harness/simpler@{SIMPLER_DIGEST}",
+                            simulator="SimplerEnv (ManiSkill2_real2sim, SAPIEN 2.2.2, Vulkan)")]
+    assert servers == [
+        dict(name="db-cogact-simpler", config="configs/model_servers/db_cogact/simpler.yaml",
+             hf_repo="Dexmal/simpler-db-cogact", hf_model_revision=DBC_SIMPLER_SHA, gated_repos=[]),
+        dict(name="starvla-q3groot-simpler", config="configs/model_servers/starvla/groot_qwen3_simpler.yaml",
+             hf_repo="StarVLA/Qwen3VL-GR00T-Bridge-RT-1", hf_model_revision=Q3GROOT_SHA, gated_repos=[],
+             checkpoint_marker="checkpoints/steps_20000_pytorch_model.pt", checkpoint_pass="repo_id",
+             hf_offline_repos=[dict(repo="Qwen/Qwen3-VL-4B-Instruct", revision=QWEN3VL_SHA), FLASH]),
+        dict(name="starvla-q25fast-simpler", config="configs/model_servers/starvla/fast_simpler.yaml",
+             hf_repo="StarVLA/Qwen-FAST-Bridge-RT-1", hf_model_revision=Q25FAST_SHA, gated_repos=[],
+             checkpoint_marker="checkpoints/steps_10000_pytorch_model.pt", checkpoint_pass="repo_id",
+             hf_offline_repos=[dict(repo="starVLA/Qwen2.5-VL-3B-Instruct-Action", revision=Q25ACTION_SHA),
+                               dict(repo="physical-intelligence/fast", revision=FAST_TOK_SHA), FLASH])]
+    assert len(tasks) == 12
+    rows = ["vlaeval:db-cogact-simpler", "vlaeval:starvla-q3groot-simpler", "vlaeval:starvla-q25fast-simpler"]
+    for j, t in enumerate(tasks):
+        server, eps = [("db-cogact-simpler", 24), ("starvla-q3groot-simpler", 24), ("starvla-q25fast-simpler", 6)][j // 4]
+        subname, task_name = WIDOWX_VM[j % 4]
+        (e,) = t["eval_config"]["benchmarks"]
+        # the entry of widowx_vm.yaml as is: no suite, no seed injected (deterministic episodes)
+        assert e == {"benchmark": "vla_eval.benchmarks.simpler.benchmark:SimplerEnvBenchmark", "subname": subname,
+                     "episodes_per_task": eps, "params": {"task_name": task_name},
+                     "recording": {"record_video": True}}
+        assert t["eval_config"]["docker"] == {"image": f"ghcr.io/allenai/vla-evaluation-harness/simpler@{SIMPLER_DIGEST}",
+                                              "user": "host", "env": ["NVIDIA_DRIVER_CAPABILITIES=all"]}
+        assert "render" not in t["eval_config"] and "volumes" not in t["eval_config"]["docker"]
+        assert (t["model_server"], t["suite"], t["max_tasks"]) == (server, subname, None)
+        assert t["extra_meta"][4:] == [f"matrix_row={rows[j // 4]}", "task_group=simpler_widowx_vm",
+                                       "task_group_size=4"]
+        assert t["init_states"].startswith("episode i = obj_episode_id i")
+    assert [t.get("eval_timeout") for t in tasks] == [None] * 8 + [7200] * 4
+    assert [t.get("checkpoint_pass") for t in tasks] == [None] * 4 + ["repo_id"] * 8
+    assert [t["checkpoint_arg"] for t in tasks] == ["model_path"] * 4 + ["checkpoint"] * 8
+    refs = [tuple(t["extra_meta"][:4]) for t in tasks[::4]]
+    assert refs == [
+        ("reference_value=0.635", "reference_n=96", "reference_metric=success",
+         "reference_source=docs/reproductions/dexbotic.md:74"),
+        ("reference_value=0.667", "reference_n=96", "reference_metric=success",
+         "reference_source=docs/reproductions/starvla.md:63"),
+        ("reference_value=0.646", "reference_n=96", "reference_metric=success",
+         "reference_source=docs/reproductions/starvla.md:82")]
+    # every task of a group carries the group's reference; each single set is the same entries as in batch-4b
+    assert all(t["extra_meta"][:4] == list(refs[j // 4]) for j, t in enumerate(tasks))
+    for i, name in enumerate(SETS_4B[:3]):
+        single = generate.vlaeval_plan(_set(name))[2]
+        sel = tasks[4 * i:4 * i + 4]
+        assert [{k: v for k, v in s.items() if k != "eval_config"} for s in single] == \
+            [{k: v for k, v in t.items() if k != "eval_config"} for t in sel]
+        assert [s["eval_config"]["benchmarks"] for s in single] == [t["eval_config"]["benchmarks"] for t in sel]
+    # CogACT (microsoft/CogACT) is left out: its Prismatic backbone loads the gated meta-llama/Llama-2-7b-hf
+    assert not any("cogact/cogact.yaml" in s["config"] for s in _model()["vlaeval"]["model_servers"].values())
+
+
+def test_simpler_benchmark_is_the_harness_widowx_vm_config():
+    # against the pinned harness checkout (when it is next to this worktree): same entries, same docker env; the only
+    # config value left out is the host Vulkan ICD mount (the image ships its own ICD, see models/vlaeval.yaml)
+    cfg_path = HARNESS / "configs" / "benchmarks" / "simpler" / "widowx_vm.yaml"
+    if not cfg_path.is_file():
+        pytest.skip("harness checkout v0.9.0 not next to this worktree")
+    h = yaml.safe_load(cfg_path.read_text())
+    tasks = generate.vlaeval_plan(_set("simpler-dbcogact"))[2]
+    ours = [t["eval_config"]["benchmarks"][0] for t in tasks]
+    assert [{k: e[k] for k in ("benchmark", "subname", "episodes_per_task", "params")} for e in ours] == h["benchmarks"]
+    assert tasks[0]["eval_config"]["docker"]["env"] == h["docker"]["env"]
+    assert h["docker"]["volumes"] == ["/usr/share/vulkan/icd.d:/usr/share/vulkan/icd.d:ro"]
+    assert "volumes" not in tasks[0]["eval_config"]["docker"]
+    base = (HARNESS / "docker" / "Dockerfile.base").read_text()
+    assert "/usr/share/vulkan/icd.d/nvidia_icd.json" in base and "libGLX_nvidia.so.0" in base
+    # SimplerEnvBenchmark takes no suite; its seed would go to every env.reset (widowx_vm.yaml sets none)
+    src = (HARNESS / "src" / "vla_eval" / "benchmarks" / "simpler" / "benchmark.py").read_text()
+    assert "suite" not in src.split("def __init__(", 1)[1].split(") -> None:", 1)[0]
+    assert 'reset_kwargs["seed"] = self.seed' in src and "seed" not in str(h["benchmarks"])
+
+
+def test_batch_4b_references_match_the_harness_reports():
+    if not (HARNESS / "docs" / "reproductions").is_dir():
+        pytest.skip("harness checkout v0.9.0 not next to this worktree")
+    tasks = generate.vlaeval_plan(_set("batch-4b"))[2]
+    for t in tasks:
+        meta = dict(m.split("=", 1) for m in t["extra_meta"])
+        path, line = meta["reference_source"].rsplit(":", 1)
+        text = (HARNESS / path).read_text().splitlines()[int(line) - 1]
+        assert text.startswith("| **Average** |") and f"**{float(meta['reference_value']) * 100:.1f}%**" in text, text
+        # the per-task score in `published` cites its own row of the same table
+        pub_src = t["published"].split("episodes, ", 1)[1].split(")", 1)[0]
+        row = (HARNESS / "docs" / "reproductions" / pub_src.split(":")[0]).read_text().splitlines()[
+            int(pub_src.split(":")[1]) - 1]
+        pct = t["published"].split(" %", 1)[0]
+        assert row.split("|")[1].strip().lower() in t["suite"].split("_"), (row, t["suite"])   # | Stack | ...
+        assert f"| {pct}%" in row, (row, pct)
+    # the 4 per-task scores average to the reference (24 episodes each)
+    for i in range(3):
+        per = [float(t["published"].split(" %", 1)[0]) for t in tasks[4 * i:4 * i + 4]]
+        ref = float(dict(m.split("=", 1) for m in tasks[4 * i]["extra_meta"])["reference_value"])
+        assert abs(sum(per) / 4 / 100 - ref) < 0.0006, (per, ref)
+
+
+def test_batch_4b_instance_overrides_only_for_their_sets():
+    assert task_sets.instance_overrides(_set("batch-4b")) == {"ebs_gb": 300, "creationpolicy_timeout": "PT420M"}
+    assert task_sets.instance_overrides(_set("simpler-dbcogact")) == {"creationpolicy_timeout": "PT180M"}
+    assert task_sets.instance_overrides(_set("simpler-starvla-groot")) == {"creationpolicy_timeout": "PT180M"}
+    assert task_sets.instance_overrides(_set("simpler-starvla-fast")) == {"creationpolicy_timeout": "PT240M"}
+
+
+@pytest.mark.skipif(BASH is None, reason="bash not on PATH")
+@pytest.mark.parametrize("task_set", SETS_4B)
+def test_batch_4b_render_and_bash_n(task_set, tmp_path):
+    _render(tmp_path, "--task-set", task_set)
+    text = (tmp_path / "vlaeval.sh").read_text()
+    assert subprocess.run([BASH, "-n", str(tmp_path / "vlaeval.sh")]).returncode == 0
+    assert _tasks_json(text) == json.loads(json.dumps(generate.vlaeval_plan(_set(task_set))[2]))
+    assert ":latest" not in text and text.count("docker pull -q") == 1
+    assert f'docker pull -q "ghcr.io/allenai/vla-evaluation-harness/simpler@{SIMPLER_DIGEST}"' in text
+    assert "vulkan" not in text.lower()       # no ICD mount and no host ICD step
+    dbc = task_set in ("simpler-dbcogact", "batch-4b")
+    groot = task_set in ("simpler-starvla-groot", "batch-4b")
+    fast = task_set in ("simpler-starvla-fast", "batch-4b")
+    assert (f'print(snapshot_download("Dexmal/simpler-db-cogact", revision="{DBC_SIMPLER_SHA}"))' in text) == dbc
+    assert (f'_p = snapshot_download("StarVLA/Qwen3VL-GR00T-Bridge-RT-1", revision="{Q3GROOT_SHA}")' in text) == groot
+    assert (f'_p = snapshot_download("Qwen/Qwen3-VL-4B-Instruct", revision="{QWEN3VL_SHA}")' in text) == groot
+    assert (f'_p = snapshot_download("StarVLA/Qwen-FAST-Bridge-RT-1", revision="{Q25FAST_SHA}")' in text) == fast
+    assert (f'_p = snapshot_download("starVLA/Qwen2.5-VL-3B-Instruct-Action", revision="{Q25ACTION_SHA}")'
+            in text) == fast
+    assert (f'_p = snapshot_download("physical-intelligence/fast", revision="{FAST_TOK_SHA}")' in text) == fast
+    flash = (f'_p = snapshot_download("kernels-community/flash-attn2", revision="{FLASH_SHA}", '
+             'allow_patterns=["build/torch210-cxx11-cu128-x86_64-linux/*"])')
+    assert text.count(flash) == groot + fast
+    assert ('[ -f "${_path}/checkpoints/steps_20000_pytorch_model.pt" ]' in text) == groot
+    assert ('[ -f "${_path}/checkpoints/steps_10000_pytorch_model.pt" ]' in text) == fast
+    assert ("export HF_HUB_OFFLINE=1" in text) == (groot or fast)
+    lock_args = next(ln for ln in text.splitlines() if ln.startswith('    SERVER_SCRIPTS=$('))
+    assert ("db_cogact/simpler.yaml" in lock_args) == dbc and ("starvla/fast_simpler.yaml" in lock_args) == fast
+    assert "not lock-checked" not in text      # starvla.py's lock pulls CUDA 13: the torch<2.11 step must see it
+    assert ('EVAL_TIMEOUT=$(echo "$TASK" | jq -r \'.eval_timeout // 5400\')' in text) == fast
+    assert "record_provenance" not in text and "local _env" not in text
+
+
+def test_earlier_renders_have_no_batch_4b_lines(tmp_path):
+    # the default / batch A / B / C / 4A renders of every target were also diffed against the pre-4B renders
+    # (identical but for the tool_commit line); here: no group line and no SimplerEnv image in any of them
+    for extra in ([], ["--task-set", "batch-a"], ["--task-set", "batch-b"], ["--task-set", "batch-c"],
+                  ["--task-set", "batch-4a"]):
+        _render(tmp_path, *extra)
+        text = (tmp_path / "vlaeval.sh").read_text()
+        for needle in ("task_group", "simpler", "flash-attn2", "StarVLA"):
+            assert needle not in text, (extra, needle)
+
+
+def _grp(c, i):
+    return c["tasks"][i]
+
+
+@pytest.mark.parametrize("mutate,msg", [
+    (lambda c: _grp(c, 0).update(group="SimplerEnv"), "group must be"),
+    (lambda c: _grp(c, 0).update(group="widowx-vm"), "group must be"),
+    (lambda c: _grp(c, 0).update(group="x" * 65), "group must be"),
+    (lambda c: _grp(c, 0).update(group=["a"]), "group must be"),
+    (lambda c: _grp(c, 0).pop("matrix_row"), "group needs matrix_row"),
+    (lambda c: _grp(c, 1).update(benchmark="libero", suite="libero_spatial", params={}), "benchmark, model_server and condition"),
+    (lambda c: _grp(c, 2).update(condition="S1"), "benchmark, model_server and condition"),
+    (lambda c: _grp(c, 3).update(reference={"value": 0.5, "n": 96, "metric": "success", "source": "a.md:1"}),
+     "same reference"),
+    (lambda c: _grp(c, 3).pop("reference"), "same reference"),
+    (lambda c: _grp(c, 3).update(suite="stack_green_cube"), "a suite appears twice"),
+])
+def test_plan_rejects_bad_groups(mutate, msg):
+    cfg = copy.deepcopy(_set("simpler-dbcogact"))
+    for t in cfg["tasks"]:      # the yaml merges share nested mappings: give every entry its own copy
+        t.update(copy.deepcopy(dict(t)))
+    mutate(cfg)
+    with pytest.raises(ValueError, match=msg):
+        generate.vlaeval_plan(cfg)
+
+
+def test_group_on_an_echo_task_is_rejected():
+    cfg = copy.deepcopy(_set("echo-smokes"))
+    cfg["tasks"][0].update(group="g", matrix_row="vlaeval:echo")
+    with pytest.raises(ValueError, match="not on an echo task"):
+        generate.vlaeval_plan(cfg)
+
+
+def test_group_size_counts_the_entries_of_one_server():
+    # batch-4b: three groups of the same name, one per matrix row: 4 entries each. The size is the yaml's
+    # group_size (the tasks the reference averages over), not the count of selected entries: a set with two of the
+    # four tasks of a server still writes 4, so `results --matrix` reports it incomplete (2/4) instead of comparing
+    # it with the 4-task reference; the same group name on another server's row is its own group
+    tasks = generate.vlaeval_plan(_set("batch-4b"))[2]
+    assert [t["extra_meta"][-1] for t in tasks] == ["task_group_size=4"] * 12
+    cfg = copy.deepcopy(_set("simpler-dbcogact"))
+    cfg["tasks"] = cfg["tasks"][:2]
+    assert [t["extra_meta"][-1] for t in generate.vlaeval_plan(cfg)[2]] == ["task_group_size=4"] * 2
+    cfg = copy.deepcopy(_set("batch-4b"))
+    cfg["tasks"] = [dict(cfg["tasks"][0]), dict(cfg["tasks"][5], matrix_row="vlaeval:other")]
+    assert [t["extra_meta"][-1] for t in generate.vlaeval_plan(cfg)[2]] == ["task_group_size=4"] * 2
+    # entries without a group get no group lines (default and 4A tasks unchanged)
+    assert not any("task_group" in m for t in generate.vlaeval_plan(_set("batch-4a"))[2] for m in t["extra_meta"])
+
+
+@pytest.mark.parametrize("edit, msg", [
+    (lambda ts: ts[0].pop("group_size"), "group_size must be an integer"),
+    (lambda ts: ts[0].update(group_size=0), "group_size must be an integer"),
+    (lambda ts: ts[0].update(group_size=65), "group_size must be 1..64"),
+    (lambda ts: ts[1].update(group_size=5), "same group_size"),
+    (lambda ts: [t.update(group_size=3) for t in ts], "4 entries but group_size 3"),
+    (lambda ts: ts[0].pop("group"), "group_size needs group"),
+])
+def test_group_size_is_validated(edit, msg):
+    cfg = copy.deepcopy(_set("simpler-dbcogact"))
+    cfg["tasks"] = [dict(t) for t in cfg["tasks"]]
+    edit(cfg["tasks"])
+    with pytest.raises(ValueError, match=msg):
+        generate.vlaeval_plan(cfg)
+
+
+def test_subset_of_a_group_stays_incomplete_in_the_matrix(tmp_path):
+    # end to end: the first two WidowX tasks of simpler-dbcogact, both finished, are not compared with the 4-task
+    # reference (a size taken from the selection would have made the group complete and printed a verdict)
+    cfg = copy.deepcopy(_set("simpler-dbcogact"))
+    cfg["tasks"] = cfg["tasks"][:2]
+    plan = generate.vlaeval_plan(cfg)[2]
+    files = {}
+    for i, t in enumerate(plan):
+        meta = "".join(m.replace("=", ": ", 1) + "\n" for m in t["extra_meta"])
+        files[f"R/task-{i}/summary.txt"] = (f"suite: {t['suite']}\ncondition: S0\nn_success: 12\nn_episodes: 24\n"
+                                            f"success_rate: 0.5\n{meta}")
+    s3 = FakeS3({BUCKET: files})
+    rows = [results.task_row(s3, "us-east-1", BUCKET, "R", f"R/task-{i}/") for i in range(len(plan))]
+    assert {(r["task_group"], r["task_group_size"]) for r in rows} == {("simpler_widowx_vm", 4)}
+
+
+def test_results_reads_the_task_group(tmp_path):
+    body = "suite: stack_green_cube\ncondition: S0\nn_success: 10\nn_episodes: 24\nsuccess_rate: 0.4167\n"
+    s3 = FakeS3({BUCKET: {"R/task-0/summary.txt": body + "task_group: simpler_widowx_vm\ntask_group_size: 4\n",
+                          "R/task-1/summary.txt": body}})
+    rows = [results.task_row(s3, "us-east-1", BUCKET, "R", f"R/task-{i}/") for i in range(2)]
+    assert (rows[0]["task_group"], rows[0]["task_group_size"]) == ("simpler_widowx_vm", 4)
+    assert "task_group" not in rows[1] and "task_group_size" not in rows[1]
+
+
+# the task loop of batch-4b: the starVLA servers get their repo id under HF_HUB_OFFLINE=1, DB-CogACT its snapshot path;
+# FAST gets its eval_timeout; every task writes the group lines. uv, docker and timeout are shell functions (STUB_SHELL_4A)
+
+def _batch_4b_loop(tmp_path):
+    _render(tmp_path / "r", "--task-set", "batch-4b")
+    script = _loop_script((tmp_path / "r" / "vlaeval.sh").read_text(), tmp_path)
+    (tmp_path / "work" / "venv" / "bin" / "vla-eval").write_text(STUB_4A)
+    ms = tmp_path / "work" / "harness" / "configs" / "model_servers"
+    for rel, chunk in (("db_cogact/simpler.yaml", 5), ("starvla/groot_qwen3_simpler.yaml", 1),
+                       ("starvla/fast_simpler.yaml", 1)):
+        (ms / rel).parent.mkdir(parents=True, exist_ok=True)
+        (ms / rel).write_text(f"extends: _base.yaml\nargs:\n  chunk_size: {chunk}\n")
+    for name, sha in (("db-cogact-simpler", DBC_SIMPLER_SHA), ("starvla-q3groot-simpler", Q3GROOT_SHA),
+                      ("starvla-q25fast-simpler", Q25FAST_SHA)):
+        (tmp_path / f"ckpt_{name}.path").write_text(f"/hf/snapshots/{sha[:8]}\n")
+    script = script.replace("curl() { return 0; }",
+                            'curl() { [ -n "$SERVER_PID" ] && kill -0 "$SERVER_PID" 2>/dev/null && [ -e "$CALLS.ready" ] '
+                            '&& rm -f "$CALLS.ready"; }\n' + STUB_SHELL_4A)
+    return script, {"PATH": os.environ["PATH"], "HOME": str(tmp_path), "NO_VIDEO_BENCH": "",
+                    "STUB_OPENPI": str(tmp_path / "openpi")}
+
+
+@pytest.mark.skipif(None in (BASH, JQ, SETSID), reason="bash / jq / setsid not on PATH")
+def test_batch_4b_loop_offline_repo_ids_timeout_and_group_lines(tmp_path):
+    script, env = _batch_4b_loop(tmp_path)
+    proc = subprocess.run([BASH, "-c", script], capture_output=True, text=True, timeout=180, env=env)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    lines = (tmp_path / "calls").read_text().splitlines()
+    assert not any(ln.startswith(("UV CALLED", "DOCKER CALLED")) for ln in lines)
+    calls = [ln for ln in lines if ln.startswith(("serve-env", "vla-eval serve", "timeout"))]
+    vla = f"{tmp_path}/work/venv/bin/vla-eval"
+    run = [f"timeout --kill-after=120 5400 {vla} run"] * 4
+    assert calls == [
+        f"vla-eval serve --config configs/model_servers/db_cogact/simpler.yaml --arg model_path=/hf/snapshots/{DBC_SIMPLER_SHA[:8]}",
+        "serve-env XLA=unset OFFLINE=unset", *run,
+        "vla-eval serve --config configs/model_servers/starvla/groot_qwen3_simpler.yaml "
+        "--arg checkpoint=StarVLA/Qwen3VL-GR00T-Bridge-RT-1",
+        "serve-env XLA=unset OFFLINE=1", *run,
+        "vla-eval serve --config configs/model_servers/starvla/fast_simpler.yaml --arg checkpoint=StarVLA/Qwen-FAST-Bridge-RT-1",
+        "serve-env XLA=unset OFFLINE=1", *[f"timeout --kill-after=120 7200 {vla} run"] * 4]
+    assert "FAILED=[]" in proc.stdout
+    cfgs = [json.loads((tmp_path / "work" / f"eval-task-{i}.json").read_text()) for i in range(12)]
+    assert [c["benchmarks"][0]["subname"] for c in cfgs] == [s for s, _ in WIDOWX_VM] * 3
+    assert all("seed" not in c["benchmarks"][0]["params"] and "volumes" not in c["docker"] for c in cfgs)
+    kvs = [dict(results.KV_RE.findall((tmp_path / f"vlaeval_task{i}_summary.txt").read_text())) for i in range(12)]
+    assert {(kv["task_group"], kv["task_group_size"]) for kv in kvs} == {("simpler_widowx_vm", "4")}
+    assert [kv["matrix_row"] for kv in kvs[::4]] == ["vlaeval:db-cogact-simpler", "vlaeval:starvla-q3groot-simpler",
+                                                     "vlaeval:starvla-q25fast-simpler"]
+    assert [kv["reference_value"] for kv in kvs[::4]] == ["0.635", "0.667", "0.646"]
+    assert [kv["n_action_steps"] for kv in kvs[::4]] == ["5", "1", "1"]
+    assert kvs[4]["checkpoint"] == f"StarVLA/Qwen3VL-GR00T-Bridge-RT-1@{Q3GROOT_SHA[:8]}"
+    assert kvs[0]["init_states"].startswith("episode i = obj_episode_id i")
+    card = yaml.safe_load((tmp_path / "vlaeval_task8_summary.protocol.yaml").read_text())
+    assert {"repo": "kernels-community/flash-attn2", "revision": FLASH_SHA} in card["checkpoints"]
+    assert {"repo": "starVLA/Qwen2.5-VL-3B-Instruct-Action", "revision": Q25ACTION_SHA} in card["checkpoints"]
+
+
+def test_deploy_prints_a_time_estimate_for_the_4b_sets():
+    src = (ROOT / "deploy.py").read_text()
+    assert ('args.task_set in ("simpler-dbcogact", "simpler-starvla-groot",\n'
+            '                                                         "simpler-starvla-fast", "batch-4b")') in src

@@ -1051,6 +1051,13 @@ def main():
                   "(libero-openpi: 12.4 + 10.9 GB from gs://openpi-assets, 2 x 100 episodes), ~4-5 h for --task-set "
                   "batch-4a on one instance (estimates written before the runs; measured one set at a time on 2026-11-09: "
                   "~85 / ~127 / ~79 min; batch-4a itself not run)")
+        elif args.vla == "vlaeval" and args.task_set in ("simpler-dbcogact", "simpler-starvla-groot",
+                                                         "simpler-starvla-fast", "batch-4b"):
+            print("  Estimated time: ~1-1.4 h (simpler-dbcogact: 2.5 GB image, 16 GB checkpoint, 4 x 24 SimplerEnv "
+                  "episodes), ~1.2-1.6 h (simpler-starvla-groot: starVLA env + 20 GB of checkpoint, base VLM and "
+                  "kernel, 96 episodes), ~1.7-2.4 h (simpler-starvla-fast: 16 GB, 4 x 6 episodes at one FAST decode "
+                  "per step), ~3-4.5 h for --task-set batch-4b on one instance (estimates written before the runs; "
+                  "measured one set at a time on 2026-11-10: ~37 / ~70 / ~93 min; batch-4b itself not run)")
         elif args.vla == "vlaeval" and args.task_set in ("robomme", "robocasa365", "echo-smokes", "batch-c"):
             print("  Estimated time: ~45-55 min (robomme: 9.5 GB image, 11.6 GB checkpoint zip, CPU-rendered episodes), "
                   "~55-75 min (robocasa365: 16.7 GB image, GR00T env with flash-attn; +1 h or more if flash-attn has "

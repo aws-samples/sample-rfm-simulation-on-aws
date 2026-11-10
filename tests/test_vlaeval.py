@@ -2034,3 +2034,253 @@ def test_deploy_prints_a_time_estimate_for_the_4b_sets():
     src = (ROOT / "deploy.py").read_text()
     assert ('args.task_set in ("simpler-dbcogact", "simpler-starvla-groot",\n'
             '                                                         "simpler-starvla-fast", "batch-4b")') in src
+
+
+# --- bundle 4C: RTC x Kinetix 600, MolmoBot x MolmoSpaces 50, starVLA Qwen3-OFT x LIBERO-Spatial / WidowX VM --------
+
+Q3OFT_LIBERO_SHA = "39177146f142f8805d86fcc29d2a17c2228e6073"
+Q3OFT_BRIDGE_SHA = "1c814bc494cd95c844535fffed2a890838651dd6"
+SETS_4C = ("kinetix-rtc-600", "molmospaces-50", "libero-starvla-oft", "simpler-starvla-oft", "batch-4c")
+QWEN3VL = dict(repo="Qwen/Qwen3-VL-4B-Instruct", revision=QWEN3VL_SHA)
+
+
+def test_batch_4c_sets_render_the_harness_configs():
+    benches, servers, tasks = generate.vlaeval_plan(_set("batch-4c"))
+    assert [b["name"] for b in benches] == ["kinetix", "libero", "simpler", "molmospaces"]
+    by = {s["name"]: s for s in servers}
+    assert [s["name"] for s in servers] == ["rtc-kinetix", "starvla-q3oft-libero", "starvla-q3oft-simpler",
+                                            "molmobot-droid"]
+    assert by["starvla-q3oft-libero"] == dict(
+        name="starvla-q3oft-libero", config="configs/model_servers/starvla/libero_qwen3_oft.yaml",
+        hf_repo="StarVLA/Qwen3-VL-OFT-LIBERO-4in1", hf_model_revision=Q3OFT_LIBERO_SHA, gated_repos=[],
+        checkpoint_marker="checkpoints/steps_50000_pytorch_model.pt", checkpoint_pass="repo_id",
+        hf_offline_repos=[QWEN3VL, FLASH])
+    assert by["starvla-q3oft-simpler"] == dict(
+        name="starvla-q3oft-simpler", config="configs/model_servers/starvla/oft_qwen3_simpler.yaml",
+        hf_repo="StarVLA/Qwen3VL-OFT-Bridge-RT-1", hf_model_revision=Q3OFT_BRIDGE_SHA, gated_repos=[],
+        checkpoint_marker="checkpoints/steps_5000_pytorch_model.pt", checkpoint_pass="repo_id",
+        hf_offline_repos=[QWEN3VL, FLASH])
+    # the two earlier servers unchanged (RTC downloads its own gs:// checkpoints; MolmoBot as batch B)
+    assert by["rtc-kinetix"]["hf_repo"] == "" and by["molmobot-droid"]["hf_model_revision"] == MOLMO_SHA
+    assert [(t["suite"], t["model_server"], t["episodes_per_task"], t["max_tasks"]) for t in tasks] == [
+        ("kinetix_rtc", "rtc-kinetix", 50, None), ("libero_spatial", "starvla-q3oft-libero", 5, None),
+        *[(s, "starvla-q3oft-simpler", 24, None) for s, _ in WIDOWX_VM],
+        ("molmospaces_pick_and_place", "molmobot-droid", 1, 50)]
+    assert [t.get("eval_timeout") for t in tasks] == [3600, 7200, 4800, 4800, 4800, 4800, 21600]
+    assert [t.get("checkpoint_pass") for t in tasks] == [None] + ["repo_id"] * 6
+    refs = [tuple(m.split("=", 1)[1] for m in t["extra_meta"][:4]) for t in tasks]
+    assert refs == [("0.963", "24552", "success", "docs/reproductions/rtc.md:120"),
+                    ("0.968", "500", "success", "docs/reproductions/starvla.md:40"),
+                    *[("0.208", "96", "success", "docs/reproductions/starvla.md:14")] * 4,
+                    ("0.57", "200", "success", "docs/reproductions/molmobot.md:36")]
+    assert [t["extra_meta"][4] for t in tasks] == [
+        "matrix_row=vlaeval:rtc-kinetix", "matrix_row=vlaeval:starvla-q3oft-libero",
+        *["matrix_row=vlaeval:starvla-q3oft-simpler"] * 4, "matrix_row=vlaeval:molmobot-droid"]
+    # only the four WidowX entries are a group; the 12 Kinetix levels are one entry (one k / n = the 12-level mean)
+    assert [t["extra_meta"][5:] for t in tasks] == [[], []] + [
+        ["task_group=simpler_widowx_vm", "task_group_size=4"]] * 4 + [[]]
+    # each single set is the same entries as in batch-4c
+    sel = {"kinetix-rtc-600": tasks[0:1], "libero-starvla-oft": tasks[1:2], "simpler-starvla-oft": tasks[2:6],
+           "molmospaces-50": tasks[6:7]}
+    for name, part in sel.items():
+        single = generate.vlaeval_plan(_set(name))[2]
+        assert [{k: v for k, v in s.items() if k != "eval_config"} for s in single] == \
+            [{k: v for k, v in t.items() if k != "eval_config"} for t in part]
+        assert [s["eval_config"]["benchmarks"] for s in single] == [t["eval_config"]["benchmarks"] for t in part]
+
+
+def test_kinetix_600_is_the_harness_sync_protocol_with_50_rollouts():
+    (t,) = generate.vlaeval_plan(_set("kinetix-rtc-600"))[2]
+    (e,) = t["eval_config"]["benchmarks"]
+    # all 12 levels (no max_tasks), 50 rollouts, the params of configs/benchmarks/kinetix/eval.yaml
+    assert "max_tasks" not in e and e["episodes_per_task"] == 50
+    assert e["params"] == {"seed": 0, "observation_type": "symbolic", "max_episode_steps": 256,
+                           "rtc_worlds_dir": "/app/rtc/worlds", "action_noise_std": 0.1}
+    assert t["eval_config"]["docker"]["env"] == ["XLA_PYTHON_CLIENT_PREALLOCATE=false"]
+    assert t["expect_videos"] is False and t["checkpoint_arg"] == ""
+    # the batch-A smoke (4 levels x 5) is unchanged and stays on the target's own row (no reference)
+    (smoke,) = generate.vlaeval_plan(_set("kinetix"))[2]
+    assert smoke["max_tasks"] == 4 and smoke["episodes_per_task"] == 5 and "extra_meta" not in smoke
+    if not (HARNESS / "configs").is_dir():
+        pytest.skip("harness checkout v0.9.0 not next to this worktree")
+    h = yaml.safe_load((HARNESS / "configs" / "benchmarks" / "kinetix" / "eval.yaml").read_text())
+    assert h["benchmarks"][0]["params"] == e["params"] and h["benchmarks"][0]["episodes_per_task"] == 2048
+    base = yaml.safe_load((HARNESS / "configs" / "model_servers" / "rtc" / "_base.yaml").read_text())["args"]
+    assert (base["delay"], base["horizon"], base["latency"]) == (0, 1, "steps")       # = "rtc d=0" (s = 1)
+    assert yaml.safe_load((HARNESS / "configs" / "model_servers" / "rtc" / "rtc.yaml").read_text())["args"] == \
+        {"method": "rtc"}
+    src = (HARNESS / "src" / "vla_eval" / "benchmarks" / "kinetix" / "benchmark.py").read_text()
+    assert src.split("RTC_12_TASKS = [", 1)[1].split("]", 1)[0].count('"level":') == 12
+
+
+def test_molmospaces_50_is_the_batch_b_entry_with_50_episodes():
+    (t,) = generate.vlaeval_plan(_set("molmospaces-50"))[2]
+    (b,) = generate.vlaeval_plan(_set("molmospaces"))[2]
+    assert t["eval_config"]["benchmarks"][0] == dict(b["eval_config"]["benchmarks"][0], max_tasks=50)
+    assert {k: v for k, v in t["eval_config"].items() if k != "benchmarks"} == \
+        {k: v for k, v in b["eval_config"].items() if k != "benchmarks"}
+    assert "extra_meta" not in b and "eval_timeout" not in b     # the smoke is unchanged
+
+
+def test_batch_4c_references_match_the_harness_reports():
+    if not (HARNESS / "docs" / "reproductions").is_dir():
+        pytest.skip("harness checkout v0.9.0 not next to this worktree")
+
+    def line(src):
+        path, n = src.rsplit(":", 1)
+        return (HARNESS / path).read_text().splitlines()[int(n) - 1]
+
+    tasks = generate.vlaeval_plan(_set("batch-4c"))[2]
+    meta = [dict(m.split("=", 1) for m in t["extra_meta"]) for t in tasks]
+    # rtc.md:120 = arm C (vla-eval sync) row "rtc d=0": | condition | n/level | ref | arm | ...
+    cells = [c.strip() for c in line(meta[0]["reference_source"]).split("|")[1:-1]]
+    assert cells[0] == "rtc d=0" and float(cells[3]) == float(meta[0]["reference_value"])
+    assert int(cells[1]) * 12 == int(meta[0]["reference_n"])
+    assert "### C (sync, 2048 × 12) vs R′" in (HARNESS / "docs/reproductions/rtc.md").read_text().splitlines()[110]
+    # starvla.md:40 Average of the 10 Spatial tasks (500 episodes); starvla.md:14 the Qwen3-OFT WidowX row
+    assert line(meta[1]["reference_source"]) == "| **Average** | **96.8%** | **97.8%** |"
+    assert "10 tasks x 50 episodes" in line("docs/reproductions/starvla.md:26")
+    oft = line(meta[2]["reference_source"])
+    assert "20.8% (Qwen3-OFT)" in oft and "Not reproduced (env issue)" in oft
+    # molmobot.md:36: 57.0 % = 114 / 200
+    assert "**57.0%** (114/200)" in line(meta[6]["reference_source"])
+    assert round(float(meta[6]["reference_value"]) * int(meta[6]["reference_n"])) == 114
+
+
+def test_q3oft_servers_share_the_qwen3vl_pin_of_q3groot():
+    # one refs/main per repo in the shared HF cache: the OFT servers must pin the base VLM where Qwen3-GR00T does,
+    # else a set with both (none ships one yet) is refused at render time
+    servers = _model()["vlaeval"]["model_servers"]
+    pins = {n: {x["repo"]: x["revision"] for x in servers[n]["hf_offline_repos"]}
+            for n in ("starvla-q3groot-simpler", "starvla-q3oft-libero", "starvla-q3oft-simpler")}
+    assert len({p["Qwen/Qwen3-VL-4B-Instruct"] for p in pins.values()}) == 1
+    assert len({p["kernels-community/flash-attn2"] for p in pins.values()}) == 1
+    cfg = copy.deepcopy(_set("batch-4c"))
+    cfg["tasks"] = [*cfg["tasks"], *_set("simpler-starvla-groot")["tasks"]]
+    assert len(generate.vlaeval_plan(cfg)[2]) == 11
+    cfg = copy.deepcopy(_set("batch-4c"))
+    _server(cfg, "starvla-q3oft-simpler")["hf_offline_repos"][0] = dict(QWEN3VL, revision="0" * 40)
+    with pytest.raises(ValueError, match="Qwen/Qwen3-VL-4B-Instruct is pinned at ebb281ec"):
+        generate.vlaeval_plan(cfg)
+    # alone, a different pin is fine (the cache then holds only that one)
+    one = copy.deepcopy(_set("simpler-starvla-oft"))
+    _server(one, "starvla-q3oft-simpler")["hf_offline_repos"][0] = dict(QWEN3VL, revision="0" * 40)
+    assert generate.vlaeval_plan(one)[1][0]["hf_offline_repos"][0]["revision"] == "0" * 40
+
+
+def test_batch_4c_instance_overrides_only_for_their_sets():
+    assert task_sets.instance_overrides(_set("batch-4c")) == {"ebs_gb": 350, "creationpolicy_timeout": "PT660M"}
+    assert task_sets.instance_overrides(_set("molmospaces-50")) == {"creationpolicy_timeout": "PT480M"}
+    assert task_sets.instance_overrides(_set("libero-starvla-oft")) == {"creationpolicy_timeout": "PT180M"}
+    assert task_sets.instance_overrides(_set("simpler-starvla-oft")) == {"creationpolicy_timeout": "PT360M"}
+    assert task_sets.instance_overrides(_set("kinetix-rtc-600")) == {}
+    # every eval_timeout of a set fits inside its WaitCondition (minus ~35 min of setup)
+    for name in SETS_4C:
+        cfg = _set(name)
+        wait = int((task_sets.instance_overrides(cfg).get("creationpolicy_timeout") or "PT120M")[2:-1])
+        caps = [t.get("eval_timeout") or generate.VLAEVAL_EVAL_TIMEOUT for t in generate.vlaeval_plan(cfg)[2]]
+        if name != "batch-4c":     # batch-4c: the expected times, not every cap at once (see the yaml)
+            assert sum(caps) / 60 + 35 <= wait, (name, caps, wait)
+        else:
+            assert sum(caps) / 60 + 35 > wait == 660 <= 720     # PT720M is the CloudFormation maximum
+
+
+@pytest.mark.skipif(BASH is None, reason="bash not on PATH")
+@pytest.mark.parametrize("task_set", SETS_4C)
+def test_batch_4c_render_and_bash_n(task_set, tmp_path):
+    _render(tmp_path, "--task-set", task_set)
+    text = (tmp_path / "vlaeval.sh").read_text()
+    assert subprocess.run([BASH, "-n", str(tmp_path / "vlaeval.sh")]).returncode == 0
+    assert _tasks_json(text) == json.loads(json.dumps(generate.vlaeval_plan(_set(task_set))[2]))
+    assert ":latest" not in text
+    kin = task_set in ("kinetix-rtc-600", "batch-4c")
+    molmo = task_set in ("molmospaces-50", "batch-4c")
+    lib = task_set in ("libero-starvla-oft", "batch-4c")
+    sim = task_set in ("simpler-starvla-oft", "batch-4c")
+    assert text.count("docker pull -q") == kin + molmo + lib + sim
+    assert ("kinetix@sha256:a8f6565d" in text) == kin and ("simpler@" + SIMPLER_DIGEST in text) == sim
+    assert (f'_p = snapshot_download("StarVLA/Qwen3-VL-OFT-LIBERO-4in1", revision="{Q3OFT_LIBERO_SHA}")' in text) == lib
+    assert (f'_p = snapshot_download("StarVLA/Qwen3VL-OFT-Bridge-RT-1", revision="{Q3OFT_BRIDGE_SHA}")' in text) == sim
+    assert (f'_p = snapshot_download("allenai/MolmoBot-DROID", revision="{MOLMO_SHA}")' in text) == molmo
+    assert text.count(f'_p = snapshot_download("Qwen/Qwen3-VL-4B-Instruct", revision="{QWEN3VL_SHA}")') == lib + sim
+    flash = (f'_p = snapshot_download("kernels-community/flash-attn2", revision="{FLASH_SHA}", '
+             'allow_patterns=["build/torch210-cxx11-cu128-x86_64-linux/*"])')
+    assert text.count(flash) == lib + sim
+    assert ('[ -f "${_path}/checkpoints/steps_50000_pytorch_model.pt" ]' in text) == lib
+    assert ('[ -f "${_path}/checkpoints/steps_5000_pytorch_model.pt" ]' in text) == sim
+    assert ("export HF_HUB_OFFLINE=1" in text) == (molmo or lib or sim)
+    lock_args = next(ln for ln in text.splitlines() if ln.startswith('    SERVER_SCRIPTS=$('))
+    assert ("starvla/libero_qwen3_oft.yaml" in lock_args) == lib and ("rtc/rtc.yaml" in lock_args) == kin
+    assert "not lock-checked" not in text      # starvla.py's lock pulls CUDA 13: the torch<2.11 step must see it
+    assert 'EVAL_TIMEOUT=$(echo "$TASK" | jq -r \'.eval_timeout // 5400\')' in text      # every 4C entry has one
+    assert "record_provenance" not in text and "local _env" not in text
+
+
+def test_earlier_renders_have_no_batch_4c_lines(tmp_path):
+    # every earlier render of every target was also diffed against the pre-4C renders (identical but for the
+    # tool_commit line); here: none of them names an OFT checkpoint or a 4C reference
+    for extra in ([], ["--task-set", "kinetix"], ["--task-set", "molmospaces"], ["--task-set", "batch-a"],
+                  ["--task-set", "batch-b"], ["--task-set", "batch-4a"], ["--task-set", "batch-4b"]):
+        _render(tmp_path, *extra)
+        text = (tmp_path / "vlaeval.sh").read_text()
+        for needle in ("OFT", "oft_qwen3", "rtc.md:120", "molmobot.md:36", "matrix_row=vlaeval:rtc-kinetix",
+                       "matrix_row=vlaeval:molmobot-droid"):
+            assert needle not in text, (extra, needle)
+
+
+# the task loop of batch-4c: RTC without a checkpoint arg, the three repo-id servers under HF_HUB_OFFLINE=1 with
+# their timeouts, the reference / group lines. uv, docker and timeout are shell functions (STUB_SHELL_4A)
+
+@pytest.mark.skipif(None in (BASH, JQ, SETSID), reason="bash / jq / setsid not on PATH")
+def test_batch_4c_loop_offline_repo_ids_timeouts_and_reference_lines(tmp_path):
+    _render(tmp_path / "r", "--task-set", "batch-4c")
+    script = _loop_script((tmp_path / "r" / "vlaeval.sh").read_text(), tmp_path)
+    (tmp_path / "work" / "venv" / "bin" / "vla-eval").write_text(STUB_4A)
+    ms = tmp_path / "work" / "harness" / "configs" / "model_servers"
+    for rel in ("starvla/libero_qwen3_oft.yaml", "starvla/oft_qwen3_simpler.yaml", "molmobot/droid.yaml"):
+        (ms / rel).parent.mkdir(parents=True, exist_ok=True)
+        (ms / rel).write_text("extends: _base.yaml\nargs:\n  chunk_size: 1\n")
+    for name, sha in (("starvla-q3oft-libero", Q3OFT_LIBERO_SHA), ("starvla-q3oft-simpler", Q3OFT_BRIDGE_SHA),
+                      ("molmobot-droid", MOLMO_SHA)):
+        (tmp_path / f"ckpt_{name}.path").write_text(f"/hf/snapshots/{sha[:8]}\n")
+    script = script.replace("curl() { return 0; }",
+                            'curl() { [ -n "$SERVER_PID" ] && kill -0 "$SERVER_PID" 2>/dev/null && [ -e "$CALLS.ready" ] '
+                            '&& rm -f "$CALLS.ready"; }\n' + STUB_SHELL_4A)
+    env = {"PATH": os.environ["PATH"], "HOME": str(tmp_path), "NO_VIDEO_BENCH": "", "STUB_OPENPI": str(tmp_path / "o")}
+    proc = subprocess.run([BASH, "-c", script], capture_output=True, text=True, timeout=180, env=env)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    lines = (tmp_path / "calls").read_text().splitlines()
+    assert not any(ln.startswith(("UV CALLED", "DOCKER CALLED")) for ln in lines)
+    calls = [ln for ln in lines if ln.startswith(("serve-env", "vla-eval serve", "timeout"))]
+    vla = f"{tmp_path}/work/venv/bin/vla-eval"
+    assert calls == [
+        "vla-eval serve --config configs/model_servers/rtc/rtc.yaml", "serve-env XLA=unset OFFLINE=unset",
+        f"timeout --kill-after=120 3600 {vla} run",
+        "vla-eval serve --config configs/model_servers/starvla/libero_qwen3_oft.yaml "
+        "--arg checkpoint=StarVLA/Qwen3-VL-OFT-LIBERO-4in1",
+        "serve-env XLA=unset OFFLINE=1", f"timeout --kill-after=120 7200 {vla} run",
+        "vla-eval serve --config configs/model_servers/starvla/oft_qwen3_simpler.yaml "
+        "--arg checkpoint=StarVLA/Qwen3VL-OFT-Bridge-RT-1",
+        "serve-env XLA=unset OFFLINE=1", *[f"timeout --kill-after=120 4800 {vla} run"] * 4,
+        "vla-eval serve --config configs/model_servers/molmobot/droid.yaml --arg hf_repo=allenai/MolmoBot-DROID",
+        "serve-env XLA=unset OFFLINE=1", f"timeout --kill-after=120 21600 {vla} run"]
+    assert "FAILED=[]" in proc.stdout     # Kinetix records no video and is not failed for it
+    cfgs = [json.loads((tmp_path / "work" / f"eval-task-{i}.json").read_text()) for i in range(7)]
+    assert cfgs[0]["benchmarks"][0]["episodes_per_task"] == 50 and "max_tasks" not in cfgs[0]["benchmarks"][0]
+    assert cfgs[6]["benchmarks"][0]["max_tasks"] == 50
+    kvs = [dict(results.KV_RE.findall((tmp_path / f"vlaeval_task{i}_summary.txt").read_text())) for i in range(7)]
+    assert [(kv["reference_value"], kv["reference_n"]) for kv in kvs] == [
+        ("0.963", "24552"), ("0.968", "500"), *[("0.208", "96")] * 4, ("0.57", "200")]
+    assert [kv.get("task_group") for kv in kvs] == [None, None] + ["simpler_widowx_vm"] * 4 + [None]
+    assert kvs[1]["checkpoint"] == f"StarVLA/Qwen3-VL-OFT-LIBERO-4in1@{Q3OFT_LIBERO_SHA[:8]}"
+    assert kvs[2]["checkpoint"] == f"StarVLA/Qwen3VL-OFT-Bridge-RT-1@{Q3OFT_BRIDGE_SHA[:8]}"
+    assert kvs[0]["checkpoint"] == "from server config@" and kvs[0]["init_states"].startswith("episode i = PRNGKey")
+    card = yaml.safe_load((tmp_path / "vlaeval_task2_summary.protocol.yaml").read_text())
+    assert {"repo": "Qwen/Qwen3-VL-4B-Instruct", "revision": QWEN3VL_SHA} in card["checkpoints"]
+    assert {"repo": "kernels-community/flash-attn2", "revision": FLASH_SHA} in card["checkpoints"]
+
+
+def test_deploy_prints_a_time_estimate_for_the_4c_sets():
+    src = (ROOT / "deploy.py").read_text()
+    assert ('args.task_set in ("kinetix-rtc-600", "molmospaces-50", "libero-starvla-oft",\n'
+            '                                                         "simpler-starvla-oft", "batch-4c")') in src

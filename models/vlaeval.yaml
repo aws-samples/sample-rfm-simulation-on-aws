@@ -394,6 +394,42 @@ vlaeval:
         - *flash_attn2_cu128
       license: "starVLA code MIT; checkpoint: no license stated [unverified]; base Qwen/Qwen2.5-VL-3B-Instruct: card license qwen-research (Qwen Research License, non-commercial); FAST tokenizer Apache-2.0"
       published: "SimplerEnv WidowX VM 64.6 % (harness reproduction, 4 tasks x 24 episodes) / 58.6 % (reported)"
+    # Bundle 4C: starVLA Qwen3-VL OFT (QwenOFT: Qwen3-VL-4B + an MLP regression head), same starvla.py and the same
+    # offline handoff as the 4B starVLA servers. Both checkpoints name the same base VLM (config.yaml base_vlm
+    # .../Qwen3-VL-4B-Instruct -> starvla.py:280 Qwen/Qwen3-VL-4B-Instruct), pinned at the revision of
+    # starvla-q3groot-simpler (one refs/main per repo in the shared cache), and get the same flash-attn2 variant:
+    # `uv lock --script starvla.py` with torch<2.11 still resolves torch 2.10.0 + CUDA 12.8, transformers 4.57.6,
+    # kernels 0.12.3, huggingface-hub 0.36.2 (re-measured locally 2026-11-10). Pins read from the HF API on 2026-11-10;
+    # the weights of both repos are unchanged since their upload (the 2026-09-04 commits only rewrote the model cards).
+    starvla-q3oft-libero:
+      config: "configs/model_servers/starvla/libero_qwen3_oft.yaml"   # chunk_size 1, unnorm_type minmax, wrist image
+      checkpoint_arg: checkpoint
+      hf_repo: "StarVLA/Qwen3-VL-OFT-LIBERO-4in1"         # the config's own checkpoint; ungated (HF API 2026-11-10)
+      hf_model_revision: "39177146f142f8805d86fcc29d2a17c2228e6073"   # = main (2026-09-04), 9.79 GB
+      checkpoint_marker: "checkpoints/steps_50000_pytorch_model.pt"   # the one .pt _resolve_checkpoint picks; no config.json
+      checkpoint_pass: repo_id
+      hf_offline_repos:
+        # config.yaml base_vlm playground/Pretrained_models/Qwen3-VL-4B-Instruct (two "/": a local path) -> starvla.py:280
+        - &qwen3vl_4b {repo: "Qwen/Qwen3-VL-4B-Instruct", revision: "ebb281ec70b05090aa6165b016eac8ec08e71b17",
+                       license: "Apache-2.0"}
+        - *flash_attn2_cu128
+      license: "starVLA code MIT; checkpoint: no license stated on its card (base Qwen3-VL-4B-Instruct Apache-2.0; LIBERO data MIT) [unverified]; flash-attn2 kernel BSD-3-Clause"
+      published: "LIBERO-Spatial 96.8 % (harness reproduction, 500 episodes) / 97.8 % (author README)"
+    starvla-q3oft-simpler:
+      config: "configs/model_servers/starvla/oft_qwen3_simpler.yaml"   # chunk_size 1, adaptive ensemble 7 / 0.1
+      checkpoint_arg: checkpoint
+      hf_repo: "StarVLA/Qwen3VL-OFT-Bridge-RT-1"          # the config's own checkpoint; ungated (HF API 2026-11-10)
+      hf_model_revision: "1c814bc494cd95c844535fffed2a890838651dd6"   # = main (2026-09-04), 9.80 GB with 16 author eval logs
+      checkpoint_marker: "checkpoints/steps_5000_pytorch_model.pt"    # the one .pt of checkpoints/ (the rest are .log files)
+      checkpoint_pass: repo_id
+      hf_offline_repos:
+        # config.yaml base_vlm /mnt/petrelfs/.../Qwen3-VL-4B-Instruct (absolute, not on this host) -> starvla.py:280
+        - *qwen3vl_4b
+        - *flash_attn2_cu128
+      # Its card (2026-09-04): "This early 5K checkpoint is retained for diagnosis and SimplerEnv research while a
+      # corrected release is pending ... Expected performance of the current bytes is unknown."
+      license: "starVLA code MIT; checkpoint: no license stated (its card asks for maintainer confirmation; Qwen3-VL Apache-2.0 and the Bridge / RT-1 dataset terms apply) [unverified]; flash-attn2 kernel BSD-3-Clause"
+      published: "SimplerEnv WidowX VM 20.8 % (harness run, 4 tasks x 24 episodes, marked not reproduced: environment issue) / 42.7 % (reported)"
   # Values written into every rendered eval config (all documented harness config keys).
   run:
     server_timeout: 900     # cold first episode warmed up for 216 s; the harness default of 30 s fails it
@@ -756,6 +792,99 @@ task_sets:
     tasks: [*dbc_widowx_stack, *dbc_widowx_carrot, *dbc_widowx_spoon, *dbc_widowx_eggplant,
             *groot_widowx_stack, *groot_widowx_carrot, *groot_widowx_spoon, *groot_widowx_eggplant,
             *fast_widowx_stack, *fast_widowx_carrot, *fast_widowx_spoon, *fast_widowx_eggplant]
+  # Bundle 4C: the batch A / B smoke pairs scaled up to sizes that can be compared with the harness's reproductions,
+  # and starVLA Qwen3-VL OFT on LIBERO-Spatial and on SimplerEnv WidowX VM. reference = the harness's own number
+  # (vla-evaluation-harness v0.9.0 docs/reproductions/*.md). Rendered and unit-tested; not yet run on AWS: every time
+  # below is an estimate (the per-episode rates come from the measured batch A / B / 4B runs where there is one).
+  kinetix-rtc-600:
+    description: "Kinetix, all 12 RTC levels x 50 rollouts (600), RTC sync d=0 s=1"
+    tasks:
+      # configs/benchmarks/kinetix/eval.yaml params with 50 instead of 2048 rollouts per level, all 12 levels (no
+      # max_tasks) and configs/model_servers/rtc/rtc.yaml as is (_base.yaml: delay 0, horizon 1, latency steps =
+      # the row "rtc d=0" of the harness's sync arm C). One vla-eval run over the 12 levels gives one k / n with 50
+      # episodes per level, i.e. the 12-level mean the reference is (no group needed: it is one entry). Batch A
+      # measured ~1 s per rollout plus ~12 s per level to build its env (19/20 in 154 s, 4 levels).
+      - &kinetix_rtc_600
+        suite: kinetix_rtc
+        benchmark: kinetix
+        model_server: rtc-kinetix
+        episodes_per_task: 50
+        seed: 0
+        params: {observation_type: symbolic, max_episode_steps: 256, rtc_worlds_dir: /app/rtc/worlds,
+                 action_noise_std: 0.1}
+        matrix_row: "vlaeval:rtc-kinetix"
+        eval_timeout: 3600          # ~10-25 min expected; the default WaitCondition (120 min) holds setup + this cap
+        description: "Kinetix, 12 RTC levels x 50 rollouts (RTC sync d=0 s=1 through vla-eval)"
+        published: "0.963 (harness sync arm C, rtc d=0, 2046 rollouts x 12 levels; v3 success metric) / 0.922 (paper Fig. 5, official metric)"
+        reference: {value: 0.963, n: 24552, metric: success, source: "docs/reproductions/rtc.md:120"}
+  molmospaces-50:
+    description: "MolmoSpaces-Bench pick-and-place, 50 of 200 episodes, MolmoBot-DROID"
+    # batch B measured ~356 s per 600-step episode on g6e.4xlarge (4 episodes in 1454 s of evaluation, every episode
+    # runs to the 600-step horizon): 50 episodes ~5 h. eval_timeout 6 h, WaitCondition 8 h (estimates)
+    instance: {creationpolicy_timeout: PT480M}
+    tasks:
+      - &molmospaces_50
+        <<: *molmospaces
+        max_tasks: 50
+        eval_timeout: 21600
+        matrix_row: "vlaeval:molmobot-droid"
+        description: "MolmoSpaces pick-and-place, first 50 of the 200 episodes (MolmoBot-DROID through vla-eval)"
+        published: "57.0 % (harness reproduction, 114/200 episodes) / 57.7 % (paper); the first 50 episodes are a subset"
+        reference: {value: 0.570, n: 200, metric: success, source: "docs/reproductions/molmobot.md:36"}
+  libero-starvla-oft:
+    description: "LIBERO-Spatial 10 tasks x 5 episodes (50), starVLA Qwen3-VL OFT (LIBERO 4-in-1 checkpoint)"
+    # chunk_size 1: one Qwen3-VL-4B forward pass per step (5.9 obs/s on an H100 per the harness,
+    # docs/reproductions/running-guide.md:78; the 4B FAST run gave ~0.4x the harness's H100 rate on our L40S)
+    instance: {creationpolicy_timeout: PT180M}
+    tasks:
+      - &q3oft_spatial
+        <<: *spatial
+        model_server: starvla-q3oft-libero
+        eval_timeout: 7200          # 50 x <= 230 steps at ~2-4 obs/s: ~30-75 min (estimate)
+        matrix_row: "vlaeval:starvla-q3oft-libero"
+        description: "LIBERO-Spatial, 10 tasks x 5 episodes (starVLA Qwen3-OFT through vla-eval)"
+        published: "96.8 % (harness reproduction, 500 episodes) / 97.8 % (author README)"
+        reference: {value: 0.968, n: 500, metric: success, source: "docs/reproductions/starvla.md:40"}
+  simpler-starvla-oft:
+    description: "SimplerEnv WidowX VM 4 tasks x 24 episodes (96), starVLA Qwen3-VL OFT (negative control)"
+    # The harness got 20.8 % here and marks it "Not reproduced (env issue)" against the reported 42.7 %
+    # (starvla.md:14, :91-95): its reference is the harness's own measured value, so this set checks that our
+    # SimplerEnv behaves like the harness's (a match at ~21 % is the expected outcome), not that the model works.
+    instance: {creationpolicy_timeout: PT360M}   # ~30 min setup + 4 eval_timeout caps; ~1.7-2.2 h expected (estimate)
+    tasks:
+      - &q3oft_widowx_stack
+        suite: stack_green_cube
+        benchmark: simpler
+        model_server: starvla-q3oft-simpler
+        episodes_per_task: 24
+        seed: 0                     # not passed (seed_param null): deterministic episodes
+        params: {task_name: widowx_stack_cube}
+        group: simpler_widowx_vm
+        group_size: 4               # widowx_vm.yaml: the reference averages 4 tasks
+        matrix_row: "vlaeval:starvla-q3oft-simpler"
+        eval_timeout: 4800          # 24 x 120 steps (truncation) at ~2-4 obs/s: ~15-30 min expected (estimate)
+        description: "SimplerEnv WidowX VM, stack the green cube on the yellow cube, 24 episodes (starVLA Qwen3-OFT through vla-eval)"
+        published: "per task: not in the harness report; group: 20.8 % over 96 (harness, not reproduced: environment issue)"
+        reference: {value: 0.208, n: 96, metric: success, source: "docs/reproductions/starvla.md:14"}
+      - &q3oft_widowx_carrot
+        {<<: *q3oft_widowx_stack, suite: put_carrot_on_plate, params: {task_name: widowx_carrot_on_plate},
+         description: "SimplerEnv WidowX VM, put the carrot on the plate, 24 episodes (starVLA Qwen3-OFT through vla-eval)"}
+      - &q3oft_widowx_spoon
+        {<<: *q3oft_widowx_stack, suite: put_spoon_on_tablecloth, params: {task_name: widowx_spoon_on_towel},
+         description: "SimplerEnv WidowX VM, put the spoon on the towel, 24 episodes (starVLA Qwen3-OFT through vla-eval)"}
+      - &q3oft_widowx_eggplant
+        {<<: *q3oft_widowx_stack, suite: put_eggplant_in_basket, params: {task_name: widowx_put_eggplant_in_basket},
+         description: "SimplerEnv WidowX VM, put the eggplant in the basket, 24 episodes (starVLA Qwen3-OFT through vla-eval)"}
+  batch-4c:
+    description: "Bundle 4C on one instance: RTC x Kinetix 600, starVLA Qwen3-OFT on LIBERO-Spatial and WidowX, MolmoBot x MolmoSpaces 50"
+    # four images (kinetix 5.50 + libero 8.84 + simpler 2.54 + molmospaces 12.32 GB compressed, ~50-60 GB unpacked) +
+    # HF downloads 9.79 + 9.80 (OFT) + 8.89 (Qwen3-VL-4B) + 1.04 (kernel) + 19.99 GB (MolmoBot) = 49.5 GB + three server
+    # envs (RTC JAX, starVLA, MolmoBot) ~ 130-150 GB (estimate): 350 GB as batch-c. ~8.5-9.5 h end to end (estimate);
+    # shortest first, MolmoBot (~5 h) last, so a timeout late in the run still leaves the other results in S3
+    instance: {ebs_gb: 350, creationpolicy_timeout: PT660M}
+    tasks: [*kinetix_rtc_600, *q3oft_spatial,
+            *q3oft_widowx_stack, *q3oft_widowx_carrot, *q3oft_widowx_spoon, *q3oft_widowx_eggplant,
+            *molmospaces_50]
 
 bridge:
   enabled: false

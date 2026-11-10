@@ -1582,7 +1582,8 @@ STUB_4A = STUB_MULTI.replace('if [ "$1" = serve ]; then\n',
                              '    case "$3" in *pi0/libero.yaml) d=pi05_libero ;; *pi0/libero_fast.yaml) d=pi0_fast_libero ;; '
                              '*) d="" ;; esac\n'
                              '    if [ -n "$d" ]; then d="$STUB_OPENPI/openpi-assets/checkpoints/$d"; mkdir -p "$d/params"; '
-                             'printf abc > "$d/params/_METADATA"; : > "$d/params/x.lock"; fi\n')
+                             'printf abc > "$d/params/_METADATA"; : > "$d/params/x.lock"; fi\n'
+                             '    : > "$CALLS.ready"\n')   # health is ready only after the lines above are written
 STUB_SHELL_4A = """uv() { echo "UV CALLED $*" >> "$CALLS"; return 99; }
 docker() { echo "DOCKER CALLED $*" >> "$CALLS"; return 99; }
 timeout() {
@@ -1616,7 +1617,8 @@ def _batch_4a_loop(tmp_path, task_set="batch-4a"):
     script = script.replace('CURRENT_SERVER=""\nstart_server()', prov_fn + 'CURRENT_SERVER=""\nstart_server()', 1)
     script = script.replace("/root/.cache/openpi", str(openpi))
     script = script.replace("curl() { return 0; }",
-                            'curl() { [ -n "$SERVER_PID" ] && kill -0 "$SERVER_PID" 2>/dev/null; }\n' + STUB_SHELL_4A)
+                            'curl() { [ -n "$SERVER_PID" ] && kill -0 "$SERVER_PID" 2>/dev/null && [ -e "$CALLS.ready" ] '
+                            '&& rm -f "$CALLS.ready"; }\n' + STUB_SHELL_4A)
     return script, {"PATH": os.environ["PATH"], "HOME": str(tmp_path), "NO_VIDEO_BENCH": "", "STUB_OPENPI": str(openpi)}
 
 

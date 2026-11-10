@@ -671,6 +671,7 @@ task_sets:
         seed: 0                     # not passed (seed_param null): deterministic episodes
         params: {task_name: widowx_stack_cube}
         group: simpler_widowx_vm
+        group_size: 4               # widowx_vm.yaml: the reference averages 4 tasks
         matrix_row: "vlaeval:db-cogact-simpler"
         description: "SimplerEnv WidowX VM, stack the green cube on the yellow cube, 24 episodes (DB-CogACT through vla-eval)"
         published: "41.7 % (harness reproduction, 24 episodes, dexbotic.md:70); group: 63.5 % over 96"
@@ -699,6 +700,7 @@ task_sets:
         seed: 0                     # not passed (seed_param null): deterministic episodes
         params: {task_name: widowx_stack_cube}
         group: simpler_widowx_vm
+        group_size: 4               # widowx_vm.yaml: the reference averages 4 tasks
         matrix_row: "vlaeval:starvla-q3groot-simpler"
         description: "SimplerEnv WidowX VM, stack the green cube on the yellow cube, 24 episodes (starVLA Qwen3-GR00T through vla-eval)"
         published: "25.0 % (harness reproduction, 24 episodes, starvla.md:59); group: 66.7 % over 96"
@@ -727,6 +729,7 @@ task_sets:
         seed: 0                     # not passed (seed_param null): deterministic episodes
         params: {task_name: widowx_stack_cube}
         group: simpler_widowx_vm
+        group_size: 4               # widowx_vm.yaml: the reference averages 4 tasks
         matrix_row: "vlaeval:starvla-q25fast-simpler"
         eval_timeout: 7200          # 6 x 120 steps at ~1-2.5 s per step (estimate; H100 latency 2.9 s at 4 clients)
         description: "SimplerEnv WidowX VM, stack the green cube on the yellow cube, 6 episodes (starVLA Qwen2.5-FAST through vla-eval)"

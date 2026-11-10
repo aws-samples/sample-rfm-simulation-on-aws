@@ -1748,7 +1748,7 @@ _VLAEVAL_IMAGE_RE = re.compile(r"^[a-z0-9][a-z0-9.-]*(:[0-9]+)?(/[a-z0-9][a-z0-9
 _VLAEVAL_CONFIG_RE = re.compile(r"^configs/model_servers/[A-Za-z0-9_./-]+\.ya?ml$")
 _VLAEVAL_TASK_KEYS = {"suite", "benchmark", "model_server", "episodes_per_task", "seed", "max_tasks", "max_steps",
                       "params", "action_type", "description", "published", "condition", "kind",
-                      "reference", "eval_timeout", "matrix_row", "group"}
+                      "reference", "eval_timeout", "matrix_row", "group", "group_size"}
 # reference: {value, n, metric, source} = the score this entry is compared with (`vlasim results --matrix`: diff,
 # Newcombe 95% CI of the difference, harness legend verdict). source = <file>:<line> of the harness checkout.
 _VLAEVAL_REF_KEYS = {"value", "n", "metric", "source"}
@@ -1760,7 +1760,9 @@ _VLAEVAL_ROW_RE = re.compile(r"^[a-z0-9][a-z0-9_.:-]{0,63}$")
 VLAEVAL_EVAL_TIMEOUT = 5400   # default cap of one `vla-eval run` (s); eval_timeout overrides it per entry
 # group: entries of one model server (same matrix_row) that the harness reports as one score (SimplerEnv WidowX:
 # 4 tasks x 24 episodes, docs/reproductions/*.md "Average" rows): `vlasim results --matrix` pools their k / n into
-# one cell (episode-weighted) and checks that all `task_group_size` tasks are there before it compares a reference
+# one cell (episode-weighted) and checks that all `task_group_size` tasks are there before it compares a reference.
+# group_size = the number of tasks the reference averages over, written by hand: a set that selects only some of them
+# keeps the full size, so its cell stays "incomplete" instead of being compared with the full-benchmark reference
 _VLAEVAL_GROUP_RE = re.compile(r"^[a-z0-9][a-z0-9_]{0,63}$")
 # provenance_paths: files / dirs a server fetches outside the Hugging Face cache (openpi gs:// checkpoints)
 _VLAEVAL_ABS_PATH_RE = re.compile(r"^/[A-Za-z0-9_./-]{1,255}$")
@@ -2027,6 +2029,10 @@ def vlaeval_plan(config: dict, vla: str = "vlaeval") -> tuple:
             if row is None:
                 # without a row the groups of two servers of one target would pool into one cell
                 raise ValueError(f"{where}.group needs matrix_row (one matrix row per model server)")
+            if _vlaeval_int(t.get("group_size"), f"{where}.group_size", 1) > 64:
+                raise ValueError(f"{where}.group_size must be 1..64 (the tasks the group's reference averages over)")
+        elif t.get("group_size") is not None:
+            raise ValueError(f"{where}.group_size needs group")
         if t.get("eval_timeout") is not None and (echo or _vlaeval_int(t["eval_timeout"], f"{where}.eval_timeout",
                                                                          600) > 86400):
             raise ValueError(f"{where}.eval_timeout must be seconds in 600..86400 (not on an echo task)")
@@ -2087,7 +2093,7 @@ def vlaeval_plan(config: dict, vla: str = "vlaeval") -> tuple:
         if t.get("eval_timeout") is not None:
             out[-1]["eval_timeout"] = t["eval_timeout"]
         if group is not None:
-            out[-1]["_group"] = (group, row, t["benchmark"], t["model_server"], cond, suite, ref, i)
+            out[-1]["_group"] = (group, row, t["benchmark"], t["model_server"], cond, suite, ref, i, t["group_size"])
     # a group = the entries of one (group, matrix_row): one benchmark, server, condition and reference, distinct suites
     members = {}
     for o in out:
@@ -2102,10 +2108,15 @@ def vlaeval_plan(config: dict, vla: str = "vlaeval") -> tuple:
                                  f"tasks[{first[7]}]")
             if m[6] != first[6]:
                 raise ValueError(f"{w}: every entry of a group has the same reference (the group's score)")
+            if m[8] != first[8]:
+                raise ValueError(f"{w}: every entry of a group has the same group_size")
         if len({m[5] for m in ms}) != len(ms):
             raise ValueError(f"models/{vla}.yaml group {group!r} (matrix_row {row}): a suite appears twice")
+        if len(ms) > first[8]:
+            raise ValueError(f"models/{vla}.yaml group {group!r} (matrix_row {row}): {len(ms)} entries but "
+                             f"group_size {first[8]}")
         for m in ms:
-            out[m[7]]["extra_meta"] += [f"task_group={group}", f"task_group_size={len(ms)}"]
+            out[m[7]]["extra_meta"] += [f"task_group={group}", f"task_group_size={first[8]}"]
     bench_list = [dict(name=n, image=f"{benches[n]['image']}@{benches[n]['image_digest']}",
                        simulator=str(benches[n].get("simulator") or n)) for n in used_b]
     server_list = []

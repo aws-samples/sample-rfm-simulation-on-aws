@@ -1916,18 +1916,52 @@ def test_group_on_an_echo_task_is_rejected():
 
 
 def test_group_size_counts_the_entries_of_one_server():
-    # batch-4b: three groups of the same name, one per matrix row: 4 entries each; a set with two of the four
-    # tasks of a server is a group of 2; the same group name on another server's row is its own group
+    # batch-4b: three groups of the same name, one per matrix row: 4 entries each. The size is the yaml's
+    # group_size (the tasks the reference averages over), not the count of selected entries: a set with two of the
+    # four tasks of a server still writes 4, so `results --matrix` reports it incomplete (2/4) instead of comparing
+    # it with the 4-task reference; the same group name on another server's row is its own group
     tasks = generate.vlaeval_plan(_set("batch-4b"))[2]
     assert [t["extra_meta"][-1] for t in tasks] == ["task_group_size=4"] * 12
     cfg = copy.deepcopy(_set("simpler-dbcogact"))
     cfg["tasks"] = cfg["tasks"][:2]
-    assert [t["extra_meta"][-1] for t in generate.vlaeval_plan(cfg)[2]] == ["task_group_size=2"] * 2
+    assert [t["extra_meta"][-1] for t in generate.vlaeval_plan(cfg)[2]] == ["task_group_size=4"] * 2
     cfg = copy.deepcopy(_set("batch-4b"))
     cfg["tasks"] = [dict(cfg["tasks"][0]), dict(cfg["tasks"][5], matrix_row="vlaeval:other")]
-    assert [t["extra_meta"][-1] for t in generate.vlaeval_plan(cfg)[2]] == ["task_group_size=1"] * 2
+    assert [t["extra_meta"][-1] for t in generate.vlaeval_plan(cfg)[2]] == ["task_group_size=4"] * 2
     # entries without a group get no group lines (default and 4A tasks unchanged)
     assert not any("task_group" in m for t in generate.vlaeval_plan(_set("batch-4a"))[2] for m in t["extra_meta"])
+
+
+@pytest.mark.parametrize("edit, msg", [
+    (lambda ts: ts[0].pop("group_size"), "group_size must be an integer"),
+    (lambda ts: ts[0].update(group_size=0), "group_size must be an integer"),
+    (lambda ts: ts[0].update(group_size=65), "group_size must be 1..64"),
+    (lambda ts: ts[1].update(group_size=5), "same group_size"),
+    (lambda ts: [t.update(group_size=3) for t in ts], "4 entries but group_size 3"),
+    (lambda ts: ts[0].pop("group"), "group_size needs group"),
+])
+def test_group_size_is_validated(edit, msg):
+    cfg = copy.deepcopy(_set("simpler-dbcogact"))
+    cfg["tasks"] = [dict(t) for t in cfg["tasks"]]
+    edit(cfg["tasks"])
+    with pytest.raises(ValueError, match=msg):
+        generate.vlaeval_plan(cfg)
+
+
+def test_subset_of_a_group_stays_incomplete_in_the_matrix(tmp_path):
+    # end to end: the first two WidowX tasks of simpler-dbcogact, both finished, are not compared with the 4-task
+    # reference (a size taken from the selection would have made the group complete and printed a verdict)
+    cfg = copy.deepcopy(_set("simpler-dbcogact"))
+    cfg["tasks"] = cfg["tasks"][:2]
+    plan = generate.vlaeval_plan(cfg)[2]
+    files = {}
+    for i, t in enumerate(plan):
+        meta = "".join(m.replace("=", ": ", 1) + "\n" for m in t["extra_meta"])
+        files[f"R/task-{i}/summary.txt"] = (f"suite: {t['suite']}\ncondition: S0\nn_success: 12\nn_episodes: 24\n"
+                                            f"success_rate: 0.5\n{meta}")
+    s3 = FakeS3({BUCKET: files})
+    rows = [results.task_row(s3, "us-east-1", BUCKET, "R", f"R/task-{i}/") for i in range(len(plan))]
+    assert {(r["task_group"], r["task_group_size"]) for r in rows} == {("simpler_widowx_vm", 4)}
 
 
 def test_results_reads_the_task_group(tmp_path):

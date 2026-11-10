@@ -650,3 +650,45 @@ def test_matrix_without_task_groups_is_unchanged(data):
     d = lb.build(lb.select_cells(runs, targets=TARGETS_FX))
     assert not any("task_group" in c for c in d["cells"])
     assert "§" not in lb.render_markdown(d)
+
+
+# --- bundle 4C references: a single entry over many levels / episodes, and a negative-control group ---------------
+
+def _single(objs, row, suite, k, n, ref, src, task, run="2026-11-12-0100"):
+    put(objs, "vlaeval-demo", run, f"task-{task}/summary.txt",
+        summary(model=row.split(":")[1], suite=suite, condition="S0", n_success=k, n_episodes=n, success_rate=k / n,
+                stack_vla_eval_version="0.9.0", matrix_row=row, reference_value=ref[0], reference_n=ref[1],
+                reference_metric="success", reference_source=src), 30 + task)
+    return objs
+
+
+@pytest.mark.parametrize("k,verdict", [(578, "within 95% CI"), (565, "outside CI, <=5pp"),
+                                       (540, "outside CI, >5pp")])
+def test_kinetix_600_is_one_cell_compared_with_the_12_level_reference(k, verdict):
+    # kinetix-rtc-600: one entry, 12 levels x 50 = one k / n against rtc.md:120 (0.963 over 2046 x 12)
+    o = _single(fixture_objects(), "vlaeval:rtc-kinetix", "kinetix_rtc", k, 600, ("0.963", 24552),
+                "docs/reproductions/rtc.md:120", 0)
+    cell = by_cell(_cells(o))[("vlaeval:rtc-kinetix", "kinetix_rtc")]
+    r = cell["reference"]
+    assert (cell["n"], r["k"], r["verdict"]) == (600, round(0.963 * 24552), verdict) and "task_group" not in cell
+    # 600 episodes near 0.96: the 95% CI of the difference is about +-1.5pp (the plan's +-2pp test)
+    if k == 578:
+        assert r["ci95_hi_pp"] - r["ci95_lo_pp"] < 3.6
+
+
+def test_molmospaces_50_against_the_200_episode_reproduction():
+    o = _single(fixture_objects(), "vlaeval:molmobot-droid", "molmospaces_pick_and_place", 25, 50, ("0.57", 200),
+                "docs/reproductions/molmobot.md:36", 0)
+    r = by_cell(_cells(o))[("vlaeval:molmobot-droid", "molmospaces_pick_and_place")]["reference"]
+    assert (r["k"], r["verdict"]) == (114, "within 95% CI") and round(r["diff_pp"], 1) == -7.0
+
+
+@pytest.mark.parametrize("per_task,verdict", [([(2, 24), (4, 24), (8, 24), (6, 24)], "within 95% CI"),
+                                              ([(5, 24), (10, 24), (13, 24), (13, 24)], "outside CI, >5pp")])
+def test_q3oft_widowx_negative_control(per_task, verdict):
+    # simpler-starvla-oft: the reference is the harness's own 20.8 % (marked not reproduced); 20/96 = the harness's
+    # environment, 41/96 (the reported 42.7 %) is outside the CI of the harness's run
+    o = _widowx_objects(per_task, row="vlaeval:starvla-q3oft-simpler", ref=("0.208", 96))
+    cell = by_cell(_cells(o))[("vlaeval:starvla-q3oft-simpler", "SimplerEnv-Bridge")]
+    assert cell["task_group"]["complete"] and cell["reference"]["k"] == 20
+    assert cell["reference"]["verdict"] == verdict

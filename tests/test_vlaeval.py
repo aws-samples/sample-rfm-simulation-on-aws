@@ -2462,7 +2462,12 @@ def test_molmospaces_10_render_fetches_checks_and_mounts_the_json(tmp_path):
             f'"https://huggingface.co/datasets/allenai/molmospaces/resolve/{MS_BENCH_REV}/') in text
     assert ('echo "ae3094b9127b719384d5953fc519712f723a221041bf84a7dc4287f7db881a12  /home/ubuntu/msbench/.shard.tar"'
             ' | sha256sum -c --quiet -') in text
-    assert f'"{MS_BENCH_DIR}/"' in text and "zstd -dc" in text and "--no-same-owner" in text
+    # only the declared files, no owner/mode bits from the archive, each a regular file, modes reset
+    assert (f'"{MS_BENCH_DIR}/benchmark.json" "{MS_BENCH_DIR}/benchmark_metadata.json"' in text
+            and f'"{MS_BENCH_DIR}/"' not in text)
+    assert "zstd -dc" in text and "--no-same-owner --no-same-permissions" in text
+    assert f'[ ! -L "/home/ubuntu/msbench/{MS_BENCH_DIR}/benchmark.json" ]' in text
+    assert "-type f -exec chmod 0644" in text and "chmod -R a+rX" not in text
     assert f"{MS_BENCH_JSON_SHA}  benchmark.json\n" in text
     assert "06ee2448935862b92f1663c4c68ae4028203447fb5f8a78e9d0aa8c98c7aea94  benchmark_metadata.json\n" in text
     assert 'rm -f "/home/ubuntu/msbench/.shard.tar"' in text
@@ -2495,6 +2500,10 @@ def _fake_shard(tmp_path, json_bytes=b'[{"x": 1}]', meta_bytes=b"{}"):
     (src / MS_BENCH_DIR / "benchmark.json").write_bytes(json_bytes)
     (src / MS_BENCH_DIR / "benchmark_metadata.json").write_bytes(meta_bytes)
     (src / "procthor-objaverse" / "other.json").write_text("not extracted")
+    helper = src / MS_BENCH_DIR / "helper"                       # an undeclared setuid entry in the same directory
+    helper.write_text("#!/bin/sh\n")
+    helper.chmod(0o4755)
+    (src / MS_BENCH_DIR / "benchmark.json").chmod(0o4755)        # mode bits in the archive are not kept
     inner = tmp_path / "molmospaces-bench-v2_procthor-objaverse.tar.zst"
     subprocess.run(f"tar -C {src} -cf - procthor-objaverse | zstd -q -o {inner}", shell=True, check=True)
     shard = tmp_path / "shard.tar"
@@ -2533,6 +2542,8 @@ def test_host_data_step_extracts_only_the_directory_and_checks_every_hash(tmp_pa
     assert proc.returncode == 0 and "DONE" in proc.stdout, proc.stdout + proc.stderr
     assert (dest / MS_BENCH_DIR / "benchmark.json").read_bytes() == b'[{"x": 1}]'
     assert not (dest / "procthor-objaverse" / "other.json").exists()       # only the benchmark directory
+    assert not (dest / MS_BENCH_DIR / "helper").exists()                   # only the declared files
+    assert (dest / MS_BENCH_DIR / "benchmark.json").stat().st_mode & 0o7777 == 0o644
     assert not (dest / ".shard.tar").exists()                                # the 525 MB tar is removed
     assert "verified (2 file(s))" in proc.stdout
 

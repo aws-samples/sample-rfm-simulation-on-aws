@@ -325,16 +325,21 @@ for _i in 1 2 3; do
 done
 echo "{{ d.sha256 }}  {{ d.dest }}/.shard.tar" | sha256sum -c --quiet - \
     || die "{{ b.name }}: sha256 of {{ d.url }} is not {{ d.sha256 }}"
+# only the declared files (no links, devices or other entries), without owner or mode bits from the archive
 tar -xOf "{{ d.dest }}/.shard.tar" "{{ d.member }}" | zstd -dc \
-    | tar -x --no-same-owner -C "{{ d.dest }}" "{{ d.extract }}/" \
+    | tar -x --no-same-owner --no-same-permissions -C "{{ d.dest }}"{% for f in d.verify %} "{{ d.extract }}/{{ f }}"{% endfor %} \
     || die "{{ b.name }}: extracting {{ d.extract }} from {{ d.member }} failed"
+{%- for f in d.verify %}
+{ [ -f "{{ d.dest }}/{{ d.extract }}/{{ f }}" ] && [ ! -L "{{ d.dest }}/{{ d.extract }}/{{ f }}" ]; } \
+    || die "{{ b.name }}: {{ d.extract }}/{{ f }} is not a regular file"
+{%- endfor %}
 rm -f "{{ d.dest }}/.shard.tar"
 (cd "{{ d.dest }}/{{ d.extract }}" && sha256sum -c --quiet -) << 'SHAEOF' || die "{{ b.name }}: sha256 check of the extracted {{ d.label }} files failed"
 {%- for f, h in d.verify.items() %}
 {{ h }}  {{ f }}
 {%- endfor %}
 SHAEOF
-chmod -R a+rX "{{ d.dest }}"
+find "{{ d.dest }}" -type d -exec chmod 0755 {} + && find "{{ d.dest }}" -type f -exec chmod 0644 {} +
 log "  {{ b.name }}: {{ d.label }} verified ({{ d.verify|length }} file(s)), mounted read-only into the benchmark container"
 {%- endfor %}
 {%- endif %}

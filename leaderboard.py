@@ -45,6 +45,7 @@ SUITE_LABELS = {
     "libero_sim": "LIBERO scenes (GR00T)",
     "simpler_bridge": "SimplerEnv-Bridge",
     "simpler_env_widowx": "SimplerEnv-Bridge",
+    "simpler_widowx_vm": "SimplerEnv-Bridge",   # vlaeval group of the 4 WidowX VM tasks (widowx_vm.yaml)
     "simpler_google": "SimplerEnv-Google",
     "simpler_env_google": "SimplerEnv-Google",
     "robocasa_kitchen": "RoboCasa-Kitchen",
@@ -333,10 +334,14 @@ def run_groups(run, targets=None):
     for t in run["tasks"]:
         if t["status"] != "done":
             continue
-        col = benchmark_label(t["suite"], t["condition"])
+        grp = t.get("task_group")
+        # task_group (vlaeval group): the tasks of one group are one column, labelled by the group name
+        col = benchmark_label(grp or t["suite"], t["condition"])
         # matrix_row (vlaeval): several model servers of one target in one column stay separate rows
-        g = groups.setdefault((col, t["condition"], t.get("matrix_row")),
+        g = groups.setdefault((col, t["condition"], t.get("matrix_row"), grp),
                               dict(k=0, n=0, rates=[], tasks=[], kvs=[], suites=[]))
+        if grp:
+            g.setdefault("task_group", dict(name=grp, sizes=set()))["sizes"].add(t.get("task_group_size"))
         g["suites"].append(t["suite"])
         g["tasks"].append(t)
         g["kvs"].append(t["kv"])
@@ -346,10 +351,12 @@ def run_groups(run, targets=None):
         else:
             g["rates"].append(t["rate"])
     out = []
-    for (col, cond, mrow), g in groups.items():
+    for (col, cond, mrow, grp), g in groups.items():
         model = next((kv.get("model") for kv in g["kvs"] if kv.get("model")), None)
         suites = sorted(set(g["suites"]))
         suite = suites[0] if len(suites) == 1 else f"{suites[0].split('/', 1)[0]}/* ({len(suites)})"
+        if grp:
+            suite = f"{grp} ({len(suites)} tasks)"
         out.append(dict(g, suite=suite, condition=cond, run=run, target=mrow or target_of(run["stack"], model, targets),
                         column=col, baseline=is_baseline(cond, suites[0]), fp=fingerprint(g["kvs"])))
     return out
@@ -572,6 +579,19 @@ def reference_of(groups):
     return dict(value=v, n=nn, metric=metric or "success", source=source)
 
 
+def task_group_of(groups):
+    """{name, tasks, size, complete} of a cell made of one vlaeval task group per run, else None. tasks = distinct
+    suites that finished; complete = every run of the cell has all task_group_size tasks of its group."""
+    tgs = [g.get("task_group") for g in groups]
+    if not any(tgs):
+        return None
+    sizes = {s for tg in tgs if tg for s in tg["sizes"]}
+    size = sizes.pop() if len(sizes) == 1 else None
+    per_run = [len(set(g["suites"])) for g in groups]
+    complete = all(tgs) and size is not None and size >= 1 and all(n == size for n in per_run)
+    return dict(name=tgs[0]["name"] if tgs[0] else "-", tasks=max(per_run), size=size, complete=complete)
+
+
 def reference_comparison(st, ref):
     """ours - reference: diff in pp, Newcombe 95% CI of the difference, verdict in the harness legend's terms."""
     out = dict(ref, k=round(ref["value"] * ref["n"]))
@@ -625,9 +645,16 @@ def build(cells, with_cost=True):
                    fingerprint=groups[0]["fp"])
         if with_cost:
             rec.update(cell_cost(groups))
+        tg = task_group_of(groups)
+        if tg:  # only for a vlaeval group, so other cells are unchanged
+            rec["task_group"] = tg
         ref = reference_of(groups)
         if ref:  # only when the tasks wrote a reference (vlaeval reference:), so other cells are unchanged
             rec["reference"] = reference_comparison(st, ref)
+            if tg and not tg["complete"]:
+                # the reference is the score of the whole group: a cell missing some of its tasks is not comparable
+                rec["reference"].update(diff_pp=None, ci95_lo_pp=None, ci95_hi_pp=None,
+                                        verdict=f"incomplete group ({tg['tasks']}/{tg['size'] or '?'} tasks)")
         out.append(rec)
     return dict(rows=rows, columns=cols, cells=out, stack_differences=diffs)
 
@@ -650,6 +677,9 @@ def render_markdown(data, with_cost=True, generated=None):
                 cells.append("")
                 continue
             marks = ("†" if rec["stacks_differ"] else "") + ("‡" if rec["no_fingerprint"] else "")
+            if rec.get("task_group"):
+                tg = rec["task_group"]
+                marks += "§" if tg["complete"] else f"§ ({tg['tasks']}/{tg['size'] or '?'} tasks)"
             cells.append(fmt_cell(dict(rate=rec["rate"], k=rec["k"], n=rec["n"], lo=rec["ci95_lo"],
                                        hi=rec["ci95_hi"]), marks))
         lines.append(f"| `{r}` | " + " | ".join(cells) + " |")
@@ -659,6 +689,11 @@ def render_markdown(data, with_cost=True, generated=None):
                  "‡ = no protocol card and no stack fingerprint or condition recorded (older summary; comparability "
                  "unknown). Compare cells only when episode count, init states, "
                  "step cap and chunk execution match.")
+    if any(c.get("task_group") for c in data["cells"]):
+        lines.append("")
+        lines.append("§ = task group: the tasks the reference reports as one score (vlaeval `group`), k and n summed over "
+                     "them (episode-weighted); \"(t/s tasks)\" = only t of its s tasks finished, not compared with the "
+                     "reference.")
     if data["stack_differences"]:
         lines.append("")
         lines.append("Stack differences per column:")

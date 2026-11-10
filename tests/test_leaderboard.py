@@ -543,3 +543,110 @@ def test_matrix_without_references_is_unchanged(data):
     assert not any("reference" in c for c in d["cells"])
     md = lb.render_markdown(d)
     assert "Ours vs reference" not in md and "Newcombe" not in md
+
+
+# --- task group (vlaeval group: -> task_group / task_group_size summary lines) ------------------------------
+
+WIDOWX = ("stack_green_cube", "put_carrot_on_plate", "put_spoon_on_tablecloth", "put_eggplant_in_basket")
+
+
+def _widowx_objects(per_task, row="vlaeval:db-cogact-simpler", run="2026-11-11-0100", ref=("0.635", 96), size=4,
+                    first=0, objs=None, stack="vlaeval-demo", extra=None):
+    """One run of a 4-task SimplerEnv WidowX group: per_task = [(k, n) or None (task did not finish), ...]."""
+    o = fixture_objects() if objs is None else objs
+    for i, kn in enumerate(per_task):
+        if kn is None:
+            continue
+        kv = dict(model=row.split(":")[1], suite=WIDOWX[i], condition="S0", n_success=kn[0], n_episodes=kn[1],
+                  success_rate=kn[0] / kn[1], stack_vla_eval_version="0.9.0", matrix_row=row,
+                  task_group="simpler_widowx_vm", task_group_size=size, **(extra or {}))
+        if ref:
+            kv.update(reference_value=ref[0], reference_n=ref[1], reference_metric="success",
+                      reference_source="docs/reproductions/dexbotic.md:74")
+        put(o, stack, run, f"task-{first + i}/summary.txt", summary(**kv), 30 + i)
+    return o
+
+
+def test_task_group_is_one_cell_with_the_episodes_pooled():
+    # the harness's DB-CogACT reproduction per task: 10/24, 8/24, 20/24, 23/24 = 61/96 (the 63.5 % "Average" row)
+    d = _cells(_widowx_objects([(10, 24), (8, 24), (20, 24), (23, 24)]))
+    c = by_cell(d)
+    cell = c[("vlaeval:db-cogact-simpler", "SimplerEnv-Bridge")]
+    assert (cell["k"], cell["n"]) == (61, 96) and cell["suite"] == "simpler_widowx_vm (4 tasks)"
+    assert cell["task_group"] == dict(name="simpler_widowx_vm", tasks=4, size=4, complete=True)
+    assert not [k for k in c if k[0] == "vlaeval:db-cogact-simpler" and k[1] != "SimplerEnv-Bridge"]
+    r = cell["reference"]
+    assert (r["k"], r["n"], r["verdict"]) == (61, 96, "within 95% CI") and abs(r["diff_pp"]) < 1e-9
+    md = lb.render_markdown(d, with_cost=False)
+    assert "| 0.64 (61/96) [" in md and "]§ |" in md
+    assert "§ = task group: the tasks the reference reports as one score" in md
+    assert "| `vlaeval:db-cogact-simpler` | SimplerEnv-Bridge | 0.635 (61/96) | 0.635 (61/96) | +0.0 |" in md
+
+
+def test_task_group_mean_is_episode_weighted():
+    # 6 + 24 episodes: pooled 21/30 = 0.70, not the mean of the task rates (0.5 + 0.75) / 2 = 0.625
+    d = _cells(_widowx_objects([(3, 6), (18, 24)], size=2))
+    cell = by_cell(d)[("vlaeval:db-cogact-simpler", "SimplerEnv-Bridge")]
+    assert (cell["k"], cell["n"], cell["rate"]) == (21, 30, 0.7) and cell["task_group"]["complete"]
+
+
+def test_incomplete_task_group_is_not_compared_with_the_reference():
+    d = _cells(_widowx_objects([(10, 24), None, (20, 24), (23, 24)]))
+    cell = by_cell(d)[("vlaeval:db-cogact-simpler", "SimplerEnv-Bridge")]
+    assert (cell["k"], cell["n"]) == (53, 72)
+    assert cell["task_group"] == dict(name="simpler_widowx_vm", tasks=3, size=4, complete=False)
+    r = cell["reference"]
+    assert r["verdict"] == "incomplete group (3/4 tasks)"
+    assert (r["diff_pp"], r["ci95_lo_pp"], r["ci95_hi_pp"]) == (None, None, None)
+    md = lb.render_markdown(d, with_cost=False)
+    assert "]§ (3/4 tasks) |" in md and "| - | - | incomplete group (3/4 tasks) |" in md
+
+
+def test_task_group_with_an_unknown_or_mixed_size_is_incomplete():
+    for kw in (dict(size=""), dict(size="x")):
+        cell = by_cell(_cells(_widowx_objects([(10, 24)] * 4, **kw)))[("vlaeval:db-cogact-simpler", "SimplerEnv-Bridge")]
+        assert cell["task_group"]["size"] is None and not cell["task_group"]["complete"]
+        assert cell["reference"]["verdict"] == "incomplete group (4/? tasks)"
+    o = _widowx_objects([(10, 24), (10, 24)], size=4)
+    o = _widowx_objects([None, None, (10, 24), (10, 24)], size=3, objs=o)
+    cell = by_cell(_cells(o))[("vlaeval:db-cogact-simpler", "SimplerEnv-Bridge")]
+    assert cell["task_group"]["size"] is None and not cell["task_group"]["complete"]
+
+
+def test_task_groups_of_two_servers_stay_two_rows():
+    o = _widowx_objects([(10, 24), (8, 24), (20, 24), (23, 24)])
+    o = _widowx_objects([(6, 24), (14, 24), (20, 24), (24, 24)], row="vlaeval:starvla-q3groot-simpler",
+                        ref=("0.667", 96), first=4, objs=o)
+    c = by_cell(_cells(o))
+    assert (c[("vlaeval:db-cogact-simpler", "SimplerEnv-Bridge")]["n"],
+            c[("vlaeval:starvla-q3groot-simpler", "SimplerEnv-Bridge")]["k"]) == (96, 64)
+    assert c[("vlaeval:starvla-q3groot-simpler", "SimplerEnv-Bridge")]["reference"]["k"] == 64   # round(0.667 * 96)
+
+
+def test_task_group_does_not_pool_with_ungrouped_tasks_of_its_column():
+    # an ungrouped SimplerEnv-Bridge task of the same row (suite simpler_bridge) stays its own group in the run
+    o = _widowx_objects([(10, 24), (8, 24), (20, 24), (23, 24)])
+    put(o, "vlaeval-demo", "2026-11-11-0100", "task-9/summary.txt",
+        summary(model="x", suite="simpler_bridge", condition="S0", n_success=1, n_episodes=1, success_rate=1.0,
+                matrix_row="vlaeval:db-cogact-simpler"), 40)
+    runs = lb.collect_runs(argparse.Namespace(region=None, vla=None, since=None), _FakeBoto3(list(o)), s3=FakeS3(o),
+                           workers=2)
+    run = next(r for r in runs if r["stack"] == "vlaeval-demo")
+    gs = [g for g in lb.run_groups(run, TARGETS_FX + ["vlaeval"]) if g["column"] == "SimplerEnv-Bridge"]
+    assert sorted((g["k"], g["n"], bool(g.get("task_group"))) for g in gs) == [(1, 1, False), (61, 96, True)]
+
+
+def test_task_group_rows_reach_csv_and_json(tmp_path):
+    d = _cells(_widowx_objects([(10, 24), (8, 24), (20, 24), (23, 24)]))
+    lb.write_csv(tmp_path / "m.csv", d)
+    rows = list(csv.DictReader(open(tmp_path / "m.csv")))
+    assert next(r for r in rows if r["target"] == "vlaeval:db-cogact-simpler")["suite"] == "simpler_widowx_vm (4 tasks)"
+    cell = json.loads(json.dumps(d["cells"], default=str))
+    assert [c["task_group"]["size"] for c in cell if c.get("task_group")] == [4]
+
+
+def test_matrix_without_task_groups_is_unchanged(data):
+    runs, _ = data
+    d = lb.build(lb.select_cells(runs, targets=TARGETS_FX))
+    assert not any("task_group" in c for c in d["cells"])
+    assert "§" not in lb.render_markdown(d)

@@ -128,7 +128,7 @@ until timeout 2400 apt-get update -qq -o DPkg::Lock::Timeout=1800 > /tmp/{{ vla 
 done
 APT_RETRY=0
 until apt-get install -y --no-install-recommends -o DPkg::Lock::Timeout=1800 \
-    git curl ca-certificates awscli jq python3 > /tmp/{{ vla }}_apt.log 2>&1; do
+    git curl ca-certificates awscli jq python3{% if host_data %} zstd{% endif %} > /tmp/{{ vla }}_apt.log 2>&1; do
     APT_RETRY=$((APT_RETRY + 1))
     [ $APT_RETRY -ge 3 ] && die "apt-get install failed after 3 retries"
     sleep 30
@@ -307,6 +307,37 @@ for _i in 1 2 3; do
 done
 docker image inspect "{{ b.image }}" > /dev/null 2>&1 || die "image {{ b.image }} not present after pull"
 {%- endfor %}
+{%- if host_data %}
+
+# ── [5/8] Benchmark data at a pinned Hugging Face dataset commit (host_data), mounted read-only ────────
+# The image's own copy is another revision (docs/targets.md Note 23); every byte used is sha256-checked here.
+command -v zstd >/dev/null 2>&1 || die "zstd not found (apt-get install zstd above)"
+{%- for b in host_data %}
+{%- set d = b.host_data %}
+log "[5/8] {{ b.name }} data {{ d.label }} -> {{ d.dest }}..."
+rm -rf "{{ d.dest }}"
+mkdir -p "{{ d.dest }}"
+for _i in 1 2 3; do
+    curl -fsSL --connect-timeout 30 --max-time 1800 -o "{{ d.dest }}/.shard.tar" "{{ d.url }}" \
+        2>> /tmp/{{ vla }}_host_data_{{ b.name }}.log && break
+    [ "${_i}" -eq 3 ] && die "download of {{ d.url }} failed (see /tmp/{{ vla }}_host_data_{{ b.name }}.log)"
+    log "[warn] download attempt ${_i} failed, retrying in 30s"; sleep 30
+done
+echo "{{ d.sha256 }}  {{ d.dest }}/.shard.tar" | sha256sum -c --quiet - \
+    || die "{{ b.name }}: sha256 of {{ d.url }} is not {{ d.sha256 }}"
+tar -xOf "{{ d.dest }}/.shard.tar" "{{ d.member }}" | zstd -dc \
+    | tar -x --no-same-owner -C "{{ d.dest }}" "{{ d.extract }}/" \
+    || die "{{ b.name }}: extracting {{ d.extract }} from {{ d.member }} failed"
+rm -f "{{ d.dest }}/.shard.tar"
+(cd "{{ d.dest }}/{{ d.extract }}" && sha256sum -c --quiet -) << 'SHAEOF' || die "{{ b.name }}: sha256 check of the extracted {{ d.label }} files failed"
+{%- for f, h in d.verify.items() %}
+{{ h }}  {{ f }}
+{%- endfor %}
+SHAEOF
+chmod -R a+rX "{{ d.dest }}"
+log "  {{ b.name }}: {{ d.label }} verified ({{ d.verify|length }} file(s)), mounted read-only into the benchmark container"
+{%- endfor %}
+{%- endif %}
 
 # ── [6/8] Checkpoints at pinned revisions (the server gets the snapshot path, not a moving Hub ref) ──
 export HF_XET_CLIENT_READ_TIMEOUT=60 HF_XET_CLIENT_CONNECT_TIMEOUT=30

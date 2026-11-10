@@ -120,7 +120,8 @@ def protocol_static(config: dict, target: str) -> dict:
 
 def _with_protocol(ctx: dict, config: dict, card: dict | None = None) -> dict:
     """card = values the template passes to the evaluation but does not write into summary.txt: `checkpoints`
-    (added to the YAML walk), `seed` / `condition` / `start_states` (used where summary.txt has none)."""
+    (added to the YAML walk), `code_pins` (likewise), `seed` / `condition` / `start_states` (used where summary.txt
+    has none)."""
     target = ctx.get("vla") or (config.get("model") or {}).get("id") or "unknown"
     ps = protocol_static(config, str(target))
     card = card or {}
@@ -128,6 +129,10 @@ def _with_protocol(ctx: dict, config: dict, card: dict | None = None) -> dict:
         repo, rev = str(c.get("repo", "")), str(c.get("revision", "unknown"))
         if SAFE_VALUE_RE.match(repo) and repo not in {x["repo"] for x in ps["checkpoints"]}:
             ps["checkpoints"].append(dict(repo=repo, revision=rev if SAFE_VALUE_RE.match(rev) else "unknown", suite=""))
+    for k, v in (card.get("code_pins") or {}).items():   # pins the YAML walk under model: cannot see
+        if re.fullmatch(r"[A-Za-z0-9_.-]{1,100}", str(k)) and SAFE_VALUE_RE.match(str(v)):
+            ps["code_pins"].setdefault(str(k), str(v))
+    ps["code_pins"] = dict(sorted(ps["code_pins"].items()))
     ps["fallback"] = {k: re.sub(r"['\n\r]", "", str(card[k])) for k in ("seed", "condition", "start_states")
                       if card.get(k) not in (None, "")}
     return {**ctx, "protocol_static": ps}
@@ -1782,6 +1787,17 @@ _VLAEVAL_PARAM_LIST_MAX = 64
 # A file inside a checkpoint snapshot (checkpoint_marker) and a snapshot_download allow pattern (hf_allow_patterns).
 _VLAEVAL_MARKER_RE = re.compile(r"^[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)*$")
 _VLAEVAL_PATTERN_RE = re.compile(r"^[A-Za-z0-9_.*/-]{1,128}$")
+# docker.volumes entries of the run config (`docker run -v`): <absolute host path>:<absolute container path>:ro.
+# Read-only only: a benchmark container that writes into a host directory would change the next run's input.
+_VLAEVAL_MOUNT_PATH_RE = re.compile(r"^/[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)*$")
+# host_data: a file of a Hugging Face dataset at a pinned commit, fetched by the instance before the benchmarks run
+_VLAEVAL_HF_DATA_URL_RE = re.compile(
+    r"^https://huggingface\.co/datasets/[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*/resolve/[0-9a-f]{40}/"
+    r"[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)*\.tar$")
+# host_data.dest is emptied (rm -rf) before every fetch: one directory directly under /home/ubuntu, nothing else
+_VLAEVAL_HOST_DATA_DEST_RE = re.compile(r"^/home/ubuntu/[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}$")
+_VLAEVAL_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+_VLAEVAL_HOST_DATA_KEYS = {"label", "url", "sha256", "dest", "member", "extract", "verify", "license"}
 
 
 def _vlaeval_param_ok(v, in_list=False) -> bool:
@@ -1805,6 +1821,60 @@ def _vlaeval_int(value, where, minimum):
     if not isinstance(value, int) or isinstance(value, bool) or value < minimum:
         raise ValueError(f"{where} must be an integer >= {minimum}")
     return value
+
+
+def _vlaeval_docker_volumes(value, where) -> list:
+    """docker_volumes of a benchmark: a list of <host>:<container>:ro bind mounts (absolute paths, no `..`)."""
+    if value is None:
+        return []
+    if not isinstance(value, list) or not value:
+        raise ValueError(f"{where}.docker_volumes must be a non-empty list of <host path>:<container path>:ro")
+    seen = []
+    for v in value:
+        parts = v.split(":") if isinstance(v, str) else []
+        if len(parts) != 3 or not all(_VLAEVAL_MOUNT_PATH_RE.match(p) and ".." not in p.split("/")
+                                      for p in parts[:2]):
+            raise ValueError(f"{where}.docker_volumes: {v!r} is not <absolute host path>:<absolute container path>:ro")
+        if parts[2] != "ro":
+            raise ValueError(f"{where}.docker_volumes: {v!r} must be mounted read-only (:ro)")
+        if parts[1] in seen:
+            raise ValueError(f"{where}.docker_volumes: container path {parts[1]} is mounted twice")
+        seen.append(parts[1])
+    return list(value)
+
+
+def _vlaeval_host_data(value, where, volumes) -> dict | None:
+    """host_data of a benchmark: one tar of a Hugging Face dataset at a pinned commit (sha256-checked), of which one
+    zstd-compressed member is unpacked and one directory of it extracted under dest; files in that directory are
+    sha256-checked too. dest has to be the host side of one of the benchmark's docker_volumes."""
+    if value is None:
+        return None
+    w = f"{where}.host_data"
+    if not isinstance(value, dict) or set(value) - _VLAEVAL_HOST_DATA_KEYS or \
+            _VLAEVAL_HOST_DATA_KEYS - {"license"} - set(value):
+        raise ValueError(f"{w} must map label, url, sha256, dest, member, extract, verify (and license)")
+    if not SAFE_VALUE_RE.match(str(value["label"])):
+        raise ValueError(f"{w}.label must be one plain token (e.g. molmospaces-bench-v2/20260327)")
+    if not _VLAEVAL_HF_DATA_URL_RE.match(str(value["url"])) or ".." in str(value["url"]):
+        raise ValueError(f"{w}.url must be https://huggingface.co/datasets/<org>/<name>/resolve/<40-hex commit>/<path>.tar")
+    if not _VLAEVAL_SHA256_RE.match(str(value["sha256"])):
+        raise ValueError(f"{w}.sha256 must be 64 lower-case hex")
+    if not _VLAEVAL_HOST_DATA_DEST_RE.match(str(value["dest"])):
+        raise ValueError(f"{w}.dest must be one directory directly under /home/ubuntu (it is emptied before the fetch)")
+    if not any(v.split(":")[0] == value["dest"] for v in volumes):
+        raise ValueError(f"{w}.dest {value['dest']} is not the host side of any docker_volumes entry")
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+\.tar\.zst", str(value["member"])):
+        raise ValueError(f"{w}.member must be the name of a .tar.zst file at the top of the tar")
+    if not _VLAEVAL_MARKER_RE.match(str(value["extract"])) or ".." in str(value["extract"]).split("/"):
+        raise ValueError(f"{w}.extract must be a relative directory inside the member")
+    ver = value["verify"]
+    if not isinstance(ver, dict) or not ver or not all(
+            isinstance(k, str) and _VLAEVAL_MARKER_RE.match(k) and ".." not in k.split("/")
+            and isinstance(h, str) and _VLAEVAL_SHA256_RE.match(h) for k, h in ver.items()):
+        raise ValueError(f"{w}.verify must map files inside extract to their sha256 (64 lower-case hex)")
+    return dict(label=str(value["label"]), url=str(value["url"]), sha256=str(value["sha256"]),
+                dest=str(value["dest"]), member=str(value["member"]), extract=str(value["extract"]),
+                verify=dict(ver))
 
 
 def vlaeval_plan(config: dict, vla: str = "vlaeval") -> tuple:
@@ -1854,6 +1924,8 @@ def vlaeval_plan(config: dict, vla: str = "vlaeval") -> tuple:
             if m.group(1) in names:
                 raise ValueError(f"{where}.docker_env: {m.group(1)} is set twice")
             names.append(m.group(1))
+        # docker_volumes: read-only bind mounts -> the run config's docker.volumes; host_data: what fills one of them
+        _vlaeval_host_data(b.get("host_data"), where, _vlaeval_docker_volumes(b.get("docker_volumes"), where))
         if not isinstance(b.get("expect_videos", True), bool):
             raise ValueError(f"{where}.expect_videos must be true or false")
         if any(c in str(b.get("init_states", "")) for c in "\"'$`\\\n"):
@@ -2053,6 +2125,8 @@ def vlaeval_plan(config: dict, vla: str = "vlaeval") -> tuple:
         docker = {"image": f"{bench['image']}@{bench['image_digest']}", "user": user}
         if bench.get("docker_env"):
             docker["env"] = list(bench["docker_env"])
+        if bench.get("docker_volumes"):
+            docker["volumes"] = list(bench["docker_volumes"])
         eval_config = {
             "server": {"url": f"ws://localhost:{port}", "timeout": timeout},
             "docker": docker,
@@ -2088,6 +2162,10 @@ def vlaeval_plan(config: dict, vla: str = "vlaeval") -> tuple:
                      f"reference_source={ref['source']}"]
         if row is not None:
             meta.append(f"matrix_row={row}")
+        if bench.get("host_data"):
+            hd = bench["host_data"]
+            meta.append(f"benchmark_json={hd['label']}@{hd['url'].split('/resolve/', 1)[1][:8]}"
+                        f" sha256:{next(iter(hd['verify'].values()))[:12]}")
         if meta:
             out[-1]["extra_meta"] = meta
         if t.get("eval_timeout") is not None:
@@ -2119,6 +2197,15 @@ def vlaeval_plan(config: dict, vla: str = "vlaeval") -> tuple:
             out[m[7]]["extra_meta"] += [f"task_group={group}", f"task_group_size={first[8]}"]
     bench_list = [dict(name=n, image=f"{benches[n]['image']}@{benches[n]['image_digest']}",
                        simulator=str(benches[n].get("simulator") or n)) for n in used_b]
+    for d in bench_list:   # only when set, so the plan of a benchmark without host_data is unchanged
+        hd = _vlaeval_host_data(benches[d["name"]].get("host_data"), d["name"],
+                                benches[d["name"]].get("docker_volumes") or [])
+        if hd:
+            # the fetch empties dest first: two benchmarks of one run must not share it
+            other = next((x["name"] for x in bench_list if x.get("host_data", {}).get("dest") == hd["dest"]), None)
+            if other:
+                raise ValueError(f"vlaeval: host_data.dest {hd['dest']} of {d['name']} is also that of {other}")
+            d["host_data"] = hd
     server_list = []
     for n in used_s:
         s = servers[n]
@@ -2187,6 +2274,7 @@ def generate_vlaeval(config: dict, dry_run: bool, vla: str = "vlaeval") -> str:
         "git_https_servers": [s["name"] for s in servers if s.get("git_https")],
         "env_servers": [s for s in servers if s.get("server_env")],
         "provenance_servers": [s for s in servers if s.get("provenance_paths")],
+        "host_data": [b for b in benches if b.get("host_data")],
         "extra_meta": any(t.get("extra_meta") for t in tasks),
         "eval_timeouts": any(t.get("eval_timeout") for t in tasks),
         "eval_timeout_default": VLAEVAL_EVAL_TIMEOUT,
@@ -2210,7 +2298,13 @@ def generate_vlaeval(config: dict, dry_run: bool, vla: str = "vlaeval") -> str:
                             for s in servers if s["hf_repo"]
                             for c in [dict(repo=s["hf_repo"], revision=s["hf_model_revision"]),
                                       *s.get("hf_offline_repos", [])]],
-            "start_states": "the benchmark's fixed init states (LIBERO: episode i = init state i of the task)"}
+            "start_states": "the benchmark's fixed init states (LIBERO: episode i = init state i of the task)",
+            # benchmark data fetched by the instance (host_data): revision + sha256 of its first verified file
+            "code_pins": {k: v for b in benches if b.get("host_data")
+                          for k, v in ((f"benchmark_json.{b['name']}",
+                                        f"{b['host_data']['label']}@{b['host_data']['url'].split('/resolve/', 1)[1][:40]}"),
+                                       (f"benchmark_json.{b['name']}.sha256",
+                                        next(iter(b["host_data"]["verify"].values()))))}}
     env = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)), keep_trailing_newline=True)  # nosec B701 - shell script template
     return env.get_template("vlaeval-userdata.sh.j2").render(**_with_protocol(ctx, config, card))
 

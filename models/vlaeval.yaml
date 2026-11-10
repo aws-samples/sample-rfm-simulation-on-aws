@@ -53,6 +53,12 @@ vlaeval:
     #   docker_env                NAME=value list -> the run config's docker.env (`docker run -e`)
     #   expect_videos             false = zero episode videos is not a failure (no renderable frame)
     #   init_states               how episode start states are chosen (summary.txt init_states)
+    #   docker_volumes            <host>:<container>:ro list -> the run config's docker.volumes (`docker run -v`);
+    #                             absolute paths, read-only only
+    #   host_data                 a .tar of a Hugging Face dataset at a pinned commit that the instance fetches before
+    #                             the run (sha256-checked), unpacks one .tar.zst member of and extracts one directory
+    #                             of into dest (= the host side of a docker_volumes entry); verify = sha256 per file;
+    #                             label lands in summary.txt benchmark_json and protocol.yaml code_pins
     # All three images below are the 0.9.0 tag (= latest) of the harness's own ghcr.io/allenai packages, read
     # anonymously by digest on 2026-11-09 (no mirror needed).
     libero-mem:
@@ -103,6 +109,22 @@ vlaeval:
       suite_param: null                                  # MolmoSpacesBenchmark takes neither suite nor seed
       seed_param: null
       init_states: "task i = episode i of the JSON benchmark (fixed scene and poses; the harness sets exp_config.seed 42)"
+      # The image (molmospaces v0.2.0) bakes bench-v2 revision 20260415 under /assets/benchmarks: same directory name,
+      # but pick-only instructions ("pick up the X.") and other scene objects, scored 1/50 on 2026-11-10. The harness
+      # reproduction (57.0 %) ran on revision 20260327 ("Pick up the X and place it in or on the Y"). That JSON comes
+      # from HF allenai/molmospaces (ODC-BY) at a pinned commit and is mounted read-only (docs/targets.md Note 23).
+      docker_volumes: ["/home/ubuntu/msbench:/msbench:ro"]
+      host_data:
+        label: "molmospaces-bench-v2/20260327"
+        url: "https://huggingface.co/datasets/allenai/molmospaces/resolve/5f802a46816ffc3520e59b5ef49fa8dafee8eeca/mujoco/benchmarks/molmospaces-bench-v2/20260327/shards/00000.tar"
+        sha256: "ae3094b9127b719384d5953fc519712f723a221041bf84a7dc4287f7db881a12"   # 525,598,720 bytes (LFS)
+        dest: /home/ubuntu/msbench
+        member: molmospaces-bench-v2_procthor-objaverse.tar.zst
+        extract: procthor-objaverse/FrankaPickandPlaceHardBench/FrankaPickandPlaceHardBench_20260212_200ep_json_benchmark
+        verify:
+          benchmark.json: "1985488d2ff098759d177b091e67d40dc39e97a0e65f2b47b536dd363b5e1929"   # 200 episodes
+          benchmark_metadata.json: "06ee2448935862b92f1663c4c68ae4028203447fb5f8a78e9d0aa8c98c7aea94"
+        license: "ODC-BY (HF allenai/molmospaces)"
     maniskill2:
       benchmark: "vla_eval.benchmarks.maniskill2.benchmark:ManiSkill2Benchmark"
       image: "ghcr.io/allenai/vla-evaluation-harness/maniskill2"
@@ -547,7 +569,8 @@ task_sets:
         max_tasks: 4
         max_steps: 600
         seed: 0
-        params: {benchmark_dir: /assets/benchmarks/molmospaces-bench-v2/procthor-objaverse/FrankaPickandPlaceHardBench/FrankaPickandPlaceHardBench_20260212_200ep_json_benchmark,
+        # the 20260327 JSON of host_data (the image's /assets/benchmarks copy is 20260415, pick-only instructions)
+        params: {benchmark_dir: /msbench/procthor-objaverse/FrankaPickandPlaceHardBench/FrankaPickandPlaceHardBench_20260212_200ep_json_benchmark,
                  eval_config_cls: "molmo_spaces.evaluation.configs.evaluation_configs:DummyPickPlaceEvalConfig",
                  task_horizon: 600, send_wrist_image: true, send_state: true}
         description: "MolmoSpaces pick-and-place, 4 episodes (MolmoBot-DROID through vla-eval)"
@@ -830,6 +853,19 @@ task_sets:
         matrix_row: "vlaeval:molmobot-droid"
         description: "MolmoSpaces pick-and-place, first 50 of the 200 episodes (MolmoBot-DROID through vla-eval)"
         published: "57.0 % (harness reproduction, 114/200 episodes) / 57.7 % (paper); the first 50 episodes are a subset"
+        reference: {value: 0.570, n: 200, metric: success, source: "docs/reproductions/molmobot.md:36"}
+  molmospaces-10:
+    description: "MolmoSpaces-Bench pick-and-place, first 10 of 200 episodes, MolmoBot-DROID (smoke of the 20260327 JSON)"
+    # cheap check of the bench JSON fix before molmospaces-50: ~6 min per 600-step episode -> ~1 h of eval + ~40 min
+    # setup. The reproduction's first 10 episodes went 6/10 (1,1,0,1,1,1,0,0,1,0); the 20260415 run went 1/10 on them.
+    instance: {creationpolicy_timeout: PT180M}
+    tasks:
+      - <<: *molmospaces
+        max_tasks: 10
+        eval_timeout: 5400
+        matrix_row: "vlaeval:molmobot-droid"
+        description: "MolmoSpaces pick-and-place, first 10 of the 200 episodes (MolmoBot-DROID through vla-eval)"
+        published: "57.0 % (harness reproduction, 114/200) / 57.7 % (paper); its first 10 episodes went 6/10"
         reference: {value: 0.570, n: 200, metric: success, source: "docs/reproductions/molmobot.md:36"}
   libero-starvla-oft:
     description: "LIBERO-Spatial 10 tasks x 5 episodes (50), starVLA Qwen3-VL OFT (LIBERO 4-in-1 checkpoint)"

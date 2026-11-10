@@ -1058,6 +1058,9 @@ def main():
                   "kernel, 96 episodes), ~1.7-2.4 h (simpler-starvla-fast: 16 GB, 4 x 6 episodes at one FAST decode "
                   "per step), ~3-4.5 h for --task-set batch-4b on one instance (estimates written before the runs; "
                   "measured one set at a time on 2026-11-10: ~37 / ~70 / ~93 min; batch-4b itself not run)")
+        elif args.vla == "vlaeval" and args.task_set == "molmospaces-10":
+            print("  Estimated time: ~1.5-2 h (molmospaces-10: ~40 min setup + 10 x 600-step episodes at ~6 min each, "
+                  "as batch B measured on g6e.4xlarge; ~US$5 at ~US$3 per hour; estimate, not run yet)")
         elif args.vla == "vlaeval" and args.task_set in ("kinetix-rtc-600", "molmospaces-50", "libero-starvla-oft",
                                                          "simpler-starvla-oft", "batch-4c"):
             print("  Estimated time: ~40-50 min (kinetix-rtc-600: 12 levels x 50 rollouts at ~1 s each, as batch A), "

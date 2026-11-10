@@ -723,6 +723,11 @@ def test_torch_constraint_stops_when_a_server_config_does_not_resolve(tmp_path):
 # (per-server checkpoint_marker / hf_allow_patterns / checkpoint_pass / hf_offline_repos, list params, render)
 
 MOLMO_SHA = "cbe6ec358958d07ddfb20d3aa54e560e9e1b18c9"
+# the bench-v2 20260327 JSON the harness reproduction ran on (host_data of the molmospaces benchmark)
+MS_BENCH_REV = "5f802a46816ffc3520e59b5ef49fa8dafee8eeca"
+MS_BENCH_JSON_SHA = "1985488d2ff098759d177b091e67d40dc39e97a0e65f2b47b536dd363b5e1929"
+MS_BENCH_JSON_META = f"benchmark_json=molmospaces-bench-v2/20260327@{MS_BENCH_REV[:8]} sha256:{MS_BENCH_JSON_SHA[:12]}"
+MS_BENCH_DIR = "procthor-objaverse/FrankaPickandPlaceHardBench/FrankaPickandPlaceHardBench_20260212_200ep_json_benchmark"
 QWEN_SHA = "cdbee75f17c01a7cc42f958dc650907174af0554"
 COGACT_SHA = "d4af8d4e8a07ef4c9f982f52d446d14f2039e81c"
 
@@ -757,7 +762,8 @@ def test_batch_b_sets_render_the_harness_configs():
     # MolmoSpaces: neither suite nor seed, the long path and module:Class params of pick_and_place.yaml
     b = molmo_t["eval_config"]["benchmarks"][0]
     assert b["params"] == {
-        "benchmark_dir": "/assets/benchmarks/molmospaces-bench-v2/procthor-objaverse/FrankaPickandPlaceHardBench/"
+        # the 20260327 JSON fetched by host_data and mounted at /msbench (the image's /assets copy is 20260415)
+        "benchmark_dir": "/msbench/procthor-objaverse/FrankaPickandPlaceHardBench/"
                          "FrankaPickandPlaceHardBench_20260212_200ep_json_benchmark",
         "eval_config_cls": "molmo_spaces.evaluation.configs.evaluation_configs:DummyPickPlaceEvalConfig",
         "task_horizon": 600, "send_wrist_image": True, "send_state": True}
@@ -772,6 +778,7 @@ def test_batch_b_sets_render_the_harness_configs():
     for t in tasks:
         assert "render" not in t["eval_config"] and "env" not in t["eval_config"]["docker"]
         assert t.get("expect_videos", True) is True and t["init_states"]
+    assert [t["eval_config"]["docker"].get("volumes") for t in tasks] == [None, ["/home/ubuntu/msbench:/msbench:ro"], None]
     # each single set is the same entry as in batch-b
     for name, t in (("robocerebra", cer), ("molmospaces", molmo_t), ("maniskill2", ms2)):
         (single,) = generate.vlaeval_plan(_set(name))[2]
@@ -1509,8 +1516,13 @@ def test_earlier_renders_have_no_batch_4a_lines(tmp_path):
     for extra in ([], ["--task-set", "batch-a"], ["--task-set", "batch-b"], ["--task-set", "batch-c"]):
         _render(tmp_path, *extra)
         text = (tmp_path / "vlaeval.sh").read_text()
+        # batch-b's MolmoSpaces entry now writes one extra_meta line (benchmark_json, the host_data revision)
+        extra_meta_ok = extra == ["--task-set", "batch-b"]
         for needle in ("EVAL_TIMEOUT", "EXTRA_META", "record_provenance", "provenance", "local _env", "server env",
                        "reference_", "matrix_row"):
+            if needle == "EXTRA_META" and extra_meta_ok:
+                assert "benchmark_json=molmospaces-bench-v2/20260327" in text
+                continue
             assert needle not in text, (extra, needle)
         assert "timeout --kill-after=120 5400" in text
 
@@ -2034,3 +2046,532 @@ def test_deploy_prints_a_time_estimate_for_the_4b_sets():
     src = (ROOT / "deploy.py").read_text()
     assert ('args.task_set in ("simpler-dbcogact", "simpler-starvla-groot",\n'
             '                                                         "simpler-starvla-fast", "batch-4b")') in src
+
+
+# --- bundle 4C: RTC x Kinetix 600, MolmoBot x MolmoSpaces 50, starVLA Qwen3-OFT x LIBERO-Spatial / WidowX VM --------
+
+Q3OFT_LIBERO_SHA = "39177146f142f8805d86fcc29d2a17c2228e6073"
+Q3OFT_BRIDGE_SHA = "1c814bc494cd95c844535fffed2a890838651dd6"
+SETS_4C = ("kinetix-rtc-600", "molmospaces-50", "libero-starvla-oft", "simpler-starvla-oft", "batch-4c")
+QWEN3VL = dict(repo="Qwen/Qwen3-VL-4B-Instruct", revision=QWEN3VL_SHA)
+
+
+def test_batch_4c_sets_render_the_harness_configs():
+    benches, servers, tasks = generate.vlaeval_plan(_set("batch-4c"))
+    assert [b["name"] for b in benches] == ["kinetix", "libero", "simpler", "molmospaces"]
+    by = {s["name"]: s for s in servers}
+    assert [s["name"] for s in servers] == ["rtc-kinetix", "starvla-q3oft-libero", "starvla-q3oft-simpler",
+                                            "molmobot-droid"]
+    assert by["starvla-q3oft-libero"] == dict(
+        name="starvla-q3oft-libero", config="configs/model_servers/starvla/libero_qwen3_oft.yaml",
+        hf_repo="StarVLA/Qwen3-VL-OFT-LIBERO-4in1", hf_model_revision=Q3OFT_LIBERO_SHA, gated_repos=[],
+        checkpoint_marker="checkpoints/steps_50000_pytorch_model.pt", checkpoint_pass="repo_id",
+        hf_offline_repos=[QWEN3VL, FLASH])
+    assert by["starvla-q3oft-simpler"] == dict(
+        name="starvla-q3oft-simpler", config="configs/model_servers/starvla/oft_qwen3_simpler.yaml",
+        hf_repo="StarVLA/Qwen3VL-OFT-Bridge-RT-1", hf_model_revision=Q3OFT_BRIDGE_SHA, gated_repos=[],
+        checkpoint_marker="checkpoints/steps_5000_pytorch_model.pt", checkpoint_pass="repo_id",
+        hf_offline_repos=[QWEN3VL, FLASH])
+    # the two earlier servers unchanged (RTC downloads its own gs:// checkpoints; MolmoBot as batch B)
+    assert by["rtc-kinetix"]["hf_repo"] == "" and by["molmobot-droid"]["hf_model_revision"] == MOLMO_SHA
+    assert [(t["suite"], t["model_server"], t["episodes_per_task"], t["max_tasks"]) for t in tasks] == [
+        ("kinetix_rtc", "rtc-kinetix", 50, None), ("libero_spatial", "starvla-q3oft-libero", 5, None),
+        *[(s, "starvla-q3oft-simpler", 24, None) for s, _ in WIDOWX_VM],
+        ("molmospaces_pick_and_place", "molmobot-droid", 1, 50)]
+    assert [t.get("eval_timeout") for t in tasks] == [3600, 7200, 4800, 4800, 4800, 4800, 21600]
+    assert [t.get("checkpoint_pass") for t in tasks] == [None] + ["repo_id"] * 6
+    refs = [tuple(m.split("=", 1)[1] for m in t["extra_meta"][:4]) for t in tasks]
+    assert refs == [("0.963", "24552", "success", "docs/reproductions/rtc.md:120"),
+                    ("0.968", "500", "success", "docs/reproductions/starvla.md:40"),
+                    *[("0.208", "96", "success", "docs/reproductions/starvla.md:14")] * 4,
+                    ("0.57", "200", "success", "docs/reproductions/molmobot.md:36")]
+    assert [t["extra_meta"][4] for t in tasks] == [
+        "matrix_row=vlaeval:rtc-kinetix", "matrix_row=vlaeval:starvla-q3oft-libero",
+        *["matrix_row=vlaeval:starvla-q3oft-simpler"] * 4, "matrix_row=vlaeval:molmobot-droid"]
+    # only the four WidowX entries are a group; the 12 Kinetix levels are one entry (one k / n = the 12-level mean)
+    assert [t["extra_meta"][5:] for t in tasks] == [[], []] + [
+        ["task_group=simpler_widowx_vm", "task_group_size=4"]] * 4 + [[MS_BENCH_JSON_META]]
+    # each single set is the same entries as in batch-4c
+    sel = {"kinetix-rtc-600": tasks[0:1], "libero-starvla-oft": tasks[1:2], "simpler-starvla-oft": tasks[2:6],
+           "molmospaces-50": tasks[6:7]}
+    for name, part in sel.items():
+        single = generate.vlaeval_plan(_set(name))[2]
+        assert [{k: v for k, v in s.items() if k != "eval_config"} for s in single] == \
+            [{k: v for k, v in t.items() if k != "eval_config"} for t in part]
+        assert [s["eval_config"]["benchmarks"] for s in single] == [t["eval_config"]["benchmarks"] for t in part]
+
+
+def test_kinetix_600_is_the_harness_sync_protocol_with_50_rollouts():
+    (t,) = generate.vlaeval_plan(_set("kinetix-rtc-600"))[2]
+    (e,) = t["eval_config"]["benchmarks"]
+    # all 12 levels (no max_tasks), 50 rollouts, the params of configs/benchmarks/kinetix/eval.yaml
+    assert "max_tasks" not in e and e["episodes_per_task"] == 50
+    assert e["params"] == {"seed": 0, "observation_type": "symbolic", "max_episode_steps": 256,
+                           "rtc_worlds_dir": "/app/rtc/worlds", "action_noise_std": 0.1}
+    assert t["eval_config"]["docker"]["env"] == ["XLA_PYTHON_CLIENT_PREALLOCATE=false"]
+    assert t["expect_videos"] is False and t["checkpoint_arg"] == ""
+    # the batch-A smoke (4 levels x 5) is unchanged and stays on the target's own row (no reference)
+    (smoke,) = generate.vlaeval_plan(_set("kinetix"))[2]
+    assert smoke["max_tasks"] == 4 and smoke["episodes_per_task"] == 5 and "extra_meta" not in smoke
+    if not (HARNESS / "configs").is_dir():
+        pytest.skip("harness checkout v0.9.0 not next to this worktree")
+    h = yaml.safe_load((HARNESS / "configs" / "benchmarks" / "kinetix" / "eval.yaml").read_text())
+    assert h["benchmarks"][0]["params"] == e["params"] and h["benchmarks"][0]["episodes_per_task"] == 2048
+    base = yaml.safe_load((HARNESS / "configs" / "model_servers" / "rtc" / "_base.yaml").read_text())["args"]
+    assert (base["delay"], base["horizon"], base["latency"]) == (0, 1, "steps")       # = "rtc d=0" (s = 1)
+    assert yaml.safe_load((HARNESS / "configs" / "model_servers" / "rtc" / "rtc.yaml").read_text())["args"] == \
+        {"method": "rtc"}
+    src = (HARNESS / "src" / "vla_eval" / "benchmarks" / "kinetix" / "benchmark.py").read_text()
+    assert src.split("RTC_12_TASKS = [", 1)[1].split("]", 1)[0].count('"level":') == 12
+
+
+def test_molmospaces_50_is_the_batch_b_entry_with_50_episodes():
+    (t,) = generate.vlaeval_plan(_set("molmospaces-50"))[2]
+    (b,) = generate.vlaeval_plan(_set("molmospaces"))[2]
+    assert t["eval_config"]["benchmarks"][0] == dict(b["eval_config"]["benchmarks"][0], max_tasks=50)
+    assert {k: v for k, v in t["eval_config"].items() if k != "benchmarks"} == \
+        {k: v for k, v in b["eval_config"].items() if k != "benchmarks"}
+    # the smoke has no reference or timeout; only the bench JSON revision line (host_data)
+    assert b["extra_meta"] == [MS_BENCH_JSON_META] and "eval_timeout" not in b
+
+
+def test_batch_4c_references_match_the_harness_reports():
+    if not (HARNESS / "docs" / "reproductions").is_dir():
+        pytest.skip("harness checkout v0.9.0 not next to this worktree")
+
+    def line(src):
+        path, n = src.rsplit(":", 1)
+        return (HARNESS / path).read_text().splitlines()[int(n) - 1]
+
+    tasks = generate.vlaeval_plan(_set("batch-4c"))[2]
+    meta = [dict(m.split("=", 1) for m in t["extra_meta"]) for t in tasks]
+    # rtc.md:120 = arm C (vla-eval sync) row "rtc d=0": | condition | n/level | ref | arm | ...
+    cells = [c.strip() for c in line(meta[0]["reference_source"]).split("|")[1:-1]]
+    assert cells[0] == "rtc d=0" and float(cells[3]) == float(meta[0]["reference_value"])
+    assert int(cells[1]) * 12 == int(meta[0]["reference_n"])
+    assert "### C (sync, 2048 × 12) vs R′" in (HARNESS / "docs/reproductions/rtc.md").read_text().splitlines()[110]
+    # starvla.md:40 Average of the 10 Spatial tasks (500 episodes); starvla.md:14 the Qwen3-OFT WidowX row
+    assert line(meta[1]["reference_source"]) == "| **Average** | **96.8%** | **97.8%** |"
+    assert "10 tasks x 50 episodes" in line("docs/reproductions/starvla.md:26")
+    oft = line(meta[2]["reference_source"])
+    assert "20.8% (Qwen3-OFT)" in oft and "Not reproduced (env issue)" in oft
+    # molmobot.md:36: 57.0 % = 114 / 200
+    assert "**57.0%** (114/200)" in line(meta[6]["reference_source"])
+    assert round(float(meta[6]["reference_value"]) * int(meta[6]["reference_n"])) == 114
+
+
+def test_q3oft_servers_share_the_qwen3vl_pin_of_q3groot():
+    # one refs/main per repo in the shared HF cache: the OFT servers must pin the base VLM where Qwen3-GR00T does,
+    # else a set with both (none ships one yet) is refused at render time
+    servers = _model()["vlaeval"]["model_servers"]
+    pins = {n: {x["repo"]: x["revision"] for x in servers[n]["hf_offline_repos"]}
+            for n in ("starvla-q3groot-simpler", "starvla-q3oft-libero", "starvla-q3oft-simpler")}
+    assert len({p["Qwen/Qwen3-VL-4B-Instruct"] for p in pins.values()}) == 1
+    assert len({p["kernels-community/flash-attn2"] for p in pins.values()}) == 1
+    cfg = copy.deepcopy(_set("batch-4c"))
+    cfg["tasks"] = [*cfg["tasks"], *_set("simpler-starvla-groot")["tasks"]]
+    assert len(generate.vlaeval_plan(cfg)[2]) == 11
+    cfg = copy.deepcopy(_set("batch-4c"))
+    _server(cfg, "starvla-q3oft-simpler")["hf_offline_repos"][0] = dict(QWEN3VL, revision="0" * 40)
+    with pytest.raises(ValueError, match="Qwen/Qwen3-VL-4B-Instruct is pinned at ebb281ec"):
+        generate.vlaeval_plan(cfg)
+    # alone, a different pin is fine (the cache then holds only that one)
+    one = copy.deepcopy(_set("simpler-starvla-oft"))
+    _server(one, "starvla-q3oft-simpler")["hf_offline_repos"][0] = dict(QWEN3VL, revision="0" * 40)
+    assert generate.vlaeval_plan(one)[1][0]["hf_offline_repos"][0]["revision"] == "0" * 40
+
+
+def test_batch_4c_instance_overrides_only_for_their_sets():
+    assert task_sets.instance_overrides(_set("batch-4c")) == {"ebs_gb": 350, "creationpolicy_timeout": "PT660M"}
+    assert task_sets.instance_overrides(_set("molmospaces-50")) == {"creationpolicy_timeout": "PT480M"}
+    assert task_sets.instance_overrides(_set("libero-starvla-oft")) == {"creationpolicy_timeout": "PT180M"}
+    assert task_sets.instance_overrides(_set("simpler-starvla-oft")) == {"creationpolicy_timeout": "PT360M"}
+    assert task_sets.instance_overrides(_set("kinetix-rtc-600")) == {}
+    # every eval_timeout of a set fits inside its WaitCondition (minus ~35 min of setup)
+    for name in SETS_4C:
+        cfg = _set(name)
+        wait = int((task_sets.instance_overrides(cfg).get("creationpolicy_timeout") or "PT120M")[2:-1])
+        caps = [t.get("eval_timeout") or generate.VLAEVAL_EVAL_TIMEOUT for t in generate.vlaeval_plan(cfg)[2]]
+        if name != "batch-4c":     # batch-4c: the expected times, not every cap at once (see the yaml)
+            assert sum(caps) / 60 + 35 <= wait, (name, caps, wait)
+        else:
+            assert sum(caps) / 60 + 35 > wait == 660 <= 720     # PT720M is the CloudFormation maximum
+
+
+@pytest.mark.skipif(BASH is None, reason="bash not on PATH")
+@pytest.mark.parametrize("task_set", SETS_4C)
+def test_batch_4c_render_and_bash_n(task_set, tmp_path):
+    _render(tmp_path, "--task-set", task_set)
+    text = (tmp_path / "vlaeval.sh").read_text()
+    assert subprocess.run([BASH, "-n", str(tmp_path / "vlaeval.sh")]).returncode == 0
+    assert _tasks_json(text) == json.loads(json.dumps(generate.vlaeval_plan(_set(task_set))[2]))
+    assert ":latest" not in text
+    kin = task_set in ("kinetix-rtc-600", "batch-4c")
+    molmo = task_set in ("molmospaces-50", "batch-4c")
+    lib = task_set in ("libero-starvla-oft", "batch-4c")
+    sim = task_set in ("simpler-starvla-oft", "batch-4c")
+    assert text.count("docker pull -q") == kin + molmo + lib + sim
+    assert ("kinetix@sha256:a8f6565d" in text) == kin and ("simpler@" + SIMPLER_DIGEST in text) == sim
+    assert (f'_p = snapshot_download("StarVLA/Qwen3-VL-OFT-LIBERO-4in1", revision="{Q3OFT_LIBERO_SHA}")' in text) == lib
+    assert (f'_p = snapshot_download("StarVLA/Qwen3VL-OFT-Bridge-RT-1", revision="{Q3OFT_BRIDGE_SHA}")' in text) == sim
+    assert (f'_p = snapshot_download("allenai/MolmoBot-DROID", revision="{MOLMO_SHA}")' in text) == molmo
+    assert text.count(f'_p = snapshot_download("Qwen/Qwen3-VL-4B-Instruct", revision="{QWEN3VL_SHA}")') == lib + sim
+    flash = (f'_p = snapshot_download("kernels-community/flash-attn2", revision="{FLASH_SHA}", '
+             'allow_patterns=["build/torch210-cxx11-cu128-x86_64-linux/*"])')
+    assert text.count(flash) == lib + sim
+    assert ('[ -f "${_path}/checkpoints/steps_50000_pytorch_model.pt" ]' in text) == lib
+    assert ('[ -f "${_path}/checkpoints/steps_5000_pytorch_model.pt" ]' in text) == sim
+    assert ("export HF_HUB_OFFLINE=1" in text) == (molmo or lib or sim)
+    lock_args = next(ln for ln in text.splitlines() if ln.startswith('    SERVER_SCRIPTS=$('))
+    assert ("starvla/libero_qwen3_oft.yaml" in lock_args) == lib and ("rtc/rtc.yaml" in lock_args) == kin
+    assert "not lock-checked" not in text      # starvla.py's lock pulls CUDA 13: the torch<2.11 step must see it
+    assert 'EVAL_TIMEOUT=$(echo "$TASK" | jq -r \'.eval_timeout // 5400\')' in text      # every 4C entry has one
+    assert "record_provenance" not in text and "local _env" not in text
+
+
+def test_earlier_renders_have_no_batch_4c_lines(tmp_path):
+    # every earlier render of every target was also diffed against the pre-4C renders (identical but for the
+    # tool_commit line); here: none of them names an OFT checkpoint or a 4C reference
+    for extra in ([], ["--task-set", "kinetix"], ["--task-set", "molmospaces"], ["--task-set", "batch-a"],
+                  ["--task-set", "batch-b"], ["--task-set", "batch-4a"], ["--task-set", "batch-4b"]):
+        _render(tmp_path, *extra)
+        text = (tmp_path / "vlaeval.sh").read_text()
+        for needle in ("OFT", "oft_qwen3", "rtc.md:120", "molmobot.md:36", "matrix_row=vlaeval:rtc-kinetix",
+                       "matrix_row=vlaeval:molmobot-droid"):
+            assert needle not in text, (extra, needle)
+
+
+# the task loop of batch-4c: RTC without a checkpoint arg, the three repo-id servers under HF_HUB_OFFLINE=1 with
+# their timeouts, the reference / group lines. uv, docker and timeout are shell functions (STUB_SHELL_4A)
+
+@pytest.mark.skipif(None in (BASH, JQ, SETSID), reason="bash / jq / setsid not on PATH")
+def test_batch_4c_loop_offline_repo_ids_timeouts_and_reference_lines(tmp_path):
+    _render(tmp_path / "r", "--task-set", "batch-4c")
+    script = _loop_script((tmp_path / "r" / "vlaeval.sh").read_text(), tmp_path)
+    (tmp_path / "work" / "venv" / "bin" / "vla-eval").write_text(STUB_4A)
+    ms = tmp_path / "work" / "harness" / "configs" / "model_servers"
+    for rel in ("starvla/libero_qwen3_oft.yaml", "starvla/oft_qwen3_simpler.yaml", "molmobot/droid.yaml"):
+        (ms / rel).parent.mkdir(parents=True, exist_ok=True)
+        (ms / rel).write_text("extends: _base.yaml\nargs:\n  chunk_size: 1\n")
+    for name, sha in (("starvla-q3oft-libero", Q3OFT_LIBERO_SHA), ("starvla-q3oft-simpler", Q3OFT_BRIDGE_SHA),
+                      ("molmobot-droid", MOLMO_SHA)):
+        (tmp_path / f"ckpt_{name}.path").write_text(f"/hf/snapshots/{sha[:8]}\n")
+    script = script.replace("curl() { return 0; }",
+                            'curl() { [ -n "$SERVER_PID" ] && kill -0 "$SERVER_PID" 2>/dev/null && [ -e "$CALLS.ready" ] '
+                            '&& rm -f "$CALLS.ready"; }\n' + STUB_SHELL_4A)
+    env = {"PATH": os.environ["PATH"], "HOME": str(tmp_path), "NO_VIDEO_BENCH": "", "STUB_OPENPI": str(tmp_path / "o")}
+    proc = subprocess.run([BASH, "-c", script], capture_output=True, text=True, timeout=180, env=env)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    lines = (tmp_path / "calls").read_text().splitlines()
+    assert not any(ln.startswith(("UV CALLED", "DOCKER CALLED")) for ln in lines)
+    calls = [ln for ln in lines if ln.startswith(("serve-env", "vla-eval serve", "timeout"))]
+    vla = f"{tmp_path}/work/venv/bin/vla-eval"
+    assert calls == [
+        "vla-eval serve --config configs/model_servers/rtc/rtc.yaml", "serve-env XLA=unset OFFLINE=unset",
+        f"timeout --kill-after=120 3600 {vla} run",
+        "vla-eval serve --config configs/model_servers/starvla/libero_qwen3_oft.yaml "
+        "--arg checkpoint=StarVLA/Qwen3-VL-OFT-LIBERO-4in1",
+        "serve-env XLA=unset OFFLINE=1", f"timeout --kill-after=120 7200 {vla} run",
+        "vla-eval serve --config configs/model_servers/starvla/oft_qwen3_simpler.yaml "
+        "--arg checkpoint=StarVLA/Qwen3VL-OFT-Bridge-RT-1",
+        "serve-env XLA=unset OFFLINE=1", *[f"timeout --kill-after=120 4800 {vla} run"] * 4,
+        "vla-eval serve --config configs/model_servers/molmobot/droid.yaml --arg hf_repo=allenai/MolmoBot-DROID",
+        "serve-env XLA=unset OFFLINE=1", f"timeout --kill-after=120 21600 {vla} run"]
+    assert "FAILED=[]" in proc.stdout     # Kinetix records no video and is not failed for it
+    cfgs = [json.loads((tmp_path / "work" / f"eval-task-{i}.json").read_text()) for i in range(7)]
+    assert cfgs[0]["benchmarks"][0]["episodes_per_task"] == 50 and "max_tasks" not in cfgs[0]["benchmarks"][0]
+    assert cfgs[6]["benchmarks"][0]["max_tasks"] == 50
+    kvs = [dict(results.KV_RE.findall((tmp_path / f"vlaeval_task{i}_summary.txt").read_text())) for i in range(7)]
+    assert [(kv["reference_value"], kv["reference_n"]) for kv in kvs] == [
+        ("0.963", "24552"), ("0.968", "500"), *[("0.208", "96")] * 4, ("0.57", "200")]
+    assert [kv.get("task_group") for kv in kvs] == [None, None] + ["simpler_widowx_vm"] * 4 + [None]
+    assert kvs[1]["checkpoint"] == f"StarVLA/Qwen3-VL-OFT-LIBERO-4in1@{Q3OFT_LIBERO_SHA[:8]}"
+    assert kvs[2]["checkpoint"] == f"StarVLA/Qwen3VL-OFT-Bridge-RT-1@{Q3OFT_BRIDGE_SHA[:8]}"
+    assert kvs[0]["checkpoint"] == "from server config@" and kvs[0]["init_states"].startswith("episode i = PRNGKey")
+    card = yaml.safe_load((tmp_path / "vlaeval_task2_summary.protocol.yaml").read_text())
+    assert {"repo": "Qwen/Qwen3-VL-4B-Instruct", "revision": QWEN3VL_SHA} in card["checkpoints"]
+    assert {"repo": "kernels-community/flash-attn2", "revision": FLASH_SHA} in card["checkpoints"]
+
+
+def test_deploy_prints_a_time_estimate_for_the_4c_sets():
+    src = (ROOT / "deploy.py").read_text()
+    assert ('args.task_set in ("kinetix-rtc-600", "molmospaces-50", "libero-starvla-oft",\n'
+            '                                                         "simpler-starvla-oft", "batch-4c")') in src
+
+
+# --- docker_volumes + host_data: the MolmoSpaces bench JSON at the revision the harness reproduction used ----------
+# The image bakes bench-v2 20260415 (pick-only instructions, 1/50 on 2026-11-10); the 20260327 JSON is fetched from
+# HF at a pinned commit, sha256-checked and mounted read-only (docs/targets.md Note 23).
+
+ZSTD = shutil.which("zstd")
+
+
+def test_docker_volumes_go_into_the_run_config():
+    cfg = copy.deepcopy(_set("kinetix"))
+    _bench(cfg)["docker_volumes"] = ["/home/ubuntu/data:/data:ro", "/opt/x/y:/z:ro"]
+    (t,) = generate.vlaeval_plan(cfg)[2]
+    assert t["eval_config"]["docker"]["volumes"] == ["/home/ubuntu/data:/data:ro", "/opt/x/y:/z:ro"]
+    # unset = no docker.volumes key (the run config of every other benchmark is unchanged)
+    (t,) = generate.vlaeval_plan(_set("kinetix"))[2]
+    assert "volumes" not in t["eval_config"]["docker"]
+    for name in ("libero-mem", "calvin", "batch-a", "batch-4b", "simpler-starvla-oft"):
+        assert all("volumes" not in t["eval_config"]["docker"] for t in generate.vlaeval_plan(_set(name))[2])
+
+
+@pytest.mark.parametrize("vols,msg", [
+    ("/a:/b:ro", "docker_volumes must be a non-empty list"),
+    ([], "docker_volumes must be a non-empty list"),
+    (["/a:/b"], "is not <absolute host path>"),                   # no mode
+    (["/a:/b:rw"], "read-only"),
+    (["/a:/b:RO"], "read-only"),
+    (["/a:/b:ro,z"], "read-only"),
+    (["a:/b:ro"], "is not <absolute host path>"),                 # relative host path
+    (["/a:b:ro"], "is not <absolute host path>"),                 # relative container path
+    (["./a:/b:ro"], "is not <absolute host path>"),
+    (["/a/../etc:/b:ro"], "is not <absolute host path>"),
+    (["/a:/b/..:ro"], "is not <absolute host path>"),
+    (["/a b:/b:ro"], "is not <absolute host path>"),
+    (["/$(id):/b:ro"], "is not <absolute host path>"),
+    (["/a/:/b:ro"], "is not <absolute host path>"),
+    (["/:/b:ro"], "is not <absolute host path>"),
+    ([1], "is not <absolute host path>"),
+    (["/a:/b:ro", "/c:/b:ro"], "mounted twice"),
+])
+def test_docker_volumes_are_validated(vols, msg):
+    cfg = copy.deepcopy(_set("kinetix"))
+    _bench(cfg)["docker_volumes"] = vols
+    with pytest.raises(ValueError, match=msg):
+        generate.vlaeval_plan(cfg)
+
+
+def _hd(c):
+    return c["vlaeval"]["benchmarks"]["molmospaces"]["host_data"]
+
+
+@pytest.mark.parametrize("mutate,msg", [
+    (lambda c: _hd(c).pop("sha256"), "host_data must map"),
+    (lambda c: _hd(c).update(extra=1), "host_data must map"),
+    (lambda c: _hd(c).update(label="a b"), "label"),
+    (lambda c: _hd(c).update(url=_hd(c)["url"].replace(MS_BENCH_REV, "main")), "url"),   # a moving ref
+    (lambda c: _hd(c).update(url=_hd(c)["url"].replace("https://huggingface.co", "https://example.com")), "url"),
+    (lambda c: _hd(c).update(url=_hd(c)["url"].replace("https://", "http://")), "url"),
+    (lambda c: _hd(c).update(url=_hd(c)["url"].replace("/shards/", "/../")), "url"),
+    (lambda c: _hd(c).update(url=_hd(c)["url"] + ";id"), "url"),
+    (lambda c: _hd(c).update(sha256="AE30" + "0" * 60), "sha256"),
+    (lambda c: _hd(c).update(sha256="0" * 63), "sha256"),
+    (lambda c: _hd(c).update(dest="/"), "dest"),
+    (lambda c: _hd(c).update(dest="/home/ubuntu"), "dest"),
+    (lambda c: _hd(c).update(dest="/etc/msbench"), "dest"),
+    (lambda c: _hd(c).update(dest="/home/ubuntu/a/b"), "dest"),
+    (lambda c: _hd(c).update(dest="/home/ubuntu/.."), "dest"),
+    (lambda c: _hd(c).update(dest="/home/ubuntu/other"), "not the host side of any docker_volumes"),
+    (lambda c: c["vlaeval"]["benchmarks"]["molmospaces"].pop("docker_volumes"), "not the host side"),
+    (lambda c: _hd(c).update(member="x.tar.gz"), "member"),
+    (lambda c: _hd(c).update(member="a/b.tar.zst"), "member"),
+    (lambda c: _hd(c).update(extract="../x"), "extract"),
+    (lambda c: _hd(c).update(extract="/abs"), "extract"),
+    (lambda c: _hd(c).update(extract="a b"), "extract"),
+    (lambda c: _hd(c).update(verify={}), "verify"),
+    (lambda c: _hd(c).update(verify=["benchmark.json"]), "verify"),
+    (lambda c: _hd(c).update(verify={"benchmark.json": "x"}), "verify"),
+    (lambda c: _hd(c).update(verify={"../benchmark.json": MS_BENCH_JSON_SHA}), "verify"),
+    (lambda c: _hd(c).update(verify={"a b": MS_BENCH_JSON_SHA}), "verify"),
+])
+def test_host_data_is_validated(mutate, msg):
+    cfg = copy.deepcopy(_set("molmospaces-10"))
+    mutate(cfg)
+    with pytest.raises(ValueError, match=msg):
+        generate.vlaeval_plan(cfg)
+
+
+def test_host_data_dest_is_one_per_run():
+    cfg = copy.deepcopy(_set("batch-b"))
+    m = cfg["vlaeval"]["benchmarks"]["molmospaces"]
+    cfg["vlaeval"]["benchmarks"]["maniskill2"].update(docker_volumes=list(m["docker_volumes"]),
+                                                      host_data=copy.deepcopy(m["host_data"]))
+    with pytest.raises(ValueError, match="host_data.dest /home/ubuntu/msbench of maniskill2 is also that of molmospaces"):
+        generate.vlaeval_plan(cfg)
+
+
+def test_molmospaces_reads_the_20260327_json_from_the_read_only_mount():
+    benches, _, tasks = generate.vlaeval_plan(_set("molmospaces"))
+    (b,) = benches
+    assert b["host_data"] == dict(
+        label="molmospaces-bench-v2/20260327",
+        url=f"https://huggingface.co/datasets/allenai/molmospaces/resolve/{MS_BENCH_REV}/"
+            "mujoco/benchmarks/molmospaces-bench-v2/20260327/shards/00000.tar",
+        sha256="ae3094b9127b719384d5953fc519712f723a221041bf84a7dc4287f7db881a12",
+        dest="/home/ubuntu/msbench", member="molmospaces-bench-v2_procthor-objaverse.tar.zst", extract=MS_BENCH_DIR,
+        verify={"benchmark.json": MS_BENCH_JSON_SHA,
+                "benchmark_metadata.json": "06ee2448935862b92f1663c4c68ae4028203447fb5f8a78e9d0aa8c98c7aea94"})
+    (t,) = tasks
+    docker = t["eval_config"]["docker"]
+    assert docker["volumes"] == ["/home/ubuntu/msbench:/msbench:ro"]
+    params = t["eval_config"]["benchmarks"][0]["params"]
+    # benchmark_dir = the mounted container path + the extracted directory (not the image's /assets/... copy)
+    mount_host, mount_ctr, _ = docker["volumes"][0].split(":")
+    assert mount_host == b["host_data"]["dest"]
+    assert params["benchmark_dir"] == f"{mount_ctr}/{MS_BENCH_DIR}"
+    # unchanged next to it: the eval config class, horizon and the server
+    assert params["eval_config_cls"] == "molmo_spaces.evaluation.configs.evaluation_configs:DummyPickPlaceEvalConfig"
+    assert params["task_horizon"] == 600 and t["model_server"] == "molmobot-droid"
+    # the other benchmarks of the yaml carry no host_data / volumes
+    for name in ("batch-a", "batch-4b", "simpler-starvla-oft", "libero-starvla-oft", "kinetix-rtc-600"):
+        assert not any("host_data" in x for x in generate.vlaeval_plan(_set(name))[0])
+
+
+@pytest.mark.skipif(not (Path("/mnt/scratch/remote-cc/tasks/86eyzubg2/diag-src/bench0327") / MS_BENCH_DIR).is_dir(),
+                    reason="extracted 20260327 JSON not on this host")
+def test_host_data_hashes_match_the_extracted_20260327_json():
+    import hashlib
+    d = Path("/mnt/scratch/remote-cc/tasks/86eyzubg2/diag-src/bench0327") / MS_BENCH_DIR
+    for f, h in _hd(_model())["verify"].items():
+        assert hashlib.sha256((d / f).read_bytes()).hexdigest() == h
+    eps = json.loads((d / "benchmark.json").read_text())
+    assert len(eps) == 200
+    assert eps[0]["language"]["task_description"].startswith("Pick up the wooden sculpting tool")
+    assert "place it in or on" in eps[0]["language"]["task_description"]
+
+
+def test_molmospaces_10_is_the_first_10_episodes_with_the_reference():
+    (t,) = generate.vlaeval_plan(_set("molmospaces-10"))[2]
+    (b,) = generate.vlaeval_plan(_set("molmospaces"))[2]
+    (f,) = generate.vlaeval_plan(_set("molmospaces-50"))[2]
+    assert t["eval_config"]["benchmarks"][0] == dict(b["eval_config"]["benchmarks"][0], max_tasks=10)
+    assert t["eval_config"]["docker"] == b["eval_config"]["docker"] == f["eval_config"]["docker"]
+    assert t["max_tasks"] == 10 and t["episodes_per_task"] == 1 and t["eval_timeout"] == 5400
+    assert t["extra_meta"] == f["extra_meta"] == [
+        "reference_value=0.57", "reference_n=200", "reference_metric=success",
+        "reference_source=docs/reproductions/molmobot.md:36", "matrix_row=vlaeval:molmobot-droid", MS_BENCH_JSON_META]
+    assert "6/10" in t["published"]
+    wait = int(task_sets.instance_overrides(_set("molmospaces-10"))["creationpolicy_timeout"][2:-1])
+    assert wait == 180 and t["eval_timeout"] / 60 + 35 <= wait
+
+
+@pytest.mark.skipif(BASH is None, reason="bash not on PATH")
+def test_molmospaces_10_render_fetches_checks_and_mounts_the_json(tmp_path):
+    _render(tmp_path, "--task-set", "molmospaces-10")
+    text = (tmp_path / "vlaeval.sh").read_text()
+    assert subprocess.run([BASH, "-n", str(tmp_path / "vlaeval.sh")]).returncode == 0
+    (t,) = _tasks_json(text)
+    assert t["eval_config"]["docker"]["volumes"] == ["/home/ubuntu/msbench:/msbench:ro"]
+    assert t["eval_config"]["benchmarks"][0]["params"]["benchmark_dir"] == f"/msbench/{MS_BENCH_DIR}"
+    assert t["eval_config"]["benchmarks"][0]["max_tasks"] == 10
+    assert " jq python3 zstd > " in text and 'command -v zstd' in text
+    assert (f'curl -fsSL --connect-timeout 30 --max-time 1800 -o "/home/ubuntu/msbench/.shard.tar" '
+            f'"https://huggingface.co/datasets/allenai/molmospaces/resolve/{MS_BENCH_REV}/') in text
+    assert ('echo "ae3094b9127b719384d5953fc519712f723a221041bf84a7dc4287f7db881a12  /home/ubuntu/msbench/.shard.tar"'
+            ' | sha256sum -c --quiet -') in text
+    # only the declared files, no owner/mode bits from the archive, each a regular file, modes reset
+    assert (f'"{MS_BENCH_DIR}/benchmark.json" "{MS_BENCH_DIR}/benchmark_metadata.json"' in text
+            and f'"{MS_BENCH_DIR}/"' not in text)
+    assert "zstd -dc" in text and "--no-same-owner --no-same-permissions" in text
+    assert f'[ ! -L "/home/ubuntu/msbench/{MS_BENCH_DIR}/benchmark.json" ]' in text
+    assert "-type f -exec chmod 0644" in text and "chmod -R a+rX" not in text
+    assert f"{MS_BENCH_JSON_SHA}  benchmark.json\n" in text
+    assert "06ee2448935862b92f1663c4c68ae4028203447fb5f8a78e9d0aa8c98c7aea94  benchmark_metadata.json\n" in text
+    assert 'rm -f "/home/ubuntu/msbench/.shard.tar"' in text
+    # the fetch runs after the image pull and before the model servers start
+    assert text.index('docker pull -q "ghcr.io/worv-ai/') < text.index("/home/ubuntu/msbench/.shard.tar") \
+        < text.index('CURRENT_SERVER=""\nstart_server()')
+    # protocol.yaml code_pins carry the revision and the JSON's sha256
+    assert (f"benchmark_json.molmospaces: $(pc_q 'molmospaces-bench-v2/20260327@{MS_BENCH_REV}')") in text
+    assert f"benchmark_json.molmospaces.sha256: $(pc_q '{MS_BENCH_JSON_SHA}')" in text
+
+
+@pytest.mark.parametrize("extra", [[], ["--task-set", "kinetix"], ["--task-set", "batch-a"],
+                                   ["--task-set", "simpler-starvla-oft"]])
+def test_renders_without_host_data_have_no_fetch_step(tmp_path, extra):
+    _render(tmp_path, *extra)
+    text = (tmp_path / "vlaeval.sh").read_text()
+    assert "zstd" not in text and "host_data" not in text and "benchmark_json" not in text and "msbench" not in text
+
+
+def _host_data_block(text, dest):
+    blk = text[text.index("command -v zstd >/dev/null"):]
+    blk = blk[:blk.index("mounted read-only into the benchmark container\"") + len("mounted read-only into the benchmark container\"")]
+    return blk.replace("/home/ubuntu/msbench", str(dest))
+
+
+def _fake_shard(tmp_path, json_bytes=b'[{"x": 1}]', meta_bytes=b"{}"):
+    """A tar with the member layout of the real shard: <member>.tar.zst holding <extract>/benchmark*.json."""
+    src = tmp_path / "src"
+    (src / MS_BENCH_DIR).mkdir(parents=True)
+    (src / MS_BENCH_DIR / "benchmark.json").write_bytes(json_bytes)
+    (src / MS_BENCH_DIR / "benchmark_metadata.json").write_bytes(meta_bytes)
+    (src / "procthor-objaverse" / "other.json").write_text("not extracted")
+    helper = src / MS_BENCH_DIR / "helper"                       # an undeclared setuid entry in the same directory
+    helper.write_text("#!/bin/sh\n")
+    helper.chmod(0o4755)
+    (src / MS_BENCH_DIR / "benchmark.json").chmod(0o4755)        # mode bits in the archive are not kept
+    inner = tmp_path / "molmospaces-bench-v2_procthor-objaverse.tar.zst"
+    subprocess.run(f"tar -C {src} -cf - procthor-objaverse | zstd -q -o {inner}", shell=True, check=True)
+    shard = tmp_path / "shard.tar"
+    subprocess.run(["tar", "-C", str(tmp_path), "-cf", str(shard), inner.name], check=True)
+    return shard
+
+
+def _run_host_data(tmp_path, shard, cfg):
+    gen = tmp_path / "gen"
+    gen.mkdir()
+    text = generate.generate_vlaeval(cfg, dry_run=True)
+    dest = tmp_path / "msbench"
+    script = "set -euo pipefail\n" \
+             'log() { echo "LOG $*"; }\ndie() { echo "DIE $*"; exit 9; }\n' \
+             'sleep() { :; }\n' \
+             f'curl() {{ local o; while [ $# -gt 0 ]; do [ "$1" = -o ] && o=$2; shift; done; cp {shard} "$o"; }}\n' \
+             + _host_data_block(text, dest) + "\necho DONE\n"
+    proc = subprocess.run([BASH, "-c", script], capture_output=True, text=True, timeout=60)
+    return proc, dest
+
+
+def _cfg_for(shard, json_sha, meta_sha):
+    import hashlib
+    cfg = copy.deepcopy(_set("molmospaces-10"))
+    _hd(cfg).update(sha256=hashlib.sha256(shard.read_bytes()).hexdigest(),
+                    verify={"benchmark.json": json_sha, "benchmark_metadata.json": meta_sha})
+    return cfg
+
+
+@pytest.mark.skipif(None in (BASH, ZSTD), reason="bash / zstd not on PATH")
+def test_host_data_step_extracts_only_the_directory_and_checks_every_hash(tmp_path):
+    import hashlib
+    shard = _fake_shard(tmp_path)
+    jsha, msha = hashlib.sha256(b'[{"x": 1}]').hexdigest(), hashlib.sha256(b"{}").hexdigest()
+    proc, dest = _run_host_data(tmp_path, shard, _cfg_for(shard, jsha, msha))
+    assert proc.returncode == 0 and "DONE" in proc.stdout, proc.stdout + proc.stderr
+    assert (dest / MS_BENCH_DIR / "benchmark.json").read_bytes() == b'[{"x": 1}]'
+    assert not (dest / "procthor-objaverse" / "other.json").exists()       # only the benchmark directory
+    assert not (dest / MS_BENCH_DIR / "helper").exists()                   # only the declared files
+    assert (dest / MS_BENCH_DIR / "benchmark.json").stat().st_mode & 0o7777 == 0o644
+    assert not (dest / ".shard.tar").exists()                                # the 525 MB tar is removed
+    assert "verified (2 file(s))" in proc.stdout
+
+
+@pytest.mark.skipif(None in (BASH, ZSTD), reason="bash / zstd not on PATH")
+@pytest.mark.parametrize("break_it,msg", [
+    ("shard", "sha256 of https://huggingface.co/"),
+    ("json", "sha256 check of the extracted"),
+    ("meta", "sha256 check of the extracted"),
+    ("extract", "extracting"),
+    ("member", "extracting"),
+])
+def test_host_data_step_fails_loudly(tmp_path, break_it, msg):
+    import hashlib
+    shard = _fake_shard(tmp_path)
+    jsha, msha = hashlib.sha256(b'[{"x": 1}]').hexdigest(), hashlib.sha256(b"{}").hexdigest()
+    cfg = _cfg_for(shard, "0" * 64 if break_it == "json" else jsha, "0" * 64 if break_it == "meta" else msha)
+    if break_it == "shard":
+        _hd(cfg)["sha256"] = "0" * 64
+    if break_it == "extract":
+        _hd(cfg)["extract"] = MS_BENCH_DIR + "_missing"
+    if break_it == "member":
+        _hd(cfg)["member"] = "molmospaces-bench-v2_ithor.tar.zst"
+    proc, _ = _run_host_data(tmp_path, shard, cfg)
+    assert proc.returncode == 9 and "DONE" not in proc.stdout, proc.stdout + proc.stderr
+    assert "DIE molmospaces: " + msg.split(" of https")[0] in proc.stdout or msg in proc.stdout, proc.stdout
+
+
+def test_deploy_prints_a_time_estimate_for_molmospaces_10():
+    src = (ROOT / "deploy.py").read_text()
+    assert 'args.task_set == "molmospaces-10"' in src and "~1.5-2 h (molmospaces-10" in src

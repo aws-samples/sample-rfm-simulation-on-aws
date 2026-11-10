@@ -25,7 +25,8 @@
 # (LIBERO MIT; lerobot/pi05_libero_finetuned: Gemma terms, its PaliGemma tokenizer repo is gated;
 # Dexmal/maniskill2-db-cogact (task set maniskill2): card license `cc` without a variant -> NON-COMMERCIAL until
 # confirmed; Yinpei/pi05_baseline (robomme): card Apache-2.0, fine-tuned from the PaliGemma-derived pi0.5 base;
-# DuoBench's image contains Robot Control Stack, AGPL-3.0). See docs/licenses.md.
+# DuoBench's image contains Robot Control Stack, AGPL-3.0; Dexmal/libero-db-cogact: card `cc`, NON-COMMERCIAL until
+# confirmed; openpi pi0.5 / pi0-FAST weights: Gemma terms). See docs/licenses.md.
 model:
   id: vlaeval
   display_name: "vla-eval (allenai/vla-evaluation-harness)"
@@ -262,6 +263,59 @@ vlaeval:
       # (no CUDA 13 wheels, checked 2026-11-09), so the CUDA 12 step leaves it unchanged.
       license: "checkpoints Apache-2.0 (card); GR00T N1.5 fork robocasa-benchmark/Isaac-GR00T Apache-2.0"
       published: "none for a 1-task smoke (the RoboCasa365 paper reports the 50-task target split; the harness lists this pair as not attempted)"
+    # Bundle 4A: three more model servers of the harness on LIBERO-Spatial (configs and reproduced scores of
+    # vla-evaluation-harness v0.9.0, docs/reproductions/*.md). Pins read from the HF API / GCS JSON API on 2026-11-09.
+    #   server_env                NAME=value list -> the environment of this server's `vla-eval serve` only
+    #   provenance_paths          absolute files / dirs the server downloads itself (no HF pin): their file list,
+    #                             size and md5 are recorded once it is healthy (<task>/checkpoint-provenance.txt)
+    db-cogact-libero:
+      config: "configs/model_servers/db_cogact/libero.yaml"   # chunk_size_map: libero_spatial 12
+      checkpoint_arg: model_path      # cogact.py from_pretrained(model_path) + <model_path>/norm_stats.json: a snapshot dir works
+      hf_repo: "Dexmal/libero-db-cogact"                  # the config's own model_path; ungated (HF API 2026-11-09)
+      hf_model_revision: "2cb20bcaa1e2e39d431b7e3d40a2d7a696388a10"   # = main (2025-10-11), 16.06 GB, has norm_stats.json
+      # same server script as db-cogact-maniskill2 (dexbotic/cogact.py, dexbotic @ 42f72859): its lock pulls torch
+      # 2.15 / CUDA 13 wheels, so the CUDA 12 step adds torch<2.11 on the 570 driver (as for maniskill2, which ran
+      # 6/6 on AWS). dexbotic reads Qwen/Qwen2.5-7B (config) and openai/clip-vit-large-patch14-336 from the Hub at
+      # main at load (named in the checkpoint's config.json); not pinned here.
+      license: "checkpoint card license: cc (variant not stated, treated as non-commercial until confirmed); dexbotic MIT; base Qwen2.5-7B Apache-2.0"
+      published: "LIBERO-Spatial 93.8 % (harness reproduction, 500 episodes) / 93.8 % (Dexmal card)"
+    openvla-libero-spatial:
+      config: "configs/model_servers/openvla/libero_spatial.yaml"   # unnorm_key libero_spatial, chunk_size 1
+      checkpoint_arg: model_path      # openvla.py AutoModelForVision2Seq.from_pretrained(model_path, trust_remote_code)
+      hf_repo: "openvla/openvla-7b-finetuned-libero-spatial"   # the config's own model_path; ungated (HF API 2026-11-09)
+      hf_model_revision: "962318cec55ac10993ff0f5f43eda9a270b4c873"   # = main (2024-10-09), 15.09 GB
+      # The checkpoint has no modeling code: its config.json auto_map names openvla/openvla-7b--modeling_prismatic
+      # (and --processing_prismatic), which transformers fetches from the Hub at main at load (ungated, MIT; main =
+      # 47a0ec7f on 2026-11-09); not pinned here. openvla.py's lock pulls torch 2.15 / CUDA 13; with torch<2.11 it
+      # resolves 2.10.0 on CUDA 12 (uv lock --script, 2026-11-09), which the CUDA 12 step adds on the 570 driver.
+      license: "MIT (OpenVLA code and fine-tuned checkpoint card); Llama 2 backbone weights inside the checkpoint: Llama 2 Community License [unverified]"
+      published: "LIBERO-Spatial 86.6 % (harness reproduction, 500 episodes) / 84.7 % (paper Table I)"
+    openpi-pi05-libero:
+      config: "configs/model_servers/pi0/libero.yaml"     # config_name pi05_libero, chunk_size 10
+      # No Hugging Face checkpoint: pi0.py loads gs://openpi-assets/checkpoints/pi05_libero (public bucket, 16
+      # objects, 12.44 GB, last updated 2025-09-08 per the GCS JSON API on 2026-11-09) into openpi's cache
+      # (OPENPI_DATA_HOME, default ~/.cache/openpi; HOME=/root on the instance) on first start, plus the PaliGemma
+      # tokenizer gs://big_vision/paligemma_tokenizer.model. The bucket has no object versions pinned here: the
+      # md5 list of what was fetched is recorded per task (provenance_paths).
+      # `uv lock --script pi0.py` resolves (torch 2.7.1 CUDA 12, jax 0.5.3, numpy 1.26.4; no CUDA 13 wheel,
+      # 2026-11-09), so unlike mme_vla.py it stays in the CUDA 12 lock check (no torch_lock: false).
+      # JAX preallocates 75 % of the GPU by default; the LIBERO container renders with EGL on the same GPU.
+      server_env: ["XLA_PYTHON_CLIENT_MEM_FRACTION=0.5"]
+      provenance_paths: ["/root/.cache/openpi/openpi-assets/checkpoints/pi05_libero",
+                         "/root/.cache/openpi/big_vision/paligemma_tokenizer.model"]
+      license: "openpi code Apache-2.0; the pi0.5 weights are PaliGemma-derived: openpi ships LICENSE_GEMMA.txt (Gemma terms); the bucket states no license"
+      published: "LIBERO-Spatial 98.0 % (harness reproduction, 500 episodes) / 98.8 % (reported)"
+    openpi-pi0fast-libero:
+      config: "configs/model_servers/pi0/libero_fast.yaml"   # config_name pi0_fast_libero, chunk_size 10
+      # Same script and env as openpi-pi05-libero. gs://openpi-assets/checkpoints/pi0_fast_libero: 16 objects,
+      # 10.85 GB, last updated 2025-05-28 (GCS JSON API, 2026-11-09). pi0-FAST also loads its action tokenizer
+      # physical-intelligence/fast from the Hub at main (AutoProcessor, trust_remote_code; ungated, Apache-2.0,
+      # main = ec4d7aa7 on 2026-11-09); not pinned here.
+      server_env: ["XLA_PYTHON_CLIENT_MEM_FRACTION=0.5"]
+      provenance_paths: ["/root/.cache/openpi/openpi-assets/checkpoints/pi0_fast_libero",
+                         "/root/.cache/openpi/big_vision/paligemma_tokenizer.model"]
+      license: "openpi code Apache-2.0; PaliGemma-derived weights: Gemma terms (openpi LICENSE_GEMMA.txt); FAST tokenizer Apache-2.0"
+      published: "none in the harness (config only; docs/reproductions/openpi.md:49 calls it a lower-performing variant)"
   # Values written into every rendered eval config (all documented harness config keys).
   run:
     server_timeout: 900     # cold first episode warmed up for 216 s; the harness default of 30 s fails it
@@ -461,6 +515,62 @@ task_sets:
     # + two server envs: more than batch-b's ~91 GB, and ~2-2.5 h end to end (estimates)
     instance: {ebs_gb: 350, creationpolicy_timeout: PT240M}
     tasks: [*robomme, *robocasa365, *vlabench_echo, *mikasa_echo, *duobench_echo]
+  # Bundle 4A: LIBERO-Spatial (the default benchmark, unchanged) x three more model servers, at the harness's own
+  # protocol (10 tasks, seed 7, num_steps_wait 10, configs/benchmarks/libero/spatial.yaml) with fewer episodes
+  # where the server is slow. reference = the harness's reproduced score (`vlasim results --matrix` prints the
+  # difference, a Newcombe 95% CI of it and the harness legend verdict); matrix_row keeps one row per server.
+  # Rendered and unit-tested; not yet run on AWS: every time below is an estimate.
+  libero-dbcogact:
+    description: "LIBERO-Spatial 10 tasks x 50 episodes (500, the harness protocol), DB-CogACT"
+    instance: {creationpolicy_timeout: PT240M}   # ~75-100 min of episodes (9-12 s each, estimate) + ~35 min setup
+    tasks:
+      - &dbcogact_spatial
+        <<: *spatial
+        model_server: db-cogact-libero
+        episodes_per_task: 50
+        eval_timeout: 10800
+        matrix_row: "vlaeval:db-cogact-libero"
+        description: "LIBERO-Spatial, 10 tasks x 50 episodes (DB-CogACT through vla-eval)"
+        published: "93.8 % (harness reproduction, 500 episodes) / 93.8 % (Dexmal card)"
+        reference: {value: 0.938, n: 500, metric: success, source: "docs/reproductions/dexbotic.md:27"}
+  libero-openvla:
+    description: "LIBERO-Spatial 10 tasks x 20 episodes (200), OpenVLA (fine-tuned on LIBERO-Spatial)"
+    instance: {creationpolicy_timeout: PT240M}   # chunk_size 1 = one 7B forward pass per step: ~25-30 s/episode (estimate)
+    tasks:
+      - &openvla_spatial
+        <<: *spatial
+        model_server: openvla-libero-spatial
+        episodes_per_task: 20
+        eval_timeout: 10800
+        matrix_row: "vlaeval:openvla-libero-spatial"
+        description: "LIBERO-Spatial, 10 tasks x 20 episodes (OpenVLA through vla-eval)"
+        published: "86.6 % (harness reproduction, 500 episodes) / 84.7 % (paper)"
+        reference: {value: 0.866, n: 500, metric: success, source: "docs/reproductions/openvla.md:25"}
+  libero-openpi:
+    description: "LIBERO-Spatial 10 tasks x 10 episodes each for openpi pi0.5 (positive control) and pi0-FAST"
+    tasks:
+      - &openpi_pi05_spatial
+        <<: *spatial
+        model_server: openpi-pi05-libero
+        episodes_per_task: 10
+        matrix_row: "vlaeval:openpi-pi05-libero"
+        description: "LIBERO-Spatial, 10 tasks x 10 episodes (openpi pi0.5 through vla-eval, positive control)"
+        published: "98.0 % (harness reproduction, 500 episodes) / 98.8 % (reported)"
+        reference: {value: 0.980, n: 500, metric: success, source: "docs/reproductions/openpi.md:27"}
+      - &openpi_pi0fast_spatial
+        <<: *spatial
+        model_server: openpi-pi0fast-libero
+        episodes_per_task: 10
+        matrix_row: "vlaeval:openpi-pi0fast-libero"
+        description: "LIBERO-Spatial, 10 tasks x 10 episodes (openpi pi0-FAST through vla-eval)"
+        published: "none in the harness (config only; a smoke, not a reproduction)"
+  batch-4a:
+    description: "Bundle 4A on one instance: openpi pi0.5 + pi0-FAST, DB-CogACT and OpenVLA on LIBERO-Spatial"
+    # one LIBERO image (8.84 GB) + checkpoints 16.06 + 15.09 GB (HF) + 12.44 + 10.85 GB (gs://) + three server envs
+    # ~ 110 GB (estimate; batch-b's ~91 GB fit the default 250 GB): 300 GB for margin. ~4-5 h end to end (estimate);
+    # shortest tasks first, so a timeout late in the run still leaves the openpi results in S3
+    instance: {ebs_gb: 300, creationpolicy_timeout: PT420M}
+    tasks: [*openpi_pi05_spatial, *openpi_pi0fast_spatial, *dbcogact_spatial, *openvla_spatial]
 
 bridge:
   enabled: false

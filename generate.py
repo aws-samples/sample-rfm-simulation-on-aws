@@ -1747,7 +1747,19 @@ _VLAEVAL_IMPORT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_.]*:[A-Za-z_][A-Za-z0-9_]
 _VLAEVAL_IMAGE_RE = re.compile(r"^[a-z0-9][a-z0-9.-]*(:[0-9]+)?(/[a-z0-9][a-z0-9._-]*)+$")
 _VLAEVAL_CONFIG_RE = re.compile(r"^configs/model_servers/[A-Za-z0-9_./-]+\.ya?ml$")
 _VLAEVAL_TASK_KEYS = {"suite", "benchmark", "model_server", "episodes_per_task", "seed", "max_tasks", "max_steps",
-                      "params", "action_type", "description", "published", "condition", "kind"}
+                      "params", "action_type", "description", "published", "condition", "kind",
+                      "reference", "eval_timeout", "matrix_row"}
+# reference: {value, n, metric, source} = the score this entry is compared with (`vlasim results --matrix`: diff,
+# Newcombe 95% CI of the difference, harness legend verdict). source = <file>:<line> of the harness checkout.
+_VLAEVAL_REF_KEYS = {"value", "n", "metric", "source"}
+_VLAEVAL_REF_METRICS = ("success",)
+_VLAEVAL_REF_SOURCE_RE = re.compile(r"^[A-Za-z0-9_./@#-]+:[0-9]+(-[0-9]+)?$")
+# matrix_row: the row label of the entry in `vlasim results --matrix` (several model servers of one target on one
+# benchmark column would otherwise share the target's row and only the latest run would show)
+_VLAEVAL_ROW_RE = re.compile(r"^[a-z0-9][a-z0-9_.:-]{0,63}$")
+VLAEVAL_EVAL_TIMEOUT = 5400   # default cap of one `vla-eval run` (s); eval_timeout overrides it per entry
+# provenance_paths: files / dirs a server fetches outside the Hugging Face cache (openpi gs:// checkpoints)
+_VLAEVAL_ABS_PATH_RE = re.compile(r"^/[A-Za-z0-9_./-]{1,255}$")
 # kind: echo = the harness's own `vla-eval test -c <run config>` (an in-process EchoModelServer sends zero actions;
 # 1 task x 1 episode, at most 50 steps, cli/smoke.py run_benchmark_test): a plumbing check of a benchmark image that
 # has no model server in the harness, not a policy score. The model_server of such a task is this label.
@@ -1893,6 +1905,26 @@ def vlaeval_plan(config: dict, vla: str = "vlaeval") -> tuple:
         #                      whose .gitmodules names a submodule as git@github.com:..., cloned without an SSH key)
         if not isinstance(s.get("git_https", False), bool):
             raise ValueError(f"{where}.git_https must be true or false")
+        #   server_env         NAME=value list -> the environment of this server's `vla-eval serve` only
+        senv = s.get("server_env")
+        if senv is not None:
+            if not isinstance(senv, list) or not senv:
+                raise ValueError(f"{where}.server_env must be a non-empty list of NAME=value strings")
+            names = []
+            for e in senv:
+                m = _VLAEVAL_DOCKER_ENV_RE.match(e) if isinstance(e, str) else None
+                if not m:
+                    raise ValueError(f"{where}.server_env: {e!r} is not NAME=value (upper-case name, plain value)")
+                if m.group(1) in names or m.group(1) == "HF_HUB_OFFLINE":
+                    raise ValueError(f"{where}.server_env: {m.group(1)} is set twice or by checkpoint_pass")
+                names.append(m.group(1))
+        #   provenance_paths   absolute files / dirs the server downloads itself, outside the HF cache: their file
+        #                      list + md5 is recorded once the server is healthy (<task>/checkpoint-provenance.txt)
+        prov = s.get("provenance_paths")
+        if prov is not None:
+            if not isinstance(prov, list) or not prov or not all(
+                    isinstance(x, str) and _VLAEVAL_ABS_PATH_RE.match(x) and ".." not in x for x in prov):
+                raise ValueError(f"{where}.provenance_paths must be a non-empty list of absolute paths ([A-Za-z0-9_./-])")
         if ck_pass == "repo_id":
             if not s.get("hf_repo"):
                 raise ValueError(f"{where}: checkpoint_pass repo_id needs hf_repo / hf_model_revision")
@@ -1968,6 +2000,25 @@ def vlaeval_plan(config: dict, vla: str = "vlaeval") -> tuple:
             if not _VLAEVAL_PARAM_NAME_RE.match(str(k)) or not _vlaeval_param_ok(v):
                 raise ValueError(f"{where}.params.{k}: plain scalar values or a list of them only (one token of "
                                  f"[A-Za-z0-9_./:-], at most 256 characters; at most {_VLAEVAL_PARAM_LIST_MAX} items)")
+        ref = t.get("reference")
+        if ref is not None:
+            w = f"{where}.reference"
+            if echo or not isinstance(ref, dict) or set(ref) != _VLAEVAL_REF_KEYS:
+                raise ValueError(f"{w} must map exactly value, n, metric, source (and not on an echo task)")
+            v = ref["value"]
+            if isinstance(v, bool) or not isinstance(v, (int, float)) or not 0 <= v <= 1:
+                raise ValueError(f"{w}.value must be a rate in [0, 1] (e.g. 0.938)")
+            _vlaeval_int(ref["n"], f"{w}.n", 1)
+            if ref["metric"] not in _VLAEVAL_REF_METRICS:
+                raise ValueError(f"{w}.metric must be one of {', '.join(_VLAEVAL_REF_METRICS)}")
+            if not isinstance(ref["source"], str) or not _VLAEVAL_REF_SOURCE_RE.match(ref["source"]):
+                raise ValueError(f"{w}.source must be <file>:<line> (e.g. docs/reproductions/dexbotic.md:27)")
+        row = t.get("matrix_row")
+        if row is not None and (not isinstance(row, str) or not _VLAEVAL_ROW_RE.match(row)):
+            raise ValueError(f"{where}.matrix_row must be [a-z0-9][a-z0-9_.:-]* (at most 64 characters)")
+        if t.get("eval_timeout") is not None and (echo or _vlaeval_int(t["eval_timeout"], f"{where}.eval_timeout",
+                                                                         600) > 86400):
+            raise ValueError(f"{where}.eval_timeout must be seconds in 600..86400 (not on an echo task)")
         cond = str(t.get("condition") or "S0")
         if not re.fullmatch(r"[A-Za-z0-9_./-]{1,64}", cond):
             raise ValueError(f"{where}.condition {cond!r}: plain token only")
@@ -2014,6 +2065,16 @@ def vlaeval_plan(config: dict, vla: str = "vlaeval") -> tuple:
             out[-1]["init_states"] = str(bench["init_states"])
         if server.get("checkpoint_pass") == "repo_id":
             out[-1]["checkpoint_pass"] = "repo_id"   # the task loop passes hf_repo and starts it with HF_HUB_OFFLINE=1
+        meta = []   # extra summary.txt lines (adapter --meta), only when set
+        if ref is not None:
+            meta += [f"reference_value={ref['value']}", f"reference_n={ref['n']}", f"reference_metric={ref['metric']}",
+                     f"reference_source={ref['source']}"]
+        if row is not None:
+            meta.append(f"matrix_row={row}")
+        if meta:
+            out[-1]["extra_meta"] = meta
+        if t.get("eval_timeout") is not None:
+            out[-1]["eval_timeout"] = t["eval_timeout"]
     bench_list = [dict(name=n, image=f"{benches[n]['image']}@{benches[n]['image_digest']}",
                        simulator=str(benches[n].get("simulator") or n)) for n in used_b]
     server_list = []
@@ -2035,6 +2096,10 @@ def vlaeval_plan(config: dict, vla: str = "vlaeval") -> tuple:
             server_list[-1]["git_https"] = True
         if s.get("checkpoint_pass") == "repo_id":
             server_list[-1]["checkpoint_pass"] = "repo_id"
+        if s.get("server_env"):
+            server_list[-1]["server_env"] = list(s["server_env"])
+        if s.get("provenance_paths"):
+            server_list[-1]["provenance_paths"] = list(s["provenance_paths"])
         if s.get("hf_offline_repos"):
             server_list[-1]["hf_offline_repos"] = [
                 dict(repo=str(x["repo"]), revision=str(x["revision"]),
@@ -2078,6 +2143,11 @@ def generate_vlaeval(config: dict, dry_run: bool, vla: str = "vlaeval") -> str:
         "echo_tasks": any(t.get("kind") == "echo" for t in tasks),
         "torch_lock_skip": [s for s in servers if s.get("torch_lock") is False],
         "git_https_servers": [s["name"] for s in servers if s.get("git_https")],
+        "env_servers": [s for s in servers if s.get("server_env")],
+        "provenance_servers": [s for s in servers if s.get("provenance_paths")],
+        "extra_meta": any(t.get("extra_meta") for t in tasks),
+        "eval_timeouts": any(t.get("eval_timeout") for t in tasks),
+        "eval_timeout_default": VLAEVAL_EVAL_TIMEOUT,
         "display_name": _shell_safe(model.get("display_name", vla), "display_name"),
         "policy_desc": _shell_safe(model.get("policy_desc", vla), "policy_desc"),
         "license": _shell_safe(model.get("license", "see model card"), "license"),

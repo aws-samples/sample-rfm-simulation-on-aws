@@ -656,8 +656,9 @@ task_sets:
   # harness's 96-episode reproduction. At 96 episodes the 95% CI of the difference is about +-13pp: these sets check
   # "same environment and wiring as the harness", not a +-2pp reproduction. starVLA Qwen2.5-FAST runs 6 episodes per task
   # (24, a smoke) because it is slow (1.4 obs/s on an H100 per the harness, docs/reproductions/running-guide.md:79).
-  # Rendered and unit-tested; not yet run on AWS: every time below is an estimate. Run simpler-dbcogact first, alone
-  # (same server script as the measured libero-dbcogact: it checks the SimplerEnv wiring).
+  # Measured on AWS 2026-11-10 (docs/targets.md Note 23): 51/96, 54/96 and 16/24, each within the 95% CI of the
+  # reference; the times below are the estimates written before the runs (measured ~37 / ~70 / ~93 min). Run
+  # simpler-dbcogact first, alone (same server script as the measured libero-dbcogact: it checks the SimplerEnv wiring).
   simpler-dbcogact:
     description: "SimplerEnv WidowX VM 4 tasks x 24 episodes (96, the harness protocol), DB-CogACT"
     instance: {creationpolicy_timeout: PT180M}   # ~35 min setup + ~25-45 min of episodes (estimate)

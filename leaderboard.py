@@ -567,7 +567,7 @@ def reference_of(groups):
         return None
     value, n, metric, source = refs.pop()
     v, nn = results._float(value), results._int(n)
-    if v is None or not nn or not 0 <= v <= 1:
+    if v is None or not nn or nn < 1 or not 0 <= v <= 1:
         return None
     return dict(value=v, n=nn, metric=metric or "success", source=source)
 
@@ -581,7 +581,7 @@ def reference_comparison(st, ref):
     diff = (st["k"] / st["n"] - out["k"] / ref["n"]) * 100
     if lo <= 0 <= hi:
         verdict = "within 95% CI"
-    elif abs(diff) <= 5:
+    elif 20 * abs(st["k"] * ref["n"] - out["k"] * st["n"]) <= st["n"] * ref["n"]:   # |diff| <= 5pp, exact
         verdict = "outside CI, <=5pp"
     else:
         verdict = "outside CI, >5pp"

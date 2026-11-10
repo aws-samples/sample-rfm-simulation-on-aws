@@ -507,6 +507,19 @@ def test_reference_verdicts_follow_the_harness_legend(k, n, ref_n, verdict):
     assert (lo <= 0 <= hi) == (verdict == "within 95% CI")
 
 
+@pytest.mark.parametrize("k,verdict", [(5500, "outside CI, <=5pp"), (4500, "outside CI, <=5pp"),
+                                       (5501, "outside CI, >5pp"), (4499, "outside CI, >5pp")])
+def test_reference_verdict_at_exactly_5pp(k, verdict):
+    # (0.55 - 0.5) * 100 = 5.000000000000004 in floating point: exactly 5pp must still be <=5pp
+    r = lb.reference_comparison(dict(k=k, n=10000, rate=k / 10000), dict(value=0.5, n=10000, metric="success", source="a:1"))
+    assert r["verdict"] == verdict
+
+
+def test_reference_with_a_non_positive_n_is_ignored():
+    for n in ("-500", "0"):
+        assert lb.reference_of([dict(kvs=[{"reference_value": "0.938", "reference_n": n}])]) is None
+
+
 def test_reference_k_is_the_rounded_count():
     # 0.29 * 100 = 28.999999999999996 in floating point: the reference count is 29, not 28
     r = lb.reference_comparison(dict(k=29, n=100, rate=0.29), dict(value=0.29, n=100, metric="success", source="a:1"))

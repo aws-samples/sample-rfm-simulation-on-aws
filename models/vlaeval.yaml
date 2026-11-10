@@ -817,8 +817,9 @@ task_sets:
             *fast_widowx_stack, *fast_widowx_carrot, *fast_widowx_spoon, *fast_widowx_eggplant]
   # Bundle 4C: the batch A / B smoke pairs scaled up to sizes that can be compared with the harness's reproductions,
   # and starVLA Qwen3-VL OFT on LIBERO-Spatial and on SimplerEnv WidowX VM. reference = the harness's own number
-  # (vla-evaluation-harness v0.9.0 docs/reproductions/*.md). Rendered and unit-tested; not yet run on AWS: every time
-  # below is an estimate (the per-episode rates come from the measured batch A / B / 4B runs where there is one).
+  # (vla-evaluation-harness v0.9.0 docs/reproductions/*.md). Measured on AWS 2026-11-10 (docs/targets.md Note 23):
+  # 586/600, 28/50 (on the 20260327 JSON), 49/50 and 24/96, each within the 95% CI of the reference; the times below
+  # are the estimates written before the runs (measured ~28 min / ~5.1 h / ~62 min / ~54 min; batch-4c not run).
   kinetix-rtc-600:
     description: "Kinetix, all 12 RTC levels x 50 rollouts (600), RTC sync d=0 s=1"
     tasks:

@@ -143,13 +143,24 @@ def test_openarm_patch_applies_once_and_is_idempotent(tmp_path):
     tree = _fake_openarm(tmp_path, mod)
     first = _run_patcher(tree)
     assert first.returncode == 0, first.stdout + first.stderr
-    assert "7 edit(s) applied" in first.stdout
+    assert "9 edit(s) applied" in first.stdout
+    reach = (tree / mod.PKG / "bimanual/reach/reach_env_cfg.py").read_text()
+    assert "import UniformNoiseCfg as Unoise" in reach and "AdditiveUniformNoiseCfg" not in reach
     lift = (tree / mod.PKG / "unimanual/lift/lift_env_cfg.py").read_text()
     assert "rot=[0, 0, 0.707, 0.707]" in lift and "self.sim.physx." not in lift and "PhysxCfg(" in lift
     rewards = (tree / mod.PKG / "bimanual/reach/mdp/rewards.py").read_text()
     assert rewards.count("robot.data.root_pos_w.torch[") == 8
     second = _run_patcher(tree)
     assert second.returncode == 0 and "0 edit(s) applied" in second.stdout
+
+
+def test_openarm_patch_fails_on_a_removed_2x_noise_alias(tmp_path):
+    mod = _patcher()
+    tree = _fake_openarm(tmp_path, mod)
+    fp = tree / mod.PKG / "bimanual/reach/mdp/rewards.py"
+    fp.write_text(fp.read_text() + "from isaaclab.utils.noise import AdditiveGaussianNoiseCfg\n")
+    r = _run_patcher(tree)
+    assert r.returncode != 0 and "removed in 3.0 still used" in (r.stdout + r.stderr)
 
 
 def test_openarm_patch_fails_loudly_when_the_pinned_sources_moved(tmp_path):

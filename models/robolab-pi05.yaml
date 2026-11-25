@@ -24,12 +24,13 @@ model:
 
   robolab_repo: "https://github.com/NVlabs/RoboLab.git"
   robolab_commit: "9cce00cadd5dc575fd2b8ea3836f5bdcde574229"
-  isaac_lab_tag: "2.2.0@sha256:b4d8e96cbfb9a6c40067bec6cc5ee180e36d4c0164b25f7215c5f47e31897b94"
+  # Isaac Lab 3.0.0-beta2 for CVE-2026-65141, same pin and reasons as models/robolab-cosmos3.yaml.
+  isaac_lab_tag: "3.0.0-beta2@sha256:970621075d00059c309f847fa835709de3fa634537407a7009c586c97893d218"
 
   server_repo: "https://github.com/xuningy/openpi.git"
   # = the OPENPI_COMMIT RoboLab's Dockerfile pins for openpi-client (HEAD 2026-01-14)
   server_commit: "aa6420561529593114160d05e5ad155792b272f3"
-  min_driver_major: 535
+  min_driver_major: 580          # Isaac Sim 6 / CUDA 13 (Isaac Lab 3.0); the openpi server alone needs 535
 
 protocols:
   subset12:

@@ -175,11 +175,17 @@ until timeout 2400 apt-get update -qq -o DPkg::Lock::Timeout=1800 > /tmp/{{ vla 
 done
 APT_RETRY=0
 until apt-get install -y --no-install-recommends -o DPkg::Lock::Timeout=1800 \
-    git git-lfs curl ca-certificates awscli jq python3 > /tmp/{{ vla }}_apt.log 2>&1; do
+    git git-lfs curl ca-certificates jq python3 unzip > /tmp/{{ vla }}_apt.log 2>&1; do
     APT_RETRY=$((APT_RETRY + 1))
     [ $APT_RETRY -ge 3 ] && die "apt-get install failed after 3 retries"
     sleep 30
 done
+# The Base DLAMI (Ubuntu 24.04) ships AWS CLI v2 and Ubuntu 24.04 has no awscli apt package; install it only if missing.
+if ! command -v aws >/dev/null 2>&1; then
+    curl -sSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip \
+        && unzip -q /tmp/awscliv2.zip -d /tmp && /tmp/aws/install >> /tmp/{{ vla }}_apt.log 2>&1 \
+        || die "AWS CLI install failed"
+fi
 command -v docker >/dev/null 2>&1 || die "docker not found (the Deep Learning AMI ships Docker + the NVIDIA Container Toolkit)"
 git lfs install --system > /dev/null 2>&1 || true
 
@@ -231,7 +237,7 @@ HOST_MEM_MIB=$(awk '/MemTotal/ {printf "%d", $2/1024}' /proc/meminfo 2>/dev/null
 log "  GPUs: ${N_GPU} (smallest ${GPU_MEM_MIB} MiB), driver ${DRIVER_MAJOR}, host RAM ${HOST_MEM_MIB} MiB"
 [ "${GPU_MEM_MIB:-0}" -ge {{ min_gpu_mib }} ] || die "every GPU needs >= {{ min_gpu_mib }} MiB (Isaac Sim + policy); smallest has ${GPU_MEM_MIB} MiB. See models/{{ vla }}.yaml"
 [ "${HOST_MEM_MIB:-0}" -ge {{ min_host_mib }} ] || die "needs >= {{ min_host_mib }} MiB host RAM; host has ${HOST_MEM_MIB} MiB. See models/{{ vla }}.yaml"
-[ "${DRIVER_MAJOR:-0}" -ge {{ min_driver_major }} ] || die "NVIDIA driver ${DRIVER_MAJOR} < {{ min_driver_major }} (needed by the policy-server CUDA image)"
+[ "${DRIVER_MAJOR:-0}" -ge {{ min_driver_major }} ] || die "NVIDIA driver ${DRIVER_MAJOR} < {{ min_driver_major }} (Isaac Lab 3.0 / Isaac Sim 6 and the policy-server CUDA image)"
 SHARDS=$(( N_GPU / {{ gpus_per_shard }} ))
 if [ "$SHARDS" -gt {{ shards }} ]; then SHARDS={{ shards }}; fi
 [ "$SHARDS" -ge 1 ] || die "variant {{ variant }} needs {{ gpus_per_shard }} GPU(s) per shard; instance has ${N_GPU}"
@@ -277,7 +283,9 @@ log "  LFS objects still pointers: ${_lfs_missing} ($(du -sh "${ROBOLAB_DIR}/ass
 [ "${_lfs_missing:-1}" -eq 0 ] || die "RoboLab assets incomplete (${_lfs_missing} LFS objects not downloaded, see /tmp/{{ vla }}_lfs.log)"
 
 log "[3/9] docker build ${ROBOLAB_IMAGE} (RoboLab docker/build_docker.sh on isaac-lab:{{ isaac_lab_tag.split('@')[0] }})..."
-( cd "$ROBOLAB_DIR" && bash docker/build_docker.sh "--isaaclab-tag={{ isaac_lab_tag }}" "{{ robolab_commit[:12] }}" ) \
+# --isaac60 first: it selects RoboLab's Isaac Sim 6 stack and its runtime user 1000:1000 (the uid the Isaac Lab
+# 3.0 images run as); --isaaclab-tag after it replaces only the base image tag with our digest-pinned one.
+( cd "$ROBOLAB_DIR" && bash docker/build_docker.sh --isaac60 "--isaaclab-tag={{ isaac_lab_tag }}" "{{ robolab_commit[:12] }}" ) \
     > /tmp/{{ vla }}_robolab_build.log 2>&1 || die "RoboLab image build failed (see /tmp/{{ vla }}_robolab_build.log)"
 # RoboLab's VideoWriter pipes frames to ffmpeg through imageio; the Dockerfile installs no ffmpeg, so add the
 # imageio-ffmpeg wheel (bundled static ffmpeg) when the Kit python cannot import it.
@@ -402,6 +410,8 @@ run_shard() {
     done
     [ "${{ '{#' }}_mine[@]}" -gt 0 ] || return 0
     mkdir -p "${OUT_DIR}/shard-${_s}" "${CACHE_DIR}/shard-${_s}/ov" "${CACHE_DIR}/shard-${_s}/kit"
+    # The RoboLab image runs as uid 1000 (build_docker.sh --isaac60): hand it the dirs it writes.
+    chown -R 1000:1000 "${OUT_DIR}/shard-${_s}" "${CACHE_DIR}/shard-${_s}"
     echo "shard ${_s}: GPU ${_gpu}, server :${_port}, tasks: ${_mine[*]}"
     docker rm -f "robolab-shard-${_s}" > /dev/null 2>&1 || true
     # timeout -> SIGTERM to `docker run`, which proxies it to the container; RoboLab has already written

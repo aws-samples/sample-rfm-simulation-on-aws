@@ -27,6 +27,7 @@ import * as path from 'path';
 import { acknowledge, acknowledgeByPath } from './nag';
 
 import { AzSelectorConstruct } from './az-selector';
+import { JUDGE_AMI_MAPPING } from './judge-stack';
 
 export interface VlaSimulatorStackProps extends cdk.StackProps {
   vla: string;
@@ -97,6 +98,20 @@ const DLAMI_MAPPING: Record<string, string> = {
   'us-west-2':      'ami-0ed3bd866951103a1', // Oregon    (PyTorch 2.4.1)
   'eu-central-1':   'ami-03aa80bc63bbd3638', // Frankfurt (PyTorch 2.4.1)
 };
+
+/**
+ * Isaac Lab 3.0 targets (NGC isaac-lab:3.0.0 / 3.0.0-beta2: Isaac Sim 6, torch cu130) need NVIDIA driver
+ * >= 580.65.06, above the PyTorch 2.4.1 DLAMI's driver. They boot the Deep Learning Base OSS Nvidia Driver
+ * GPU AMI (Ubuntu 24.04) the judge stack uses (20261027: driver 595.112.07, Docker + NVIDIA Container
+ * Toolkit, AWS CLI v2). Moved to Isaac Lab 3.0 for CVE-2026-65141 (Isaac Lab <= 2.3.2, no 2.x fix).
+ */
+export const ISAACLAB3_TARGETS = ['openarm-isaac', 'openarm-lift-act', 'robolab-cosmos3', 'robolab-pi05'];
+const ISAACLAB3_AMI_MAPPING: Record<string, string> = JUDGE_AMI_MAPPING;
+
+/** The AMI a target boots in a region (undefined = unsupported region). */
+export function amiFor(vla: string, region: string): string | undefined {
+  return (ISAACLAB3_TARGETS.includes(vla) ? ISAACLAB3_AMI_MAPPING : DLAMI_MAPPING)[region];
+}
 
 const INSTANCE_TYPES: Record<string, string[]> = {
   gr00t:         ['g6.12xlarge', 'g5.12xlarge', 'g6.xlarge',  'g5.xlarge'],
@@ -360,12 +375,13 @@ export class VlaSimulatorStack extends cdk.Stack {
 
     // ── AMI ───────────────────────────────────────────────────────
     const region = this.region;
-    const amiId = DLAMI_MAPPING[region];
+    const amiId = amiFor(vla, region);
     if (!amiId) {
+      const mapping = ISAACLAB3_TARGETS.includes(vla) ? 'JUDGE_AMI_MAPPING in cdk/lib/judge-stack.ts' : 'DLAMI_MAPPING in cdk/lib/vla-simulator-stack.ts';
       throw new Error(
         `Unsupported region: ${region}\n` +
         `Supported regions: ${Object.keys(DLAMI_MAPPING).join(', ')}\n` +
-        `To add a new region, update DLAMI_MAPPING in cdk/lib/vla-simulator-stack.ts.`,
+        `To add a new region, update ${mapping}.`,
       );
     }
 

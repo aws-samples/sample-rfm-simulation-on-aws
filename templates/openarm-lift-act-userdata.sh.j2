@@ -572,7 +572,7 @@ try:
     f=h5py.File("/workspace/out/openarm_lift_act.hdf5","r")
     print("DEMOS=%d" % len([k for k in f["data"].keys() if k.startswith("demo_")]))
 except Exception as e:
-    print("DEMOS=err:%r"%e); sys.exit(0)' 2>/dev/null | sed -n 's/^DEMOS=//p' | tail -1)   # marker: isaaclab.sh -p also prints [INFO] on stdout
+    print("DEMOS=err:%r"%e); sys.exit(0)' 2>/dev/null | sed -n 's/^DEMOS=//p' | tail -1) || DEMO_COUNT=unknown   # marker: isaaclab.sh -p also prints [INFO] on stdout
     DEMO_COUNT=${DEMO_COUNT:-unknown}
 fi
 log "  Exported successful demos in HDF5: ${DEMO_COUNT}"

@@ -3,7 +3,13 @@
 #
 # RFM Simulation on AWS — openarm-lift-act target (Phase 1a overlay)
 #
-# OpenArm UNIMANUAL Lift-Cube × ACT (LeRobot) — Isaac Lab 2.3 env overlay.
+# OpenArm UNIMANUAL Lift-Cube × ACT (LeRobot) — Isaac Lab 3.0 env overlay.
+#
+# ISAAC LAB 3.0 PORT (CVE-2026-65141 move off 2.3): quaternions are (x, y, z, w); `mdp.image` became
+# `mdp.image_rgb` (same (B, H, W, 3) uint8 output with normalize=False); `.data.*` reads use `.torch`;
+# `rerender_on_reset` -> `num_rerenders_on_reset`; the global RTX antialiasing setting moved from
+# `sim.render` to each camera's renderer config. The parent env is patched for 3.0 by
+# assets/isaaclab3/patch_openarm_isaaclab3.py before this overlay is imported.
 #
 # WHAT THIS IS
 #   A drop-in overlay for the `enactic/openarm_isaac_lab` package. It registers NEW gym ids
@@ -149,7 +155,7 @@ def gripper_pos_single(env, asset_cfg: SceneEntityCfg):
     """
     asset = env.scene[asset_cfg.name]
     # asset_cfg.joint_ids is a list[int] resolved from the regex; take the first match only.
-    return asset.data.joint_pos[:, asset_cfg.joint_ids][:, :1]
+    return asset.data.joint_pos.torch[:, asset_cfg.joint_ids][:, :1]
 
 
 # ── Observations: ONE `policy` group (dict) holding proprio state + camera images ───────────────
@@ -180,11 +186,11 @@ class ACTObservationsCfg:
         )
         # -- camera images (each → observation.images.<name>) --
         wrist = ObsTerm(
-            func=mdp.image,
+            func=mdp.image_rgb,
             params={"sensor_cfg": SceneEntityCfg("wrist_cam"), "data_type": "rgb", "normalize": False},
         )
         table = ObsTerm(
-            func=mdp.image,
+            func=mdp.image_rgb,
             params={"sensor_cfg": SceneEntityCfg("table_cam"), "data_type": "rgb", "normalize": False},
         )
 
@@ -231,7 +237,7 @@ class OpenArmCubeLiftACTEnvCfg(OpenArmCubeLiftEnvCfg):
             data_types=["rgb"],
             spawn=_PINHOLE,
             offset=TiledCameraCfg.OffsetCfg(
-                pos=(0.05, 0.0, 0.0), rot=(0.0, 0.7071, 0.0, 0.7071), convention="ros"  # L4
+                pos=(0.05, 0.0, 0.0), rot=(0.7071, 0.0, 0.7071, 0.0), convention="ros"  # L4, (x, y, z, w)
             ),
         )
         # table cam: world-frame third-person framing the table + cube workspace.
@@ -243,13 +249,17 @@ class OpenArmCubeLiftACTEnvCfg(OpenArmCubeLiftEnvCfg):
             data_types=["rgb"],
             spawn=_PINHOLE,
             offset=TiledCameraCfg.OffsetCfg(
-                pos=(1.0, 0.0, 0.4), rot=(0.35355, -0.61237, -0.61237, 0.35355), convention="ros"  # L4
+                pos=(1.0, 0.0, 0.4), rot=(-0.61237, -0.61237, 0.35355, 0.35355), convention="ros"  # L4, (x, y, z, w)
             ),
         )
 
         # ── Camera rendering settings (match Franka visuomotor reference) ───────────────────────
-        self.rerender_on_reset = True
-        self.sim.render.antialiasing_mode = "OFF"  # disable DLSS for deterministic frames
+        self.num_rerenders_on_reset = 1
+        # disable DLSS / antialiasing for deterministic frames (Isaac Lab 3.0: per-camera RTX renderer settings)
+        # (TiledCameraCfg resolves its renderer to IsaacRtxRendererCfg; a non-RTX renderer has no such setting.)
+        for cam in (self.scene.wrist_cam, self.scene.table_cam):
+            if getattr(cam.renderer_cfg, "renderer_type", None) == "isaac_rtx":
+                cam.renderer_cfg.global_settings.antialiasing_mode = "Off"
         # Convenience list mirroring the Franka visuomotor convention (consumed by recorders).
         self.image_obs_list = ["table_cam", "wrist_cam"]
 

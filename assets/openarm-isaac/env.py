@@ -86,6 +86,10 @@ _OVERLAY_MODULE = (
     "openarm.tasks.manager_based.openarm_manipulation.bimanual.reach.config.openarm_bi_vla_env_cfg"
 )
 _DEFAULT_TASK = "fold the cloth"  # folding_latest is a cloth-folding policy; empty Reach scene = OOD (pipe-proof only)
+# Scene camera whose env-0 RGB frame is the eval video. Isaac Lab 3.0 dropped render_mode="rgb_array"
+# (ManagerBasedRLEnv.render() returns None; recording moved to VideoRecorderCfg), so the frame lerobot's
+# eval_policy writes comes from the overlay's third-person camera (the policy's `base` view).
+_RENDER_SENSOR = "base_cam"
 
 
 def _boot_isaac(headless: bool, enable_cameras: bool, device: str) -> None:
@@ -93,8 +97,9 @@ def _boot_isaac(headless: bool, enable_cameras: bool, device: str) -> None:
     global _SIMULATION_APP
     if _SIMULATION_APP is not None:
         return
-    # AppLauncher accepts a kwargs/dict of launcher args (app_launcher.py:59, :200 enable_cameras).
-    # enable_cameras=True is REQUIRED whenever the scene has camera sensors or we render rgb_array.
+    # AppLauncher accepts a kwargs/dict of launcher args. It is deprecated in Isaac Lab 3.0 (launch_simulation)
+    # but still starts Kit (it wraps launch_simulation with require_kit=True); kept for the import-order contract.
+    # enable_cameras=True is REQUIRED whenever the scene has camera sensors (3.0 also auto-enables it).
     app_launcher = AppLauncher({"headless": headless, "enable_cameras": enable_cameras, "device": device})
     _SIMULATION_APP = app_launcher.app
 
@@ -181,8 +186,7 @@ class _LeRobotIsaacVecEnv:
         if name in ("task_description", "task"):
             return [self._task] * self.num_envs
         if name == "render":
-            frame = self._u.render()  # rgb_array → (H, W, 3) uint8 numpy (manager_based_rl_env.py:243)
-            return [frame] * self.num_envs
+            return [self._render_frame()] * self.num_envs
         # Fallback: try to read the attribute off the underlying env.
         attr = getattr(self._u, name)
         return [attr] * self.num_envs
@@ -192,7 +196,13 @@ class _LeRobotIsaacVecEnv:
         return self.call(name)
 
     def render(self):
-        return self._u.render()
+        return self._render_frame()
+
+    def _render_frame(self):
+        """Env 0's `_RENDER_SENSOR` RGB frame as (H, W, 3) uint8 numpy (what rgb_array render returned on 2.x)."""
+        rgb = self._u.scene.sensors[_RENDER_SENSOR].data.output["rgb"]
+        rgb = getattr(rgb, "torch", rgb)  # Isaac Lab 3.0 sensor data = ProxyArray
+        return rgb[0, ..., :3].detach().to("cpu").numpy()
 
     def close(self):
         try:
@@ -279,12 +289,14 @@ def make_env(n_envs: int = 1, use_async_envs: bool = False, cfg: Any = None, rer
             sensor.height = cam_h
             sensor.width = cam_w
 
-    # Isaac Lab defaults rerender_on_reset to False ("sensor data after reset will be stale"): the first camera frame
-    # of every episode would be the previous episode's last frame (black for the first one). Re-render on reset.
-    env_cfg.rerender_on_reset = bool(rerender_on_reset)
+    # Isaac Lab does not re-render on reset by default ("sensor data after reset will be stale"): the first camera
+    # frame of every episode would be the previous episode's last frame (black for the first one). Re-render on reset.
+    # Isaac Lab 3.0 name: num_rerenders_on_reset (the 2.x bool rerender_on_reset is deprecated and maps to 1).
+    env_cfg.num_rerenders_on_reset = 1 if rerender_on_reset else 0
 
-    # rgb_array render_mode + enable_cameras is what makes env.render() / camera obs produce frames.
-    isaac_env = gym.make(_GYM_ID, cfg=env_cfg, render_mode="rgb_array")
+    # enable_cameras is what makes the camera obs (and the _RENDER_SENSOR video frames) render. No render_mode:
+    # Isaac Lab 3.0 no longer returns rgb_array frames from env.render().
+    isaac_env = gym.make(_GYM_ID, cfg=env_cfg)
 
     # Cap rollout length for a demo-sized clip (A4); Isaac's own timeout is left intact.
     max_steps = min(int(isaac_env.unwrapped.max_episode_length), episode_cap)

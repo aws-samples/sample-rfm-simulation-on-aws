@@ -22,7 +22,9 @@
 #         gripper_pos    (T, 1)  float32         single finger joint position
 #         wrist          (T, H, W, 3) uint8      wrist camera RGB (channel-last)
 #         table          (T, H, W, 3) uint8      table camera RGB (channel-last)
-#       actions          (T, 8)  float32         [ee_pos(3), ee_quat_wxyz(4), gripper(1)]
+#       actions          (T, 8)  float32         [ee_pos(3), ee_quat_xyzw(4), gripper(1)]
+#                                                (Isaac Lab 3.0 order; an HDF5 collected on Isaac Lab 2.3 holds
+#                                                 ee_quat_wxyz — do not mix the two in one dataset)
 #       processed_actions, initial_state, states ...  (recorded but NOT used by ACT)
 #
 #   NOTE on (obs, action) alignment: both obs and actions are recorded PRE-step
@@ -112,7 +114,7 @@ def _build_features(demo_group, state_dim: int, action_dim: int) -> dict:
         "action": {
             "dtype": "float32",
             "shape": (action_dim,),
-            "names": {"axes": ["ee_x", "ee_y", "ee_z", "ee_qw", "ee_qx", "ee_qy", "ee_qz", "gripper"]}
+            "names": {"axes": ["ee_x", "ee_y", "ee_z", "ee_qx", "ee_qy", "ee_qz", "ee_qw", "gripper"]}
             if action_dim == 8 else None,
         },
     }

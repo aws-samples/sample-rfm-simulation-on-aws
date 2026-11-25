@@ -55,6 +55,13 @@ from targets import JUDGE_TARGETS, VLA_TARGETS
 
 BASE_DIR = Path(__file__).parent
 TEMPLATES_DIR = BASE_DIR / "templates"
+# Isaac Lab 3.0.0 (Isaac Sim 6.2, Python 3.12, uid 1000): the first release line with the fix for
+# CVE-2026-65141 (eval injection in isaaclab.utils.string.string_to_callable; 2.x has no fix).
+# Default image of the openarm targets when the model yaml names none.
+ISAAC_LAB_3_IMAGE = (
+    "nvcr.io/nvidia/isaac-lab:3.0.0@sha256:f70acc9ed3bc3fc67099a0c5715379c432cc9965623cabbaf54f74599997e245"
+)
+ISAACLAB3_ASSET_DIR = BASE_DIR / "assets" / "isaaclab3"
 
 # OpenVLA-OFT supported LIBERO suites (`long` is an alias for `10`).
 OFT_LIBERO_SUITES = ("spatial", "object", "goal", "10", "long")
@@ -742,13 +749,18 @@ def generate_openarm_isaac(config: dict, dry_run: bool) -> str:
         "env_py_b64": "env.py",
         "run_eval_py_b64": "run_eval.py",
         "overlay_cfg_b64": "openarm_bi_vla_env_cfg.py",
-        # Rewrites LeRobot @ pin for Python 3.11 (NGC isaac-lab Kit runtime): relaxes the
-        # requires-python gate + converts PEP-695 type syntax. See the asset's docstring.
-        "patch_lerobot_b64": "patch_lerobot_py311.py",
+        # Relaxes LeRobot @ pin's numpy/packaging/setuptools caps that conflict with the Isaac Lab 3.0
+        # env and writes the constraints file that freezes Isaac's versions. See the asset's docstring.
+        "patch_lerobot_b64": "patch_lerobot_isaaclab.py",
+        # Shared with openarm-lift-act (assets/isaaclab3/): the isaaclab python probe and the
+        # openarm_isaac_lab @ pin patch for Isaac Lab 3.0.
+        "patch_openarm_b64": ISAACLAB3_ASSET_DIR / "patch_openarm_isaaclab3.py",
+        "isaaclab_python_b64": ISAACLAB3_ASSET_DIR / "isaaclab_python.sh",
     }
-    missing = [fn for fn in asset_files.values() if not (asset_dir / fn).exists()]
+    missing = [str(fn) for fn in asset_files.values() if not (asset_dir / fn).exists()]
     if missing:
-        print(f"[error] openarm-isaac asset files missing: {missing} (check assets/openarm-isaac/)", file=sys.stderr)
+        print(f"[error] openarm-isaac asset files missing: {missing} (check assets/openarm-isaac/, assets/isaaclab3/)",
+              file=sys.stderr)
         sys.exit(1)
 
     rerender = (config.get("eval") or {}).get("rerender_on_reset", True)
@@ -765,7 +777,7 @@ def generate_openarm_isaac(config: dict, dry_run: bool) -> str:
         "hf_model_revision": model.get("hf_model_revision", ""),
         "openarm_isaac_commit": model.get("openarm_isaac_commit", ""),
         "lerobot_commit": model.get("lerobot_commit", ""),
-        "isaac_lab_image": model.get("isaac_lab_image", "nvcr.io/nvidia/isaac-lab:2.3.0"),
+        "isaac_lab_image": model.get("isaac_lab_image", ISAAC_LAB_3_IMAGE),
     }
     for ctx_key, fname in asset_files.items():
         ctx[ctx_key] = base64.encodebytes((asset_dir / fname).read_bytes()).decode()
@@ -791,15 +803,18 @@ def generate_openarm_lift_act(config: dict, dry_run: bool) -> str:
     asset_files = {
         "overlay_cfg_b64": "openarm_uni_lift_act_env_cfg.py",
         "collect_sm_b64": "collect_demos_sm.py",
+        "patch_openarm_b64": ISAACLAB3_ASSET_DIR / "patch_openarm_isaaclab3.py",
+        "isaaclab_python_b64": ISAACLAB3_ASSET_DIR / "isaaclab_python.sh",
     }
-    missing = [fn for fn in asset_files.values() if not (asset_dir / fn).exists()]
+    missing = [str(fn) for fn in asset_files.values() if not (asset_dir / fn).exists()]
     if missing:
-        print(f"[error] openarm-lift-act asset files missing: {missing} (check assets/openarm-lift-act/)", file=sys.stderr)
+        print(f"[error] openarm-lift-act asset files missing: {missing} (check assets/openarm-lift-act/, assets/isaaclab3/)",
+              file=sys.stderr)
         sys.exit(1)
 
     ctx = {
         "openarm_isaac_commit": model.get("openarm_isaac_commit", ""),
-        "isaac_lab_image": model.get("isaac_lab_image", "nvcr.io/nvidia/isaac-lab:2.3.0"),
+        "isaac_lab_image": model.get("isaac_lab_image", ISAAC_LAB_3_IMAGE),
         "task_id": model.get("task_id", "Isaac-Lift-Cube-OpenArm-ACT-v0"),
         "register_module": model.get(
             "register_module",

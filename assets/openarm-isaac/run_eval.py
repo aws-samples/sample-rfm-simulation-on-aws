@@ -256,7 +256,8 @@ def _force_close_sim() -> None:
     if app is not None:
         try:
             app.close()
-        except Exception:  # noqa: BLE001 — best-effort; we hard-exit next regardless
+        # BaseException: Isaac Lab 3.0's AppLauncher closes Kit by unwinding its launch context with SystemExit.
+        except BaseException:  # noqa: BLE001 — best-effort; we hard-exit next regardless
             pass
 
 

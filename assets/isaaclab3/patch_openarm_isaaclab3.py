@@ -155,6 +155,22 @@ def apply_torch_reads(root: Path) -> int:
     return applied
 
 
+# 2.x names that Isaac Lab 3.0 removed outright (no deprecation shim): any use left in the package is an ImportError
+# at env registration time, so fail here instead of in the simulator.
+REMOVED_NAMES = re.compile(r"\b(AdditiveUniformNoiseCfg|AdditiveGaussianNoiseCfg)\b")
+
+
+def check_removed_names(root: Path) -> None:
+    left = [
+        f"{fp.relative_to(root)}:{i}"
+        for fp in sorted((root / PKG).rglob("*.py"))
+        for i, line in enumerate(fp.read_text().split("\n"), 1)
+        if REMOVED_NAMES.search(line) and "PATCHED(isaaclab3)" not in line
+    ]
+    if left:
+        raise SystemExit("[patch-openarm] FATAL: Isaac Lab 2.x names removed in 3.0 still used: " + ", ".join(left))
+
+
 def main() -> None:
     if len(sys.argv) != 2:
         raise SystemExit("usage: patch_openarm_isaaclab3.py <openarm_isaac_lab checkout>")
@@ -162,6 +178,7 @@ def main() -> None:
     if not (root / PKG).is_dir():
         raise SystemExit(f"[patch-openarm] FATAL: {root} does not look like an openarm_isaac_lab checkout")
     n = apply_line_edits(root) + apply_torch_reads(root)
+    check_removed_names(root)
     print(f"[patch-openarm] OK - {n} edit(s) applied for Isaac Lab 3.0.")
 
 

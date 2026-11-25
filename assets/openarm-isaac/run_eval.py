@@ -257,10 +257,7 @@ def _force_close_sim(rc: int = 1) -> None:
         try:
             # Isaac Lab 3.0's AppLauncher.close() unwinds the launch as sys.exit(exit_code) and the runtime can end
             # the process right there with that code (default 0): a crash then exited 0 (GPU job j4). Pass ours.
-            try:
-                app.close(exit_code=rc)
-            except TypeError:  # 2.x signature
-                app.close()
+            app.close(exit_code=rc)  # single call: a retry without the code would bring the exit-0 back
         # BaseException: Isaac Lab 3.0's AppLauncher closes Kit by unwinding its launch context with SystemExit.
         except BaseException:  # noqa: BLE001 — best-effort; we hard-exit next regardless
             pass

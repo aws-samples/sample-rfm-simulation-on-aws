@@ -609,10 +609,13 @@ import os
 from huggingface_hub import snapshot_download
 rev = os.environ.get("HF_REVISION") or None
 p = snapshot_download(os.environ["HF_REPO"], revision=rev)
-print(p)
+print("CKPT_DIR=" + p)
 PYDL
 ) || { clog "ERROR: checkpoint download failed or stalled (see $OUT/hf_download.log)"; exit 1; }
-CKPT_DIR=$(echo "$CKPT_DIR" | tail -1)
+# marker, not `tail -1`: Isaac Lab 3.0's `isaaclab.sh -p` prints `[INFO] Using Python: ...` on stdout and it can land
+# last, which became the --policy-path (GPU job j7)
+CKPT_DIR=$(printf '%s\n' "$CKPT_DIR" | sed -n 's/^CKPT_DIR=//p' | tail -1)
+[ -n "$CKPT_DIR" ] || { clog "ERROR: checkpoint download printed no path (see $OUT/hf_download.log)"; exit 1; }
 clog "checkpoint: ${CKPT_DIR}"
 
 # 6. run the rollout driver (boots Isaac Sim, drives folding_latest over the bimanual env, writes video)

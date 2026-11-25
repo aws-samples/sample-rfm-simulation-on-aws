@@ -20,6 +20,8 @@ after the clone. Only the Isaac Lab 3.0 breaking changes that the two task chain
   * Quaternions changed from (w, x, y, z) to (x, y, z, w): the Lift table (90 deg about z) and the
     cube (identity) initial rotations are rewritten. The bimanual Reach chain has no literal
     quaternion.
+  * The 2.x noise aliases ``AdditiveUniformNoiseCfg`` / ``AdditiveGaussianNoiseCfg`` were removed: the
+    bimanual Reach env imports the first one, it becomes ``UniformNoiseCfg`` (the alias target in 2.3).
   * ``SimulationCfg.physx`` is gone (``sim.physics`` takes ``isaaclab_physx.physics.PhysxCfg``): the
     Lift env's four ``self.sim.physx.<field> = v`` lines become one ``PhysxCfg(...)`` with the same
     values (the other PhysX fields keep their defaults, as before).
@@ -70,6 +72,18 @@ LINE_EDITS: list[tuple[str, list[str], list[str]]] = [
             "            friction_correlation_distance=0.00625,",
             "        )",
         ],
+    ),
+    (
+        # the 2.x aliases AdditiveUniformNoiseCfg / AdditiveGaussianNoiseCfg (= UniformNoiseCfg / GaussianNoiseCfg,
+        # isaaclab 2.3 utils/noise/__init__.py) are gone in 3.0: ImportError on the bimanual Reach chain (GPU job j4)
+        f"{PKG}/bimanual/reach/reach_env_cfg.py",
+        ["from isaaclab.utils.noise import AdditiveUniformNoiseCfg as Unoise"],
+        ["from isaaclab.utils.noise import UniformNoiseCfg as Unoise  # PATCHED(isaaclab3): 2.x alias removed"],
+    ),
+    (
+        f"{PKG}/unimanual/reach/reach_env_cfg.py",   # not on either target's chain today; same alias, kept importable
+        ["from isaaclab.utils.noise import AdditiveUniformNoiseCfg as Unoise"],
+        ["from isaaclab.utils.noise import UniformNoiseCfg as Unoise  # PATCHED(isaaclab3): 2.x alias removed"],
     ),
     (
         f"{PKG}/unimanual/lift/config/joint_pos_env_cfg.py",

@@ -195,9 +195,11 @@ class OpenArmBiVLAReachEnvCfg(OpenArmReachEnvCfg):
             height=_CAM_H,
             data_types=["rgb"],
             spawn=_PINHOLE,
-            # [TO VERIFY] G3 — first-pass framing: ~0.8m in front, 0.6m high, tilted down toward origin.
-            # rot is (x, y, z, w) on Isaac Lab 3.0 (2.x (w, x, y, z): (0.9239, 0.0, 0.3827, 0.0)).
-            offset=TiledCameraCfg.OffsetCfg(pos=(0.9, 0.0, 0.6), rot=(0.0, 0.3827, 0.0, 0.9239), convention="world"),
+            # 0.9 m in front, 0.6 m high, looking back at the arms (-x) and down at (0, 0, 0.1): yaw 180 deg, then
+            # pitch 29.05 deg down. rot is (x, y, z, w) on Isaac Lab 3.0. The first-pass value (2.x (w, x, y, z):
+            # (0.9239, 0.0, 0.3827, 0.0)) pointed the camera +x, away from the robot, so the eval video showed only
+            # the floor (seen on the Isaac Lab 3.0 GPU run of this target).
+            offset=TiledCameraCfg.OffsetCfg(pos=(0.9, 0.0, 0.6), rot=(-0.2508, 0.0, 0.968, 0.0), convention="world"),
         )
         # wrist cams: mounted on each hand link, looking down the gripper approach axis.
         self.scene.left_wrist_cam = TiledCameraCfg(

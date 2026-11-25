@@ -133,7 +133,7 @@ The GR1 humanoid is a different embodiment from Franka Panda — two arms, waist
 
 > **Not a learned-policy rollout.** Unlike the entries above (each a trained VLA evaluated in LIBERO/RoboCasa), this target runs a **scripted state machine** (`REST → APPROACH → GRASP → LIFT`) on the OpenArm arm in Isaac Lab to *collect* successful pick-and-lift demonstrations — the camera + state + action HDF5 that an ACT policy is then trained on. The clip shows the data-collection rollout, not an evaluated policy. Training ACT on this dataset and showing a *learned* rollout is the next step.
 
-Rendered at 768×768, captured during a `--vla openarm-lift-act` collection run (`g6.12xlarge`, 4× L4, eu-central-1, 2026-06-11). The third-person (table) view is the beauty shot; the wrist view is the gripper POV.
+Rendered at 768×768, captured during a `--vla openarm-lift-act` collection run (`g6.12xlarge`, 4× L4, eu-central-1, 2026-06-11, Isaac Lab 2.3; the target now runs Isaac Lab 3.0.0 and has not been re-recorded). The third-person (table) view is the beauty shot; the wrist view is the gripper POV.
 
 | Third-person (table camera) — pick + lift cube | Wrist camera (gripper POV) |
 |---|---|

@@ -121,7 +121,8 @@ NAT gateway and data transfer are not included.
 ## Measured: RoboLab-120, 16 shards vs 1 instance
 
 `robolab-pi05` (pi0.5-DROID), full RoboLab-120 protocol (120 tasks x 10 episodes), two runs per layout,
-measured 2026-11-07/08. **16 shards**: `--robolab-variant full-shard --shards 16 --runs 2`, one L40S per shard
+measured 2026-11-07/08 on Isaac Lab 2.2.0 (not yet re-run on the Isaac Lab 3.0.0-beta2 image the RoboLab targets
+use since the CVE-2026-65141 move, [targets.md](targets.md#isaac-lab-30-cve-2026-65141)). **16 shards**: `--robolab-variant full-shard --shards 16 --runs 2`, one L40S per shard
 (`g6e.4xlarge`; `g6e.2xlarge` had no capacity in any of the three regions, so the scheduler moved every shard to
 the next type), `us-west-2`, `us-east-1`, `eu-central-1`. **1 instance**: `--robolab-variant full --shards 1 --runs 2`
 on `g6e.48xlarge` (8 x L40S, one server-client pair per GPU); no `g6e.48xlarge` capacity in the three US / EU

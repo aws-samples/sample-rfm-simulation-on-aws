@@ -817,9 +817,9 @@ Reference numbers are from the public [RoboLab leaderboard](https://research.nvi
 
 | `--vla` (variant) | Protocol | Leaderboard (RoboLab-120) | Measured on AWS |
 |---|---|---|---|
-| `robolab-cosmos3` (`edge`, `edge-full`) | subset12 / RoboLab-120 | Cosmos3-Edge-Policy 22.9% (275/1200, CI 20.6-25.4; L40, 9.2 GB; RoboLab `454152dd`, 2026-07-11) | subset12, `edge`: 31.7% (19/60), 2026-10-30, `g6e.2xlarge`, RoboLab `9cce00ca` |
+| `robolab-cosmos3` (`edge`, `edge-full`) | subset12 / RoboLab-120 | Cosmos3-Edge-Policy 22.9% (275/1200, CI 20.6-25.4; L40, 9.2 GB; RoboLab `454152dd`, 2026-07-11) | subset12, `edge`: 31.7% (19/60), 2026-10-30, `g6e.2xlarge`, RoboLab `9cce00ca`, Isaac Lab 2.2.0 (not yet re-run on Isaac Lab 3.0.0-beta2) |
 | `robolab-cosmos3` (`nano`) | subset12 | Cosmos3-Nano-Policy 36.8% (441/1200, CI 34.0-39.5; L40, 40 GB; RoboLab `88976795`, 2026-05-22) | not run yet |
-| `robolab-pi05` (`subset`, `full`) | subset12 / RoboLab-120 | π0.5 28.0% (336/1200, CI 25.5-30.6; L40S; RoboLab `09545754`, 2026-05-09) | subset12: 40.0% (24/60), 2026-10-30, `g6e.2xlarge`, RoboLab `9cce00ca` |
+| `robolab-pi05` (`subset`, `full`) | subset12 / RoboLab-120 | π0.5 28.0% (336/1200, CI 25.5-30.6; L40S; RoboLab `09545754`, 2026-05-09) | subset12: 40.0% (24/60), 2026-10-30, `g6e.2xlarge`, Isaac Lab 2.2.0 (not yet re-run on Isaac Lab 3.0.0-beta2), RoboLab `9cce00ca` |
 
 The 12-task subset is not the leaderboard protocol, so read the two measured rows against each other rather than against RoboLab-120: on the same subset, instance and RoboLab pin, π0.5-DROID (40.0%) leads Cosmos3-Edge-Policy (31.7%), the same order as on the leaderboard (28.0% vs 22.9%). With 60 episodes each the two 95% intervals overlap.
 

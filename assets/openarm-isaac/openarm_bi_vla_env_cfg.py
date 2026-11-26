@@ -3,7 +3,12 @@
 #
 # RFM Simulation on AWS — openarm-isaac target (Phase 2a overlay)
 #
-# OpenArm bimanual × π0.5 (LeRobot pi05 `folding_latest`) — Isaac Lab 2.3 env overlay.
+# OpenArm bimanual × π0.5 (LeRobot pi05 `folding_latest`) — Isaac Lab 3.0 env overlay.
+#
+# ISAAC LAB 3.0 PORT (CVE-2026-65141 move off 2.3): camera offset quaternions are (x, y, z, w);
+# `mdp.image` became `mdp.image_rgb` (same (B, H, W, 3) uint8 output with normalize=False, alpha
+# dropped); `.data.*` reads use `.torch`. The parent env is patched for 3.0 by
+# assets/isaaclab3/patch_openarm_isaaclab3.py before this overlay is imported.
 #
 # WHAT THIS IS
 #   A drop-in overlay for the `enactic/openarm_isaac_lab` package. It registers a NEW gym id
@@ -65,7 +70,7 @@ from isaaclab.sensors import TiledCameraCfg
 from isaaclab.utils import configclass
 
 # `mdp` here = bimanual/reach/mdp, which does `from isaaclab.envs.mdp import *`
-# → provides image, joint_pos, JointPositionActionCfg, BinaryJointPositionActionCfg.
+# → provides image_rgb, joint_pos, JointPositionActionCfg, BinaryJointPositionActionCfg.
 from .. import mdp
 from .joint_pos_env_cfg import OpenArmReachEnvCfg
 
@@ -87,7 +92,7 @@ def gripper_pos_single(env, asset_cfg: SceneEntityCfg):
     """
     asset = env.scene[asset_cfg.name]
     # asset_cfg.joint_ids is a list[int] resolved from the regex; take the first match only.
-    return asset.data.joint_pos[:, asset_cfg.joint_ids][:, :1]
+    return asset.data.joint_pos.torch[:, asset_cfg.joint_ids][:, :1]
 
 
 # ── Observations: two dict groups matching the IsaaclabArena contract ──────────────────────────
@@ -131,15 +136,15 @@ class VLAObservationsCfg:
         after IsaaclabArenaProcessorStep. MUST match folding_latest config.image_features."""
 
         base = ObsTerm(
-            func=mdp.image,
+            func=mdp.image_rgb,
             params={"sensor_cfg": SceneEntityCfg("base_cam"), "data_type": "rgb", "normalize": False},
         )
         left_wrist = ObsTerm(
-            func=mdp.image,
+            func=mdp.image_rgb,
             params={"sensor_cfg": SceneEntityCfg("left_wrist_cam"), "data_type": "rgb", "normalize": False},
         )
         right_wrist = ObsTerm(
-            func=mdp.image,
+            func=mdp.image_rgb,
             params={"sensor_cfg": SceneEntityCfg("right_wrist_cam"), "data_type": "rgb", "normalize": False},
         )
 
@@ -190,8 +195,11 @@ class OpenArmBiVLAReachEnvCfg(OpenArmReachEnvCfg):
             height=_CAM_H,
             data_types=["rgb"],
             spawn=_PINHOLE,
-            # [TO VERIFY] G3 — first-pass framing: ~0.8m in front, 0.6m high, tilted down toward origin.
-            offset=TiledCameraCfg.OffsetCfg(pos=(0.9, 0.0, 0.6), rot=(0.9239, 0.0, 0.3827, 0.0), convention="world"),
+            # 0.9 m in front, 0.6 m high, looking back at the arms (-x) and down at (0, 0, 0.1): yaw 180 deg, then
+            # pitch 29.05 deg down. rot is (x, y, z, w) on Isaac Lab 3.0. The first-pass value (2.x (w, x, y, z):
+            # (0.9239, 0.0, 0.3827, 0.0)) pointed the camera +x, away from the robot, so the eval video showed only
+            # the floor (seen on the Isaac Lab 3.0 GPU run of this target).
+            offset=TiledCameraCfg.OffsetCfg(pos=(0.9, 0.0, 0.6), rot=(-0.2508, 0.0, 0.968, 0.0), convention="world"),
         )
         # wrist cams: mounted on each hand link, looking down the gripper approach axis.
         self.scene.left_wrist_cam = TiledCameraCfg(
@@ -201,7 +209,7 @@ class OpenArmBiVLAReachEnvCfg(OpenArmReachEnvCfg):
             height=_CAM_H,
             data_types=["rgb"],
             spawn=_PINHOLE,
-            offset=TiledCameraCfg.OffsetCfg(pos=(0.05, 0.0, 0.0), rot=(0.0, 0.7071, 0.0, 0.7071), convention="ros"),
+            offset=TiledCameraCfg.OffsetCfg(pos=(0.05, 0.0, 0.0), rot=(0.7071, 0.0, 0.7071, 0.0), convention="ros"),
         )
         self.scene.right_wrist_cam = TiledCameraCfg(
             prim_path="{ENV_REGEX_NS}/Robot/openarm_right_hand/right_wrist_cam",  # [TO VERIFY] G2
@@ -210,7 +218,7 @@ class OpenArmBiVLAReachEnvCfg(OpenArmReachEnvCfg):
             height=_CAM_H,
             data_types=["rgb"],
             spawn=_PINHOLE,
-            offset=TiledCameraCfg.OffsetCfg(pos=(0.05, 0.0, 0.0), rot=(0.0, 0.7071, 0.0, 0.7071), convention="ros"),
+            offset=TiledCameraCfg.OffsetCfg(pos=(0.05, 0.0, 0.0), rot=(0.7071, 0.0, 0.7071, 0.0), convention="ros"),
         )
 
         # ── 16-dim absolute joint-position action ──────────────────────────────────────────────

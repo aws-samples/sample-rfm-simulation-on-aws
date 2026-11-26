@@ -1,12 +1,12 @@
 #!/bin/bash
 # OpenArm-Lift-ACT 1-Click UserData Script — DEMO COLLECTION ONLY (Phase 1b cost part)
-#   OpenArm UNIMANUAL Lift-Cube × ACT overlay × enactic/openarm_isaac_lab (Isaac Lab 2.3)
-# Pattern:    NGC Isaac Lab container (IsaacSim 5.1 + Lab 2.3 + Py3.11) runs everything. A teleop-free
+#   OpenArm UNIMANUAL Lift-Cube × ACT overlay × enactic/openarm_isaac_lab (Isaac Lab 3.0)
+# Pattern:    NGC Isaac Lab container (IsaacSim 6.2 + Lab 3.0 + Py3.12, uid 1000) runs everything. A teleop-free
 #             scripted pick-lift state machine (collect_demos_sm.py) drives the ACT env overlay and
 #             exports SUCCESSFUL lift demos to a single HDF5. NO LeRobot, NO checkpoint download, NO
 #             rollout video — the only deliverable is the HDF5 (+ logs) uploaded to S3.
 # Why so much leaner than openarm-isaac: collection needs only `pip install -e source/openarm`
-#             (warp + h5py + RecorderManager ship in the image). The openarm-isaac py3.11 LeRobot
+#             (warp + h5py + RecorderManager ship in the image). The openarm-isaac LeRobot
 #             patch + gated PaliGemma tokenizer blockers DO NOT apply here.
 # FIRST RUN GOAL: validate C1–C4 (does the SM actually grasp+lift?). Read the exported success count
 #             from the container log — near-0 ⇒ tune _TCP_OFFSET / _DOWN_QUAT / thresholds in the
@@ -22,6 +22,10 @@ set -euo pipefail
 
 HOST_ASSETS_DIR=/home/ubuntu/openarm-lift-act-assets    # the 2 python files (mounted into container)
 HOST_OUT_DIR=/home/ubuntu/openarm-lift-act-out          # HDF5 dataset + logs (mounted into container)
+HOST_SCRATCH=/home/ubuntu/openarm-lift-act-scratch      # openarm_isaac_lab clone (mounted into container)
+# The Isaac Lab 3.0 image runs as uid/gid 1000 (`isaaclab`, docker/Dockerfile.base), so every host dir
+# mounted into it is owned by 1000:1000 (= the DLAMI's `ubuntu` user).
+CONTAINER_UID=1000
 CONTAINER_NAME=openarm-lift-act
 ISAAC_LAB_IMAGE="{{ isaac_lab_image }}"
 RUN_ID=$(date '+%Y-%m-%d-%H%M')
@@ -246,13 +250,19 @@ done
 
 APT_RETRY=0
 until apt-get install -y --no-install-recommends -o DPkg::Lock::Timeout=1800 \
-    curl ca-certificates awscli jq \
+    curl ca-certificates jq unzip \
     2>&1 | tee /tmp/openarm_apt.log; do
     APT_RETRY=$((APT_RETRY + 1))
     [ $APT_RETRY -ge 3 ] && die "apt-get install failed after 3 retries"
     log "[warn] apt-get install failed (attempt $APT_RETRY), retrying in 30s..."
     sleep 30
 done
+# The Base DLAMI (Ubuntu 24.04) ships AWS CLI v2 and Ubuntu 24.04 has no awscli apt package; install it only if missing.
+if ! command -v aws >/dev/null 2>&1; then
+    curl -sSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip \
+        && unzip -q /tmp/awscliv2.zip -d /tmp && /tmp/aws/install >> /tmp/openarm_apt.log 2>&1 \
+        || die "AWS CLI install failed"
+fi
 
 command -v docker >/dev/null 2>&1 || die "docker not found — verify DLAMI (Deep Learning AMI ships Docker + NVIDIA Container Toolkit)"
 log "  docker: $(docker --version 2>&1 | head -1)"
@@ -324,14 +334,21 @@ fi
 log "[2/6] Checking GPU driver + NVIDIA container runtime..."
 nvidia-smi -L 2>&1 | tee /tmp/openarm_nvidia.log \
     || log "[warn] nvidia-smi failed — verify DLAMI"
+# Isaac Lab 3.0 = Isaac Sim 6.2 + torch 2.11 cu130: NVIDIA driver >= 580.65.06 (CUDA 13). Fail here, before
+# the ~25 GB pull, instead of at the first CUDA call.
+DRIVER_MAJOR=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>/dev/null | head -1 | cut -d. -f1 | tr -d ' ' || echo 0)
+log "  NVIDIA driver major: ${DRIVER_MAJOR:-unknown}"
+[ "${DRIVER_MAJOR:-0}" -ge 580 ] 2>/dev/null \
+    || die "NVIDIA driver ${DRIVER_MAJOR:-unknown} < 580: Isaac Lab 3.0 needs >= 580.65.06 (the stack boots the Deep Learning Base OSS Nvidia Driver AMI, Ubuntu 24.04)"
 # --entrypoint required: the isaac-lab image's default entrypoint is runheadless.sh, not a shell.
 docker run --rm --gpus all --entrypoint nvidia-smi "$ISAAC_LAB_IMAGE" -L 2>/dev/null \
     || log "[warn] GPU not yet visible to docker (image not pulled yet — re-checked after pull)"
 
-# ── [3/6] Write the 2 Python assets to host (mounted into the container) ──────────────────────
-# Only the overlay env_cfg + the collection driver. No LeRobot, no converter, no patch script.
+# ── [3/6] Write the assets to host (mounted into the container) ───────────────────────────────
+# The overlay env_cfg + the collection driver, plus the Isaac Lab 3.0 helpers shared with openarm-isaac
+# (isaaclab python probe, openarm_isaac_lab patch). No LeRobot, no converter.
 log "[3/6] Writing python assets to ${HOST_ASSETS_DIR}..."
-mkdir -p "$HOST_ASSETS_DIR" "$HOST_OUT_DIR"
+mkdir -p "$HOST_ASSETS_DIR" "$HOST_OUT_DIR" "$HOST_SCRATCH"
 
 base64 -d > "${HOST_ASSETS_DIR}/openarm_uni_lift_act_env_cfg.py" << 'OVERLAY_CFG_EOF'
 {{ overlay_cfg_b64 -}}
@@ -340,6 +357,15 @@ OVERLAY_CFG_EOF
 base64 -d > "${HOST_ASSETS_DIR}/collect_demos_sm.py" << 'COLLECT_SM_EOF'
 {{ collect_sm_b64 -}}
 COLLECT_SM_EOF
+
+base64 -d > "${HOST_ASSETS_DIR}/patch_openarm_isaaclab3.py" << 'PATCH_OPENARM_EOF'
+{{ patch_openarm_b64 -}}
+PATCH_OPENARM_EOF
+
+base64 -d > "${HOST_ASSETS_DIR}/isaaclab_python.sh" << 'ISAACLAB_PY_EOF'
+{{ isaaclab_python_b64 -}}
+ISAACLAB_PY_EOF
+chmod +x "${HOST_ASSETS_DIR}/isaaclab_python.sh"
 
 log "  assets: $(ls -1 "$HOST_ASSETS_DIR" | tr '\n' ' ')"
 
@@ -371,20 +397,31 @@ done
 log "  image pulled: $(docker image inspect "$ISAAC_LAB_IMAGE" --format '{{ '{{' }}.Id{{ '}}' }}' 2>/dev/null | head -c 19)"
 
 # ── [5/6] Write the in-container build+collect script ─────────────────────────────────────────
-# Runs INSIDE the Isaac Lab container (Py3.11 + IsaacSim 5.1 + IsaacLab 2.3 + warp + h5py present):
-#   clone openarm_isaac_lab → pip install -e source/openarm → copy ACT overlay into unimanual/lift/config
-#   → run collect_demos_sm.py (boots sim, scripted SM collects N successful lift demos → HDF5).
-# CONTAINER_PY: the isaaclab-importable python in the NGC image (the `python` alias is absent in a
-# non-interactive docker run; use the absolute kit python path). Same as openarm-isaac.
+# Runs INSIDE the Isaac Lab container (Py3.12 + IsaacSim 6.2 + IsaacLab 3.0 + warp + h5py present, uid 1000):
+#   clone openarm_isaac_lab → patch it for Isaac Lab 3.0 → pip install -e source/openarm → copy ACT overlay
+#   into unimanual/lift/config → run collect_demos_sm.py (boots sim, scripted SM collects N successful
+#   lift demos → HDF5).
+# CONTAINER_PY: isaaclab_python.sh, the probe for the isaaclab-importable python (on 3.0 the image's uv
+# venv through isaaclab.sh -p, not the 2.x Kit python). Same as openarm-isaac. ASSETS / OUT / SCRATCH
+# are overridable so the script also runs in a bare isaac-lab:3.0.0 container without these mounts.
 cat > "${HOST_ASSETS_DIR}/container_run.sh" << 'CONTAINER_EOF'
 #!/bin/bash
 set -euo pipefail
 clog() { echo "[container] $(date '+%H:%M:%S') $*"; }
 
-ASSETS=/workspace/assets
-OUT=/workspace/out
-WORK=/workspace/openarm_isaac_lab
-CONTAINER_PY="${CONTAINER_PY:-/workspace/isaaclab/_isaac_sim/python.sh}"
+ASSETS="${ASSETS:-/workspace/assets}"
+OUT="${OUT:-/workspace/out}"
+# /workspace itself is root-owned in the 3.0 image (uid 1000 cannot create dirs there): the clone goes to SCRATCH.
+SCRATCH="${SCRATCH:-/workspace/scratch}"
+mkdir -p "$SCRATCH" "$OUT" 2>/dev/null || true
+[ -w "$SCRATCH" ] || SCRATCH="$(mktemp -d)"
+WORK="${SCRATCH}/openarm_isaac_lab"
+# HOME may be unset or read-only outside docker run (e.g. a batch job); Kit and pip write caches under it.
+if [ -z "${HOME:-}" ] || [ ! -w "${HOME}" ]; then export HOME="${SCRATCH}/home"; mkdir -p "$HOME"; fi
+CONTAINER_PY="$ASSETS/isaaclab_python.sh"
+ISAACLAB_PYTHON_CMD="$("$CONTAINER_PY" --resolve)" || { clog "ERROR: no isaaclab python in this image"; exit 1; }
+export ISAACLAB_PYTHON_CMD
+clog "isaaclab python: ${ISAACLAB_PYTHON_CMD} (uid $(id -u))"
 
 export OPENARM_ISAAC_COMMIT="${OPENARM_ISAAC_COMMIT:?}"
 export TASK_ID="${TASK_ID:?}"
@@ -397,7 +434,7 @@ export CAM_RES="${CAM_RES:?}"
 # headless rendering env for Isaac Sim (cameras → RTX render)
 export ACCEPT_EULA=Y
 export PRIVACY_CONSENT=Y
-# Container runs as root; Isaac Sim Kit needs this when launched as root (Isaac Lab's compose sets it).
+# The 3.0 image runs as uid 1000; this only matters when the container is started as root (Kit refuses without it).
 export OMNI_KIT_ALLOW_ROOT=1
 
 clog "python: $("$CONTAINER_PY" --version 2>&1)"
@@ -409,6 +446,11 @@ if [ ! -d "$WORK" ]; then
     git -C "$WORK" checkout "$OPENARM_ISAAC_COMMIT"
 fi
 clog "openarm_isaac_lab commit: $(git -C "$WORK" rev-parse HEAD)"
+
+# 1b. patch the pinned tree for Isaac Lab 3.0 (ProxyArray .torch reads, (x, y, z, w) quaternions,
+#     sim.physics); idempotent, fails loudly if the pinned sources moved. See the script's docstring.
+"$CONTAINER_PY" "$ASSETS/patch_openarm_isaaclab3.py" "$WORK" \
+    || { clog "ERROR: openarm_isaac_lab Isaac Lab 3.0 patch failed (source layout changed?)"; exit 1; }
 
 # 2. install the openarm package (editable; brings the unimanual Lift-Cube env + USD assets).
 #    warp / h5py / RecorderManager are already in the Isaac Lab image — nothing else to install.
@@ -455,7 +497,8 @@ CUDA_MAX_ATTEMPTS=6        # 6 × 10s = up to 60s for post-reboot GPU init to se
 _cuda_ready=false
 for _attempt in $(seq 1 "$CUDA_MAX_ATTEMPTS"); do
     if docker run --rm --gpus all \
-        --entrypoint /workspace/isaaclab/_isaac_sim/python.sh \
+        --entrypoint /workspace/assets/isaaclab_python.sh \
+        -v "${HOST_ASSETS_DIR}:/workspace/assets:ro" \
         "$ISAAC_LAB_IMAGE" \
         -c 'import torch, sys; sys.exit(0 if torch.cuda.is_available() else 1)' \
         >/dev/null 2>&1; then
@@ -488,6 +531,7 @@ log "  num_demos=${NUM_DEMOS} (scaled collection; C1–C4 validated @ run8 2026-
 log "  num_envs=${NUM_ENVS}, position_threshold=${POSITION_THRESHOLD}, max_steps=${MAX_STEPS}, cam_res=${CAM_RES}px"
 
 docker rm -f "$CONTAINER_NAME" 2>/dev/null || true
+chown -R "${CONTAINER_UID}:${CONTAINER_UID}" "$HOST_ASSETS_DIR" "$HOST_OUT_DIR" "$HOST_SCRATCH"
 set +e
 # Override the image ENTRYPOINT (runheadless.sh) with /bin/bash so container_run.sh actually executes
 # (same as openarm-isaac + Isaac Lab's compose `entrypoint: bash`).
@@ -504,6 +548,7 @@ docker run --name "$CONTAINER_NAME" --gpus all --rm \
     -e "CAM_RES=${CAM_RES}" \
     -v "${HOST_ASSETS_DIR}:/workspace/assets" \
     -v "${HOST_OUT_DIR}:/workspace/out" \
+    -v "${HOST_SCRATCH}:/workspace/scratch" \
     "$ISAAC_LAB_IMAGE" \
     /workspace/assets/container_run.sh \
     2>&1 | tee "/tmp/openarm_collect.log"
@@ -518,15 +563,17 @@ DATASET_FILE="${HOST_OUT_DIR}/openarm_lift_act.hdf5"
 DEMO_COUNT="unknown"
 if [ -f "$DATASET_FILE" ]; then
     DEMO_COUNT=$(docker run --rm \
-        --entrypoint /workspace/isaaclab/_isaac_sim/python.sh \
+        --entrypoint /workspace/assets/isaaclab_python.sh \
+        -v "${HOST_ASSETS_DIR}:/workspace/assets:ro" \
         -v "${HOST_OUT_DIR}:/workspace/out" \
         "$ISAAC_LAB_IMAGE" \
         -c 'import h5py,sys
 try:
     f=h5py.File("/workspace/out/openarm_lift_act.hdf5","r")
-    print(len([k for k in f["data"].keys() if k.startswith("demo_")]))
+    print("DEMOS=%d" % len([k for k in f["data"].keys() if k.startswith("demo_")]))
 except Exception as e:
-    print("err:%r"%e); sys.exit(0)' 2>/dev/null | tail -1 || echo "unknown")
+    print("DEMOS=err:%r"%e); sys.exit(0)' 2>/dev/null | sed -n 's/^DEMOS=//p' | tail -1) || DEMO_COUNT=unknown   # marker: isaaclab.sh -p also prints [INFO] on stdout
+    DEMO_COUNT=${DEMO_COUNT:-unknown}
 fi
 log "  Exported successful demos in HDF5: ${DEMO_COUNT}"
 
@@ -539,7 +586,7 @@ log "  S3 upload: ${S3_PREFIX}"
     printf "Date:       %s\n"  "$(date '+%Y-%m-%d')"
     echo ""
     echo "--- Environment ---"
-    printf "Sim:        NVIDIA Isaac Lab 2.3 / Isaac Sim 5.1 (enactic/openarm_isaac_lab @ %s)\n" "{{ openarm_isaac_commit }}"
+    printf "Sim:        NVIDIA Isaac Lab 3.0 / Isaac Sim 6.2 (enactic/openarm_isaac_lab @ %s)\n" "{{ openarm_isaac_commit }}"
     printf "Task id:    %s (unimanual Lift-Cube + IK abs action + 2 cameras + dict obs)\n" "${TASK_ID}"
     printf "Robot:      OpenArm unimanual (7-DOF arm + binary gripper)\n"
     printf "Collector:  collect_demos_sm.py — teleop-free scripted pick-lift state machine\n"
@@ -592,7 +639,7 @@ SNS_MESSAGE="[${STACK_NAME}] OpenArm-Lift-ACT demo collection complete (RUN_ID: 
 
 Exported successful lift demos: ${DEMO_COUNT} (requested ${NUM_DEMOS})
 Task:  ${TASK_ID} (unimanual Lift-Cube × ACT overlay)
-Sim:   NVIDIA Isaac Lab 2.3 / Isaac Sim 5.1 (enactic/openarm_isaac_lab)
+Sim:   NVIDIA Isaac Lab 3.0 / Isaac Sim 6.2 (enactic/openarm_isaac_lab)
 Note:  Scripted teleop-free collection. FIRST RUN validates C1–C4 — a low demo count means the
        scripted SM is not grasping; tune _TCP_OFFSET / _DOWN_QUAT / thresholds in the overlay.
 Instance: ${INSTANCE_TYPE}

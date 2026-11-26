@@ -5,7 +5,7 @@
 #   - policy server: NVIDIA/cosmos-framework `action_policy_server_robolab` (OpenPI msgpack WebSocket, port 8000+i)
 #     in the image built from the framework's own Dockerfile (CUDA 12.8 base, cu128-train + policy-server groups)
 #   - simulator client: RoboLab `policies/cosmos3/run.py --headless` in the image built by RoboLab's
-#     docker/build_docker.sh on nvcr.io/nvidia/isaac-lab:2.2.0 (Isaac Sim 5.0 = the stack the leaderboard used)
+#     docker/build_docker.sh --isaac60 on nvcr.io/nvidia/isaac-lab:3.0.0-beta2 (Isaac Sim 6.0; see isaac_lab_tag)
 # A run = one "shard" (server + sim pair) per GPU (or GPU pair); tasks are split round-robin across shards.
 #
 # Licenses: RoboLab code Apache-2.0, but its bundled scenes/objects/robots are mostly CC BY-NC-SA 4.0
@@ -30,17 +30,24 @@ model:
 
   robolab_repo: "https://github.com/NVlabs/RoboLab.git"
   robolab_commit: "9cce00cadd5dc575fd2b8ea3836f5bdcde574229"   # main 2026-10-27 (pyproject 0.3.2)
-  # RoboLab's Dockerfile does FROM nvcr.io/nvidia/isaac-lab:${ISAACLAB_TAG}; tag@digest pins the 2.2.0 image index.
-  isaac_lab_tag: "2.2.0@sha256:b4d8e96cbfb9a6c40067bec6cc5ee180e36d4c0164b25f7215c5f47e31897b94"
+  # RoboLab's Dockerfile does FROM nvcr.io/nvidia/isaac-lab:${ISAACLAB_TAG}; tag@digest pins the image index.
+  # 3.0.0-beta2 (Isaac Sim 6.0, Python 3.12, uid 1000) instead of 2.2.0: Isaac Lab <= 2.3.2 has CVE-2026-65141
+  # (eval injection in isaaclab.utils.string.string_to_callable, no 2.x fix); beta2 is the first fixed release
+  # (NVIDIA bulletin 5902) and the stack RoboLab @ pin supports (build_docker.sh --isaac60, docs/isaac_sim_6.md).
+  # Not the 3.0.0 GA image: RoboLab @ pin was ported against beta2 (isaaclab 6.1.11); GA (isaaclab 28.0.0) removed
+  # mdp.image, which robolab/core/observations/observation_utils.py resolves, and moved isaaclab out of the Kit
+  # python that RoboLab's Dockerfile installs into.
+  isaac_lab_tag: "3.0.0-beta2@sha256:970621075d00059c309f847fa835709de3fa634537407a7009c586c97893d218"
 
   server_repo: "https://github.com/NVIDIA/cosmos-framework.git"
   server_commit: "86e1ee52f276c11d6cc66dfd17da2795dfbe937b"     # main 2026-10-30 (framework 1.2.2)
-  # The framework Dockerfile defaults to CUDA 13.0.2 (needs NVIDIA driver >= 580). The project DLAMI ships an
-  # older driver, so build on the CUDA 12.8 base (driver >= 570) and sync the matching cu128-train group.
+  # The framework Dockerfile defaults to CUDA 13.0.2 (needs NVIDIA driver >= 580). The server keeps the CUDA 12.8
+  # base (driver >= 570) and the matching cu128-train group it was measured with; the Isaac Lab 3.0 simulator
+  # side raises the instance floor to 580 (min_driver_major) and runs on the Base OSS Nvidia Driver AMI.
   server_base_image: "nvidia/cuda:12.8.1-cudnn-devel-ubuntu24.04@sha256:24c8e3581ea6330038b0d374920721983312627f8adbfcf390bdb4b399d280ed"
   server_cuda_version: "12.8.1"
   server_uv_groups: ["cu128-train", "policy-server"]
-  min_driver_major: 570
+  min_driver_major: 580          # Isaac Sim 6 / CUDA 13 (Isaac Lab 3.0); the server alone needs 570
 
 protocols:
   # 12 of the 120 RoboLab-120 tasks: 6 simple / 4 moderate / 2 complex, covering the visual (color, semantics,

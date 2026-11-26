@@ -239,7 +239,7 @@ def main() -> int:
     return 0
 
 
-def _force_close_sim() -> None:
+def _force_close_sim(rc: int = 1) -> None:
     """Close the Isaac Sim app and hard-exit, bypassing Kit's lingering non-daemon threads.
 
     WHY (10th-deploy cost lesson): once `make_local_env()` boots Isaac Sim, AppLauncher spawns
@@ -255,8 +255,11 @@ def _force_close_sim() -> None:
     app = getattr(mod, "_SIMULATION_APP", None) if mod is not None else None
     if app is not None:
         try:
-            app.close()
-        except Exception:  # noqa: BLE001 — best-effort; we hard-exit next regardless
+            # Isaac Lab 3.0's AppLauncher.close() unwinds the launch as sys.exit(exit_code) and the runtime can end
+            # the process right there with that code (default 0): a crash then exited 0 (GPU job j4). Pass ours.
+            app.close(exit_code=rc)  # single call: a retry without the code would bring the exit-0 back
+        # BaseException: Isaac Lab 3.0's AppLauncher closes Kit by unwinding its launch context with SystemExit.
+        except BaseException:  # noqa: BLE001 — best-effort; we hard-exit next regardless
             pass
 
 
@@ -270,6 +273,6 @@ if __name__ == "__main__":
         logging.getLogger("run_eval").exception("run_eval.py crashed — closing sim and hard-exiting")
         _rc = 1
     finally:
-        _force_close_sim()
+        _force_close_sim(_rc if isinstance(_rc, int) else 1)
     # os._exit bypasses Kit's non-daemon threads that would otherwise hang interpreter shutdown.
     os._exit(_rc if isinstance(_rc, int) else 1)

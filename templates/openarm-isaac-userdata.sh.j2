@@ -1,7 +1,7 @@
 #!/bin/bash
 # OpenArm-Isaac 1-Click UserData Script
-#   π0.5 (LeRobot pi05 `folding_latest`, 16-DOF bimanual) × enactic/openarm_isaac_lab (Isaac Lab 2.3)
-# Pattern:    NGC Isaac Lab container (IsaacSim 5.1 + Lab 2.3 + Py3.11) runs everything; LeRobot pi05
+#   π0.5 (LeRobot pi05 `folding_latest`, 16-DOF bimanual) × enactic/openarm_isaac_lab (Isaac Lab 3.0)
+# Pattern:    NGC Isaac Lab container (IsaacSim 6.2 + Lab 3.0 + Py3.12, runs as uid 1000) runs everything; LeRobot pi05
 #             inference is IN-PROCESS on the sim GPU (no separate policy server). The driver
 #             (run_eval.py) bypasses lerobot-eval's HF-Hub env download and calls our local
 #             env.py:make_env directly. SUCCESS BAR = PIPE PROOF (motion), not task success.
@@ -17,6 +17,10 @@ set -euo pipefail
 HOST_ASSETS_DIR=/home/ubuntu/openarm-isaac-assets       # the 3 python files (mounted into container)
 HOST_OUT_DIR=/home/ubuntu/openarm-isaac-out             # videos + eval_info.json (mounted into container)
 HOST_HF_CACHE=/home/ubuntu/.cache/huggingface           # persist HF downloads across container runs
+HOST_SCRATCH=/home/ubuntu/openarm-isaac-scratch         # clones + pip constraints (mounted into container)
+# The Isaac Lab 3.0 image runs as uid/gid 1000 (`isaaclab`, docker/Dockerfile.base), so every host dir
+# mounted into it is owned by 1000:1000 (= the DLAMI's `ubuntu` user).
+CONTAINER_UID=1000
 CONTAINER_NAME=openarm-isaac
 ISAAC_LAB_IMAGE="{{ isaac_lab_image }}"
 RUN_ID=$(date '+%Y-%m-%d-%H%M')
@@ -267,13 +271,19 @@ done
 
 APT_RETRY=0
 until apt-get install -y --no-install-recommends -o DPkg::Lock::Timeout=1800 \
-    curl ca-certificates awscli jq \
+    curl ca-certificates jq unzip \
     2>&1 | tee /tmp/openarm_apt.log; do
     APT_RETRY=$((APT_RETRY + 1))
     [ $APT_RETRY -ge 3 ] && die "apt-get install failed after 3 retries"
     log "[warn] apt-get install failed (attempt $APT_RETRY), retrying in 30s..."
     sleep 30
 done
+# The Base DLAMI (Ubuntu 24.04) ships AWS CLI v2 and Ubuntu 24.04 has no awscli apt package; install it only if missing.
+if ! command -v aws >/dev/null 2>&1; then
+    curl -sSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip \
+        && unzip -q /tmp/awscliv2.zip -d /tmp && /tmp/aws/install >> /tmp/openarm_apt.log 2>&1 \
+        || die "AWS CLI install failed"
+fi
 
 command -v docker >/dev/null 2>&1 || die "docker not found — verify DLAMI (Deep Learning AMI ships Docker + NVIDIA Container Toolkit)"
 log "  docker: $(docker --version 2>&1 | head -1)"
@@ -314,14 +324,20 @@ fi
 log "[2/7] Checking GPU driver + NVIDIA container runtime..."
 nvidia-smi -L 2>&1 | tee /tmp/openarm_nvidia.log \
     || log "[warn] nvidia-smi failed — verify DLAMI"
+# Isaac Lab 3.0 = Isaac Sim 6.2 + torch 2.11 cu130: NVIDIA driver >= 580.65.06 (CUDA 13). Fail here, before
+# the ~25 GB pull, instead of at the first CUDA call.
+DRIVER_MAJOR=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>/dev/null | head -1 | cut -d. -f1 | tr -d ' ' || echo 0)
+log "  NVIDIA driver major: ${DRIVER_MAJOR:-unknown}"
+[ "${DRIVER_MAJOR:-0}" -ge 580 ] 2>/dev/null \
+    || die "NVIDIA driver ${DRIVER_MAJOR:-unknown} < 580: Isaac Lab 3.0 needs >= 580.65.06 (the stack boots the Deep Learning Base OSS Nvidia Driver AMI, Ubuntu 24.04)"
 # Confirm the container runtime can see the GPU before pulling a ~25GB image.
 # --entrypoint required: the isaac-lab image's default entrypoint is runheadless.sh, not a shell.
 docker run --rm --gpus all --entrypoint nvidia-smi "$ISAAC_LAB_IMAGE" -L 2>/dev/null \
     || log "[warn] GPU not yet visible to docker (image not pulled yet — re-checked after pull)"
 
-# ── [3/7] Write the 3 Python assets to host (mounted into the container) ──────────────────────
+# ── [3/7] Write the Python assets to host (mounted into the container) ────────────────────────
 log "[3/7] Writing python assets to ${HOST_ASSETS_DIR}..."
-mkdir -p "$HOST_ASSETS_DIR" "$HOST_OUT_DIR" "$HOST_HF_CACHE"
+mkdir -p "$HOST_ASSETS_DIR" "$HOST_OUT_DIR" "$HOST_HF_CACHE" "$HOST_SCRATCH"
 
 base64 -d > "${HOST_ASSETS_DIR}/env.py" << 'ENV_PY_EOF'
 {{ env_py_b64 -}}
@@ -335,9 +351,18 @@ base64 -d > "${HOST_ASSETS_DIR}/openarm_bi_vla_env_cfg.py" << 'OVERLAY_CFG_EOF'
 {{ overlay_cfg_b64 -}}
 OVERLAY_CFG_EOF
 
-base64 -d > "${HOST_ASSETS_DIR}/patch_lerobot_py311.py" << 'PATCH_LEROBOT_EOF'
+base64 -d > "${HOST_ASSETS_DIR}/patch_lerobot_isaaclab.py" << 'PATCH_LEROBOT_EOF'
 {{ patch_lerobot_b64 -}}
 PATCH_LEROBOT_EOF
+
+base64 -d > "${HOST_ASSETS_DIR}/patch_openarm_isaaclab3.py" << 'PATCH_OPENARM_EOF'
+{{ patch_openarm_b64 -}}
+PATCH_OPENARM_EOF
+
+base64 -d > "${HOST_ASSETS_DIR}/isaaclab_python.sh" << 'ISAACLAB_PY_EOF'
+{{ isaaclab_python_b64 -}}
+ISAACLAB_PY_EOF
+chmod +x "${HOST_ASSETS_DIR}/isaaclab_python.sh"
 
 log "  assets: $(ls -1 "$HOST_ASSETS_DIR" | tr '\n' ' ')"
 
@@ -384,28 +409,37 @@ done
 log "  image pulled: $(docker image inspect "$ISAAC_LAB_IMAGE" --format '{{ '{{' }}.Id{{ '}}' }}' 2>/dev/null | head -c 19)"
 
 # ── [5/7] Write the in-container build+run script ─────────────────────────────────────────────
-# Runs INSIDE the Isaac Lab container (Py3.11 + IsaacSim 5.1 + IsaacLab 2.3 already present):
-#   clone openarm_isaac_lab → pip install -e source/openarm → copy overlay into bimanual/reach/config
-#   → install lerobot(+pi extras) → download folding_latest → run_eval.py (boots sim, rolls out, video).
-# CONTAINER_PY: the isaaclab-importable python in the NGC isaac-lab image. CONFIRMED (deploy run
-# 2026-06-04-1726, exit 127 "python: command not found"): the image defines `python` only as a
-# bash ALIAS in ~/.bashrc (Dockerfile.base: `alias python=${ISAACLAB_PATH}/_isaac_sim/python.sh`),
-# which is NOT loaded in a non-interactive `docker run ... script.sh` shell. The real kit python is
-# the absolute path below (ISAACLAB_PATH=/workspace/isaaclab per docker/.env.base; isaaclab.sh -p
-# resolves to exactly this _isaac_sim/python.sh). Use the absolute path (single token → keeps the
-# "$CONTAINER_PY" call sites intact; avoids the isaaclab.sh wrapper).
+# Runs INSIDE the Isaac Lab container (Py3.12 + IsaacSim 6.2 + IsaacLab 3.0 already present, uid 1000):
+#   clone openarm_isaac_lab → patch it for Isaac Lab 3.0 → pip install -e source/openarm → copy overlay
+#   into bimanual/reach/config → install lerobot(+pi extras) → download folding_latest → run_eval.py
+#   (boots sim, rolls out, video).
+# CONTAINER_PY: the isaaclab-importable python in the NGC isaac-lab image. The `python` alias in
+# ~/.bashrc is not loaded in a non-interactive `docker run ... script.sh` (deploy run 2026-06-04-1726,
+# exit 127 "python: command not found"), and on Isaac Lab 3.0 the Kit python (_isaac_sim/python.sh,
+# the 2.x path) no longer imports isaaclab: isaaclab lives in the image's uv venv, reached through
+# `isaaclab.sh -p`. isaaclab_python.sh probes those candidates and fails loudly when none works.
+# Every path is overridable (ASSETS / OUT / SCRATCH / HF_HOME) so the script also runs in a bare
+# isaac-lab:3.0.0 container without these bind mounts (see docs/targets.md, Isaac Lab 3.0 note).
 cat > "${HOST_ASSETS_DIR}/container_run.sh" << 'CONTAINER_EOF'
 #!/bin/bash
 set -euo pipefail
 clog() { echo "[container] $(date '+%H:%M:%S') $*"; }
 
-ASSETS=/workspace/assets
-OUT=/workspace/out
-WORK=/workspace/openarm_isaac_lab
-# kit python (alias-only in interactive shells; non-interactive docker run needs the abs path).
-CONTAINER_PY="${CONTAINER_PY:-/workspace/isaaclab/_isaac_sim/python.sh}"
+ASSETS="${ASSETS:-/workspace/assets}"
+OUT="${OUT:-/workspace/out}"
+# /workspace itself is root-owned in the 3.0 image (uid 1000 cannot create dirs there): clones go to SCRATCH.
+SCRATCH="${SCRATCH:-/workspace/scratch}"
+mkdir -p "$SCRATCH" "$OUT" 2>/dev/null || true
+[ -w "$SCRATCH" ] || SCRATCH="$(mktemp -d)"
+WORK="${SCRATCH}/openarm_isaac_lab"
+# HOME may be unset or read-only outside docker run (e.g. a batch job); Kit and pip write caches under it.
+if [ -z "${HOME:-}" ] || [ ! -w "${HOME}" ]; then export HOME="${SCRATCH}/home"; mkdir -p "$HOME"; fi
+CONTAINER_PY="$ASSETS/isaaclab_python.sh"
+ISAACLAB_PYTHON_CMD="$("$CONTAINER_PY" --resolve)" || { clog "ERROR: no isaaclab python in this image"; exit 1; }
+export ISAACLAB_PYTHON_CMD
+clog "isaaclab python: ${ISAACLAB_PYTHON_CMD} (uid $(id -u))"
 
-export HF_HOME=/workspace/hf-cache
+export HF_HOME="${HF_HOME:-/workspace/hf-cache}"
 export OPENARM_ISAAC_COMMIT="${OPENARM_ISAAC_COMMIT:?}"
 export LEROBOT_COMMIT="${LEROBOT_COMMIT:?}"
 export HF_REPO="${HF_REPO:?}"
@@ -413,10 +447,8 @@ export HF_REVISION="${HF_REVISION:-}"
 # headless rendering env for Isaac Sim
 export ACCEPT_EULA=Y
 export PRIVACY_CONSENT=Y
-# The container runs as root; Isaac Sim Kit refuses/misbehaves as root without this. Isaac Lab's
-# official docker-compose sets exactly this (docker/docker-compose.yaml: OMNI_KIT_ALLOW_ROOT=1).
-# We bypass the image ENTRYPOINT (runheadless.sh) with --entrypoint bash — same as Isaac Lab's
-# compose `entrypoint: bash` — so this env is what makes a root-launched AppLauncher boot cleanly.
+# The 3.0 image runs as uid 1000; OMNI_KIT_ALLOW_ROOT only matters when the container is started as
+# root (`docker run --user 0`), where Kit refuses to boot without it (Isaac Lab 2.x compose sets it).
 export OMNI_KIT_ALLOW_ROOT=1
 
 clog "python: $("$CONTAINER_PY" --version 2>&1)"
@@ -429,6 +461,11 @@ if [ ! -d "$WORK" ]; then
 fi
 clog "openarm_isaac_lab commit: $(git -C "$WORK" rev-parse HEAD)"
 
+# 1b. patch the pinned tree for Isaac Lab 3.0 (ProxyArray .torch reads, (x, y, z, w) quaternions,
+#     sim.physics); idempotent, fails loudly if the pinned sources moved. See the script's docstring.
+"$CONTAINER_PY" "$ASSETS/patch_openarm_isaaclab3.py" "$WORK" \
+    || { clog "ERROR: openarm_isaac_lab Isaac Lab 3.0 patch failed (source layout changed?)"; exit 1; }
+
 # 2. install the openarm package (editable; brings the bimanual Reach env + USD assets)
 clog "pip install -e source/openarm ..."
 "$CONTAINER_PY" -m pip install -e "$WORK/source/openarm" 2>&1 | tail -20
@@ -440,14 +477,13 @@ cp "$ASSETS/openarm_bi_vla_env_cfg.py" "$OVERLAY_DST"
 clog "overlay copied → $OVERLAY_DST"
 
 # 4. install LeRobot (pi05 inference stack) @ pinned commit, with the pi extra.
-#    LeRobot @ ${LEROBOT_COMMIT} (v0.5.2) targets Python >=3.12 and uses PEP-695 type
-#    syntax, but this NGC isaac-lab container is Python 3.11 (Kit runtime hard-lock). A
-#    plain `pip install git+...` fails twice over: pip refuses on the requires-python
-#    gate, and pip's install-time compileall hits SyntaxError on the 695 syntax. So we
-#    clone locally, run patch_lerobot_py311.py (relaxes the gate + rewrites all 5 PEP-695
-#    sites to TypeVar/Generic/plain-assign, semantics-identical; idempotent + self-
-#    verifying via AST and fail-loud anchors), then install from the patched tree.
-LEROBOT_SRC=/workspace/lerobot-src
+#    LeRobot @ ${LEROBOT_COMMIT} (v0.5.2) needs Python >=3.12 = the Isaac Lab 3.0 venv, so the
+#    Python 3.11 rewrites of the 2.3 image are gone. What remains is the version overlap: LeRobot
+#    caps numpy<2.3 / packaging<26 / setuptools<81 below what Isaac Lab 3.0 ships. We clone locally,
+#    run patch_lerobot_isaaclab.py (drops only those conflicting bounds and writes a constraints
+#    file that pins Isaac's installed numpy / packaging / setuptools / torch / torchvision), then
+#    install from the patched tree.
+LEROBOT_SRC="${SCRATCH}/lerobot-src"
 if [ ! -d "$LEROBOT_SRC" ]; then
     clog "Cloning lerobot @ ${LEROBOT_COMMIT} for local patch+install..."
     git clone https://github.com/huggingface/lerobot.git "$LEROBOT_SRC"
@@ -455,33 +491,19 @@ if [ ! -d "$LEROBOT_SRC" ]; then
 fi
 clog "lerobot commit: $(git -C "$LEROBOT_SRC" rev-parse HEAD)"
 
-clog "Patching lerobot for Python 3.11 (gate + PEP-695 + numpy/packaging floors)..."
-"$CONTAINER_PY" "$ASSETS/patch_lerobot_py311.py" "$LEROBOT_SRC" \
-    || { clog "ERROR: lerobot py3.11 patch failed (source layout changed?)"; exit 1; }
-
 # ── dependency-clobber guard ──────────────────────────────────────────────────────
-# The NGC isaac-lab Kit env is a single precisely-pinned environment: Isaac Sim's
-# prebundle torch is built against numpy 1.x (isaaclab/-tasks/-rl pin numpy<2; -rl also
-# packaging<24). A naive `pip install lerobot[pi]` drags numpy 1.x->2.x and
-# packaging->25 into that env, after which `import torch` dies
-# (ModuleNotFoundError torch._vendor...). The patcher above already lowered lerobot's
-# numpy/packaging *lower* bounds; here we pin the install to Isaac's *currently
-# installed* numpy+packaging via a constraints file. Freezing the live versions (rather
-# than hardcoding) self-adapts to the image and makes any transitive numpy-2 demand a
-# loud pip error instead of a silent clobber. pi05 inference uses numpy only via
-# np.digitize/np.linspace (1.x-stable) and lerobot uses packaging only via version.parse
-# — both safe under Isaac's pins.
-CONSTRAINTS=/workspace/isaac-pins-constraints.txt
-: > "$CONSTRAINTS"
-for _pkg in numpy packaging; do
-    _ver=$("$CONTAINER_PY" -m pip show "$_pkg" 2>/dev/null | awk '/^Version:/{print $2}')
-    if [ -n "$_ver" ]; then
-        echo "${_pkg}==${_ver}" >> "$CONSTRAINTS"
-    else
-        clog "[warn] ${_pkg} not found via pip show — constraint omitted (relying on Isaac upper-bound pins)"
-    fi
-done
-clog "Isaac dependency constraints (frozen from Kit env):"
+# The Isaac Lab env is a single precisely-pinned environment (uv.lock): a naive
+# `pip install lerobot[pi]` would move numpy / packaging / setuptools under Isaac Sim's
+# torch (on the 2.3 image that broke `import torch`). The patcher relaxes LeRobot's
+# conflicting bounds and freezes the *installed* versions into a constraints file, so any
+# transitive demand for another version is a loud pip error instead of a silent clobber.
+# pi05 inference uses numpy only via np.digitize/np.linspace and lerobot uses packaging
+# only via version.parse — both stable across these versions.
+CONSTRAINTS="${SCRATCH}/isaac-pins-constraints.txt"
+clog "Patching lerobot for the Isaac Lab env (conflicting numpy/packaging/setuptools bounds)..."
+"$CONTAINER_PY" "$ASSETS/patch_lerobot_isaaclab.py" "$LEROBOT_SRC" --constraints-out "$CONSTRAINTS" \
+    || { clog "ERROR: lerobot Isaac Lab patch failed (source layout changed?)"; exit 1; }
+clog "Isaac dependency constraints (frozen from the Isaac Lab env):"
 sed 's/^/  /' "$CONSTRAINTS" | while IFS= read -r _l; do clog "$_l"; done
 
 # [pi]   = pi05 policy stack. [av-dep] = PyAV (ffmpeg bindings) for eval video encoding:
@@ -536,8 +558,8 @@ export HF_XET_FIXED_DOWNLOAD_CONCURRENCY=8
 # dependency-free Rust wheel (its only Requires-Dist is a test extra), so it cannot disturb
 # the numpy/packaging constraints frozen above. Non-fatal: if the bump fails the exports
 # above plus the wall-clock guard below still bound the fetch.
-clog "XET STALL GUARD: raising hf-xet to 1.5.2 in the Kit env..."
-"$CONTAINER_PY" -m pip install "hf-xet==1.5.2" 2>&1 | tail -5 \
+clog "XET STALL GUARD: raising hf-xet to >=1.5.2 in the Isaac Lab env..."
+"$CONTAINER_PY" -m pip install "hf-xet>=1.5.2" 2>&1 | tail -5 \
     || clog "[warn] hf-xet bump failed — exports + wall-clock guard still apply"
 "$CONTAINER_PY" -c "
 from huggingface_hub.utils._runtime import get_xet_version, is_xet_available
@@ -581,16 +603,19 @@ hf_dl_guard() {
 }
 
 clog "Downloading checkpoint ${HF_REPO} (rev: ${HF_REVISION:-latest})..."
-CKPT_DIR=$(hf_dl_guard "checkpoint download" /workspace/out/hf_download.log --stdin \
+CKPT_DIR=$(hf_dl_guard "checkpoint download" "$OUT/hf_download.log" --stdin \
     -- "$CONTAINER_PY" - << 'PYDL'
 import os
 from huggingface_hub import snapshot_download
 rev = os.environ.get("HF_REVISION") or None
 p = snapshot_download(os.environ["HF_REPO"], revision=rev)
-print(p)
+print("CKPT_DIR=" + p)
 PYDL
-) || { clog "ERROR: checkpoint download failed or stalled (see /workspace/out/hf_download.log)"; exit 1; }
-CKPT_DIR=$(echo "$CKPT_DIR" | tail -1)
+) || { clog "ERROR: checkpoint download failed or stalled (see $OUT/hf_download.log)"; exit 1; }
+# marker, not `tail -1`: Isaac Lab 3.0's `isaaclab.sh -p` prints `[INFO] Using Python: ...` on stdout and it can land
+# last, which became the --policy-path (GPU job j7)
+CKPT_DIR=$(printf '%s\n' "$CKPT_DIR" | sed -n 's/^CKPT_DIR=//p' | tail -1)
+[ -n "$CKPT_DIR" ] || { clog "ERROR: checkpoint download printed no path (see $OUT/hf_download.log)"; exit 1; }
 clog "checkpoint: ${CKPT_DIR}"
 
 # 6. run the rollout driver (boots Isaac Sim, drives folding_latest over the bimanual env, writes video)
@@ -628,11 +653,10 @@ chmod +x "${HOST_ASSETS_DIR}/container_run.sh"
 # it was not a code regression. Telling detail: boot-2's [2/7] driver/runtime check took ~3.5 min
 # after the reboot (slow post-reboot GPU init). The host-side `nvidia-smi -L` that [2/7] uses does
 # NOT guarantee torch.cuda.is_available()==True INSIDE the container, so gate on the container's own
-# view: run the Isaac image's kit python and retry until torch sees CUDA.
+# view: run the Isaac image's isaaclab python and retry until torch sees CUDA.
 #
-# Path matches container_run.sh's CONTAINER_PY (/workspace/isaaclab/_isaac_sim/python.sh; the image
-# defines `python` only as a ~/.bashrc alias, absent in non-interactive `docker run`). No Isaac Sim
-# boot here (plain torch import) so OMNI_KIT_ALLOW_ROOT / EULA env are unnecessary.
+# Same interpreter as container_run.sh's CONTAINER_PY (isaaclab_python.sh, mounted read-only). No
+# Isaac Sim boot here (plain torch import) so the EULA env is unnecessary.
 #
 # On exhaustion we PROCEED ANYWAY (warn, not die): the gate's value is the WAIT for a transient to
 # clear, and run_eval.py:124 keeps its own assert which fails fast+cheap (container exit=1 → CFN
@@ -644,7 +668,8 @@ CUDA_MAX_ATTEMPTS=6        # 6 × 10s = up to 60s for post-reboot GPU init to se
 _cuda_ready=false
 for _attempt in $(seq 1 "$CUDA_MAX_ATTEMPTS"); do
     if docker run --rm --gpus all \
-        --entrypoint /workspace/isaaclab/_isaac_sim/python.sh \
+        --entrypoint /workspace/assets/isaaclab_python.sh \
+        -v "${HOST_ASSETS_DIR}:/workspace/assets:ro" \
         "$ISAAC_LAB_IMAGE" \
         -c 'import torch, sys; sys.exit(0 if torch.cuda.is_available() else 1)' \
         >/dev/null 2>&1; then
@@ -685,6 +710,7 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
 
     TASK_OUT="${HOST_OUT_DIR}/task-${TASK_IDX}"
     mkdir -p "$TASK_OUT"
+    chown -R "${CONTAINER_UID}:${CONTAINER_UID}" "$HOST_ASSETS_DIR" "$HOST_OUT_DIR" "$HOST_HF_CACHE" "$HOST_SCRATCH"
 
     log "Task $((TASK_IDX+1))/${TASK_COUNT}: ${TASK_NAME} (instr=\"${TASK_INSTR}\")"
     log "  state_keys=${STATE_KEYS}"
@@ -721,6 +747,7 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
         -v "${HOST_ASSETS_DIR}:/workspace/assets" \
         -v "${TASK_OUT}:/workspace/out" \
         -v "${HOST_HF_CACHE}:/workspace/hf-cache" \
+        -v "${HOST_SCRATCH}:/workspace/scratch" \
         "$ISAAC_LAB_IMAGE" \
         /workspace/assets/container_run.sh \
         2>&1 | tee "/tmp/openarm_task${TASK_IDX}.log"
@@ -778,7 +805,7 @@ for TASK_IDX in $(seq 0 $((TASK_COUNT - 1))); do
             printf "Date:       %s\n"  "$(date '+%Y-%m-%d')"
             echo ""
             echo "--- Environment ---"
-            printf "Sim:        NVIDIA Isaac Lab 2.3 / Isaac Sim 5.1 (enactic/openarm_isaac_lab @ %s)\n" "{{ openarm_isaac_commit }}"
+            printf "Sim:        NVIDIA Isaac Lab 3.0 / Isaac Sim 6.2 (enactic/openarm_isaac_lab @ %s)\n" "{{ openarm_isaac_commit }}"
             printf "Gym ID:     Isaac-Reach-OpenArm-Bi-VLA-v0 (bimanual Reach + 3 cameras + 16-dim absolute action)\n"
             printf "Robot:      OpenArm bimanual (16-DOF: R_arm7+R_grip+L_arm7+L_grip)\n"
             printf "Task:       %s — \"%s\"\n" "${TASK_NAME}" "${TASK_INSTR}"
@@ -842,7 +869,7 @@ SNS_MESSAGE="[${STACK_NAME}] OpenArm-Isaac simulation complete (RUN_ID: ${RUN_ID
 ${SUMMARY_ALL}
 
 Model: π0.5 (LeRobot pi05 {{ hf_repo }}, 16-DOF bimanual)
-Sim:   NVIDIA Isaac Lab 2.3 / Isaac Sim 5.1 (enactic/openarm_isaac_lab)
+Sim:   NVIDIA Isaac Lab 3.0 / Isaac Sim 6.2 (enactic/openarm_isaac_lab)
 Note:  PIPE PROOF — folding policy is OOD on an empty bimanual Reach scene. The video proves
        π0.5 -> 16-joint OpenArm motion in sim, NOT task success.
 Instance: ${INSTANCE_TYPE}

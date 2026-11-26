@@ -1,7 +1,9 @@
 import * as cdk from 'aws-cdk-lib';
 import { Template } from 'aws-cdk-lib/assertions';
+import { JUDGE_AMI_MAPPING } from '../lib/judge-stack';
 import {
-  captureObjectPath, real2simRunPrefix, resolveInstanceCfg, resultsBucketName, taskSetInstanceCfg, VlaSimulatorStack,
+  amiFor, captureObjectPath, ISAACLAB3_TARGETS, real2simRunPrefix, resolveInstanceCfg, resultsBucketName,
+  taskSetInstanceCfg, VlaSimulatorStack,
 } from '../lib/vla-simulator-stack';
 
 // The stack reads the rendered UserData from assets/userdata/<vla>.sh (gitignored); the jest
@@ -55,6 +57,25 @@ test('long stack names get a results bucket name within 63 chars', () => {
 test('bucket names that already fit are unchanged', () => {
   Template.fromStack(makeApp('gr00t')).hasResourceProperties('AWS::S3::Bucket', {
     BucketName: 'vla-sim-results-gr00t-demo-us-east-1-123456789012',
+  });
+});
+
+// Isaac Lab 3.0 targets (CVE-2026-65141) need NVIDIA driver >= 580: they boot the Base OSS driver AMI.
+test('Isaac Lab 3.0 targets boot the driver-580+ Base OSS AMI, the others keep the DLAMI', () => {
+  expect([...ISAACLAB3_TARGETS].sort()).toEqual(['openarm-isaac', 'openarm-lift-act', 'robolab-cosmos3', 'robolab-pi05']);
+  for (const vla of ISAACLAB3_TARGETS) {
+    expect(amiFor(vla, 'us-east-1')).toBe(JUDGE_AMI_MAPPING['us-east-1']);
+  }
+  expect(amiFor('gr00t', 'us-east-1')).not.toBe(JUDGE_AMI_MAPPING['us-east-1']);
+  const app = new cdk.App({
+    context: { region: 'ap-northeast-2', vla: 'openarm-lift-act', notify_email: 'test@example.com' },
+  });
+  const stack = new VlaSimulatorStack(app, 'OpenArm-Lift-ACT-Demo', {
+    vla: 'openarm-lift-act',
+    env: { account: '123456789012', region: 'ap-northeast-2' },
+  });
+  Template.fromStack(stack).hasResourceProperties('AWS::CloudFormation::CustomResource', {
+    AmiId: JUDGE_AMI_MAPPING['ap-northeast-2'],
   });
 });
 

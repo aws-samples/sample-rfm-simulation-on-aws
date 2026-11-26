@@ -46,7 +46,8 @@
 #   stock ActionStateRecorderManagerCfg (recorders_cfg.py):
 #       obs/<term>          — the `policy` obs group, term-by-term: arm_joint_pos(7), gripper_pos(1),
 #                             wrist(H,W,3 uint8), table(H,W,3 uint8)   [concatenate_terms=False]
-#       actions             — the 8-dim action fed to the env: [pos(3), quat_wxyz(4), gripper(1)]
+#       actions             — the 8-dim action fed to the env: [pos(3), quat_xyzw(4), gripper(1)]
+#                             (Isaac Lab 3.0 quaternion order; datasets collected on 2.3 hold quat_wxyz)
 #       processed_actions   — post-IK joint targets (not used by ACT; recorded for completeness)
 #       initial_state/states— full scene state (for exact replay; not used by ACT)
 #   Phase 1c (hdf5_to_lerobot.py) reads obs/<term> + actions and writes a LeRobotDataset.
@@ -62,7 +63,7 @@
 #        and `openarm_hand` differ by a real offset and `_TCP_OFFSET` is still [0,0,0], every grasp
 #        misses by that offset → near-zero success. Tune `_TCP_OFFSET` in the overlay first.
 #
-#   (C2) Grasp ORIENTATION. `desired_orientation = (w,x,y,z)=(0,1,0,0)` (180° about x) makes the
+#   (C2) Grasp ORIENTATION. `desired_orientation = (x,y,z,w)=(1,0,0,0)` (180° about x) makes the
 #        Franka panda_hand point straight down. Whether it points OpenArm's `openarm_hand`
 #        approach axis down depends on that link's frame convention. If grasps approach sideways,
 #        change `_DOWN_QUAT` below.
@@ -106,6 +107,10 @@ parser.add_argument(
     "when it builds the TiledCameras — so it MUST be set before the overlay is imported.",
 )
 AppLauncher.add_app_launcher_args(parser)
+# Isaac Lab 3.0 dropped the --headless launcher flag (it runs headless unless `--viz kit` is given); keep it as
+# an accepted no-op so the userdata command line works on 3.0 as it did on 2.x.
+if not any(action.dest == "headless" for action in parser._actions):
+    parser.add_argument("--headless", action="store_true", default=True, help="Accepted for 2.x compatibility.")
 args_cli = parser.parse_args()
 
 # Image observation terms need RTX cameras rendered → enable_cameras is MANDATORY (C4).
@@ -118,6 +123,8 @@ import os as _os  # noqa: E402  (local alias; os is re-imported below with the r
 
 _os.environ["OPENARM_CAM_RES"] = str(args_cli.cam_res)
 
+# AppLauncher is deprecated in Isaac Lab 3.0 (launch_simulation) but still starts Kit; kept so the import-order
+# contract above (launch before any isaaclab.envs import) stays as it is.
 app_launcher = AppLauncher(args_cli)
 simulation_app = app_launcher.app
 
@@ -126,22 +133,33 @@ simulation_app = app_launcher.app
 import gymnasium as gym
 import importlib
 import os
+import sys
 import torch
 from collections.abc import Sequence
 
 import warp as wp
 
-import omni.log
+try:
+    import omni.log
+except ImportError:  # not every Kit build exposes omni.log to Python; keep the same three calls on stderr
+    import types as _types
 
-from isaaclab.assets.rigid_object.rigid_object_data import RigidObjectData
+    def _stderr(level):
+        return lambda msg: print(f"[{level}] {msg}", file=sys.stderr, flush=True)
+
+    omni = _types.SimpleNamespace(log=_types.SimpleNamespace(info=_stderr("INFO"), warn=_stderr("WARN"),
+                                                             error=_stderr("ERROR")))
+
+from isaaclab.assets import RigidObjectData
 from isaaclab.envs.mdp.recorders.recorders_cfg import ActionStateRecorderManagerCfg
 from isaaclab.managers import DatasetExportMode
 
 import isaaclab_tasks  # noqa: F401  (registers the stock Isaac-* tasks)
 from isaaclab_tasks.utils.parse_cfg import parse_env_cfg
 
-# Grasp approach orientation (w, x, y, z): 180° about x → gripper points down (see C2).
-_DOWN_QUAT = (0.0, 1.0, 0.0, 0.0)
+# Grasp approach orientation (x, y, z, w) — Isaac Lab 3.0 order: 180° about x → gripper points down (see C2).
+# (Isaac Lab 2.x (w, x, y, z) spelling of the same rotation: (0, 1, 0, 0).)
+_DOWN_QUAT = (1.0, 0.0, 0.0, 0.0)
 
 # Root-cause diagnostic cadence (Phase 1b debug). Two consecutive GPU runs exported 0 demos even
 # though USD physics-layer reads confirm the TCP offset (ee_tcp_joint.localPos0=(0,0,0.093)) and the
@@ -158,8 +176,10 @@ wp.init()
 
 
 # ════════════════════════════════════════════════════════════════════════════════════════════════
-# State machine — copied VERBATIM from isaaclab scripts/environments/state_machine/lift_cube_sm.py.
+# State machine — copied from isaaclab scripts/environments/state_machine/lift_cube_sm.py.
 # It is end-effector-pose driven and entirely env-agnostic; nothing OpenArm-specific lives here.
+# Isaac Lab 3.0: poses are (x, y, z, w) natively, which is warp's wp.transform layout, so the 2.x
+# (w,x,y,z) <-> (x,y,z,w) shuffles around the kernel are gone (as in the 3.0 lift_cube_sm.py).
 # ════════════════════════════════════════════════════════════════════════════════════════════════
 class GripperState:
     """States for the gripper. Binary action: <0 → close, ≥0 → open (binary_joint_actions.py:137)."""
@@ -290,11 +310,7 @@ class PickAndLiftSm:
         self.sm_wait_time[env_ids] = 0.0
 
     def compute(self, ee_pose: torch.Tensor, object_pose: torch.Tensor, des_object_pose: torch.Tensor) -> torch.Tensor:
-        # (w,x,y,z) → (x,y,z,w) for warp transforms
-        ee_pose = ee_pose[:, [0, 1, 2, 4, 5, 6, 3]]
-        object_pose = object_pose[:, [0, 1, 2, 4, 5, 6, 3]]
-        des_object_pose = des_object_pose[:, [0, 1, 2, 4, 5, 6, 3]]
-
+        # poses are [pos(3), quat_xyzw(4)] = wp.transform layout (Isaac Lab 3.0)
         ee_pose_wp = wp.from_torch(ee_pose.contiguous(), wp.transform)
         object_pose_wp = wp.from_torch(object_pose.contiguous(), wp.transform)
         des_object_pose_wp = wp.from_torch(des_object_pose.contiguous(), wp.transform)
@@ -317,9 +333,7 @@ class PickAndLiftSm:
             device=self.device,
         )
 
-        # (x,y,z,w) → (w,x,y,z) back to Isaac Lab convention
-        des_ee_pose = self.des_ee_pose[:, [0, 1, 2, 6, 3, 4, 5]]
-        return torch.cat([des_ee_pose, self.des_gripper_state.unsqueeze(-1)], dim=-1)
+        return torch.cat([self.des_ee_pose, self.des_gripper_state.unsqueeze(-1)], dim=-1)
 
 
 # ════════════════════════════════════════════════════════════════════════════════════════════════
@@ -373,9 +387,9 @@ def main() -> None:
             "The SM emits 8 dims; mismatch means the IK/gripper action wiring differs from expectations."
         )
 
-    # action buffer: identity-rotation EE pose + open gripper to start (quat w at index 3)
+    # action buffer: identity-rotation EE pose + open gripper to start (quat (x, y, z, w): w at index 6)
     actions = torch.zeros(env.action_space.shape, device=env.device)
-    actions[:, 3] = 1.0
+    actions[:, 6] = 1.0
 
     # fixed downward grasp orientation, broadcast to all envs (see C2)
     desired_orientation = torch.zeros((env.num_envs, 4), device=env.device)
@@ -409,11 +423,12 @@ def main() -> None:
 
             # -- end-effector frame (target prim openarm_ee_tcp), env-relative position --
             ee_frame_sensor = env.scene["ee_frame"]
-            tcp_position = ee_frame_sensor.data.target_pos_w[..., 0, :].clone() - env.scene.env_origins
-            tcp_orientation = ee_frame_sensor.data.target_quat_w[..., 0, :].clone()
+            # Isaac Lab 3.0 .data.* = ProxyArray; .torch is the zero-copy torch view.
+            tcp_position = ee_frame_sensor.data.target_pos_w.torch[..., 0, :].clone() - env.scene.env_origins
+            tcp_orientation = ee_frame_sensor.data.target_quat_w.torch[..., 0, :].clone()
             # -- object frame --
             object_data: RigidObjectData = env.scene["object"].data
-            object_position = object_data.root_pos_w - env.scene.env_origins
+            object_position = object_data.root_pos_w.torch - env.scene.env_origins
             # -- goal position (object_pose command, env-relative) --
             desired_position = env.command_manager.get_command("object_pose")[..., :3]
 

@@ -1,7 +1,8 @@
-"""Isaac Lab rerender_on_reset: openarm-isaac re-renders its cameras on reset by default (eval.rerender_on_reset),
+"""Isaac Lab re-render on reset: openarm-isaac re-renders its cameras on reset by default (eval.rerender_on_reset,
+set as ManagerBasedEnvCfg.num_rerenders_on_reset on Isaac Lab 3.0),
 and the value is recorded next to num_envs in summary.txt, protocol.yaml and eval_info.json.
 
-Isaac Lab's ManagerBasedEnvCfg.rerender_on_reset defaults to False, which leaves the first camera frame of every
+Isaac Lab does not re-render on reset by default (num_rerenders_on_reset = 0), which leaves the first camera frame of every
 episode stale (the previous episode's last frame). The Isaac Sim parts cannot run here, so env.py / run_eval.py are
 checked on their source (AST), and the rendered userdata on its text.
 """
@@ -78,7 +79,8 @@ def test_env_py_sets_the_flag_before_gym_make():
     assert isinstance(default, ast.Constant) and default.value is True
     set_line = make_line = None
     for node in ast.walk(fn):
-        if isinstance(node, ast.Assign) and any(isinstance(t, ast.Attribute) and t.attr == "rerender_on_reset"
+        # Isaac Lab 3.0 name (the 2.x bool rerender_on_reset is deprecated there).
+        if isinstance(node, ast.Assign) and any(isinstance(t, ast.Attribute) and t.attr == "num_rerenders_on_reset"
                                                 and isinstance(t.value, ast.Name) and t.value.id == "env_cfg"
                                                 for t in node.targets):
             set_line = node.lineno
